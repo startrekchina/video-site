@@ -111,7 +111,7 @@ function Header({ work, primary }: { work: Work; primary: React.ReactNode }) {
       />
       <div className="screen-line-bottom grid grid-cols-[auto_1fr]">
         <figure className="group/poster relative border-r border-line p-2">
-          <Poster src={work.poster} alt={`${work.titleZh} 海报`} className="w-28 rounded-lg transition-[filter] duration-300 sm:w-40 pointer-fine:grayscale group-hover/poster:grayscale-0" fetchPriority="high" loading="eager" />
+          <Poster src={work.poster} alt={`${work.titleZh} 海报`} className="w-28 transition-[filter] duration-300 sm:w-40 pointer-fine:grayscale group-hover/poster:grayscale-0" fetchPriority="high" loading="eager" />
         </figure>
         <div className="flex min-w-0 flex-col">
           <p className="screen-line-bottom px-4 py-3 text-muted-foreground text-balance">{work.titleEn}</p>
@@ -210,31 +210,31 @@ function SeriesBody({ work }: { work: Work }) {
           </PanelTitle>
         </div>
       </PanelHeader>
-      <nav className="screen-line-bottom no-scrollbar flex scroll-fade-x overflow-x-auto" aria-label="选择季">
-        {work.seasons.map((s) => {
-          const w = watchedIn(s.number)
-          const active = s.number === season.number
-          return (
-            <button
-              key={s.number}
-              onClick={() => setParams({ season: String(s.number) }, { replace: true, preventScrollReset: true })}
-              aria-current={active ? "true" : undefined}
-              className={cn(
-                "group/season flex shrink-0 items-center gap-2.5 border-r border-line py-2 pr-4 pl-2 text-left text-muted-foreground transition-[color,background-color] ease-out outline-none hover:bg-accent-muted hover:text-foreground focus-visible:inset-ring-2 focus-visible:inset-ring-ring/50",
-                active && "bg-accent-muted text-foreground",
-              )}
-            >
-              <Poster src={s.poster} alt="" className={cn("w-8 rounded-sm transition-[filter] duration-300", !active && "pointer-fine:grayscale group-hover/season:grayscale-0")} />
-              <span className="flex flex-col">
+      {/* The hairline sits outside the scroller: its 200vw pseudo-element would otherwise widen the scroll range. */}
+      <div className="screen-line-bottom">
+        <nav className="no-scrollbar flex scroll-fade-x overflow-x-auto" aria-label="选择季">
+          {work.seasons.map((s) => {
+            const w = watchedIn(s.number)
+            const active = s.number === season.number
+            return (
+              <button
+                key={s.number}
+                onClick={() => setParams({ season: String(s.number) }, { replace: true, preventScrollReset: true })}
+                aria-current={active ? "true" : undefined}
+                className={cn(
+                  "flex shrink-0 flex-col border-r border-line px-4 py-2 text-left text-muted-foreground transition-[color,background-color] ease-out outline-none hover:bg-accent-muted hover:text-foreground focus-visible:inset-ring-2 focus-visible:inset-ring-ring/50",
+                  active && "bg-accent-muted text-foreground",
+                )}
+              >
                 <span className="font-mono text-[.8125rem]/4 font-medium tracking-wide">S{String(s.number).padStart(2, "0")}</span>
                 <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
                   {w}/{s.episodes.length}
                 </span>
-              </span>
-            </button>
-          )
-        })}
-      </nav>
+              </button>
+            )
+          })}
+        </nav>
+      </div>
       <ol className="divide-y divide-line">
         {season.episodes.map((ep) => (
           <EpisodeRow key={ep.id} ep={ep} />

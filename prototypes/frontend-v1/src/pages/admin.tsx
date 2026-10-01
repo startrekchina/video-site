@@ -336,7 +336,7 @@ export function AdminPage() {
   const members = useStore((s) => s.members)
   const invites = useStore((s) => s.invites)
   return (
-    <Page>
+    <Page narrow>
       <PageHeading>
         <PageHeadingTagline>管理后台</PageHeadingTagline>
         <PageHeadingTitle>成员、邀请码和邀请链。</PageHeadingTitle>

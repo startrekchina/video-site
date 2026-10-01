@@ -130,6 +130,34 @@
   }
 }
 
+/* Poster corners scale with width (7%, clamped to 4–12px). Only for 2:3 boxes: the vertical
+   radius resolves against height, so it is divided by 1.5 to keep the corners circular. */
+@utility rounded-poster {
+  border-radius: clamp(4px, 7%, 12px) / clamp(4px, calc(7% / 1.5), 12px);
+}
+
+/* Column width shared by header, page and footer (applied from md up via md:max-w-(--content-width)).
+   Media pages use the wide column; pages that mark their column data-width="narrow" get the
+   reading column. Registered so the layout root can transition it and every column, including a
+   page that has just mounted, follows the same interpolated value and the rules stay aligned. */
+@property --content-width {
+  syntax: "<length>";
+  inherits: true;
+  /* Must be computationally independent: rem here would invalidate the whole registration. */
+  initial-value: 1152px;
+}
+
+@utility content-frame {
+  --content-width: 72rem;
+  transition: --content-width 320ms cubic-bezier(0.2, 0, 0, 1);
+  &:has([data-width="narrow"]) {
+    --content-width: 48rem;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);
@@ -160,6 +188,8 @@
   --selection: oklch(0.141 0.005 285.823);
   --selection-foreground: oklch(0.985 0 0);
 
+  /* Same as --radius-lg (control corners); shadcn components derive smaller corners from it. */
+  --radius: 0.5rem;
   --header-height: --spacing(14);
   --fade-bottom-height: --spacing(24);
 }

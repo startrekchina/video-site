@@ -3,7 +3,7 @@ import { ArrowDownWideNarrowIcon, ArrowUpNarrowWideIcon, ChartNoAxesGanttIcon, L
 import { NavLink } from "react-router"
 
 import { MOVIES, SERIES, type WorkKind } from "@/data/catalog"
-import { PageHeading, PageHeadingTagline, PageHeadingTitle, PageWide } from "@/components/site/panel"
+import { Page, PageHeading, PageHeadingTagline, PageHeadingTitle } from "@/components/site/panel"
 import { WorkGrid } from "@/components/site/media"
 import { WorksTimeline } from "@/components/site/works-timeline"
 import { Button } from "@/components/ui/button"
@@ -29,7 +29,7 @@ export function BrowsePage({ kind }: { kind: WorkKind }) {
     .sort((a, b) => (desc ? b.year - a.year : a.year - b.year))
 
   return (
-    <PageWide>
+    <Page>
       <PageHeading>
         <PageHeadingTagline>{kind === "series" ? "剧集" : "电影"}</PageHeadingTagline>
         <PageHeadingTitle>
@@ -96,8 +96,8 @@ export function BrowsePage({ kind }: { kind: WorkKind }) {
       ) : view === "timeline" ? (
         <WorksTimeline key={`${kind}-${desc}`} works={works} sweep={!desc} className="mt-4" />
       ) : (
-        <WorkGrid works={works} wide eager={6} />
+        <WorkGrid works={works} eager={6} />
       )}
-    </PageWide>
+    </Page>
   )
 }

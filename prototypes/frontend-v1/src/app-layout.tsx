@@ -39,7 +39,7 @@ function Providers({ children }: { children: React.ReactNode }) {
 export function AppLayout() {
   return (
     <Providers>
-      <div className="group/layout relative isolate">
+      <div className="group/layout relative isolate content-frame">
         <ScrollToTop />
         <SiteHeader />
         <main className="max-w-screen overflow-x-clip px-2">
@@ -60,11 +60,11 @@ export function AppLayout() {
 export function AuthLayout() {
   return (
     <Providers>
-      <div className="group/layout relative isolate flex min-h-svh flex-col">
+      <div className="group/layout relative isolate flex min-h-svh flex-col content-frame">
         <ScrollToTop />
         <SiteHeader />
         <main className="flex max-w-screen flex-1 flex-col overflow-x-clip px-2">
-          <div className="mx-auto flex w-full flex-1 flex-col border-x md:max-w-3xl">
+          <div data-width="narrow" className="mx-auto flex w-full flex-1 flex-col border-x md:max-w-(--content-width)">
             <Outlet />
           </div>
         </main>

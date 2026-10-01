@@ -34,7 +34,7 @@ export function InvitesPage() {
   const link = (code: string) => `https://video.startrekchina.org/register?code=${code}`
 
   return (
-    <Page>
+    <Page narrow>
       <PageHeading>
         <PageHeadingTagline>邀请</PageHeadingTagline>
         <PageHeadingTitle>把档案馆分享给信得过的朋友。</PageHeadingTitle>

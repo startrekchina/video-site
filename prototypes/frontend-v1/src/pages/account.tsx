@@ -164,7 +164,7 @@ export function AccountPage() {
   const active = useActiveSection(SECTIONS.map((s) => s.href.slice(1)))
 
   return (
-    <Page className="relative">
+    <Page narrow className="relative">
       <aside className="absolute inset-y-0 left-full hidden pl-8 xl:block" aria-label="本页导航">
         <div className="sticky top-24">
           <LineNav

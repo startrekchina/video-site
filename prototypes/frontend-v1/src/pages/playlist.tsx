@@ -39,7 +39,7 @@ export function PlaylistRow({ playlist: p }: { playlist: Playlist }) {
         {posters.length === 0 && <div className="size-full rounded border border-dashed" />}
         {posters.map((src, i) => (
           <div key={i} className="absolute top-0 w-11" style={{ left: i * 10, zIndex: 4 - i }}>
-            <Poster src={src} alt="" className="rounded-sm shadow-sm" />
+            <Poster src={src} alt="" className="shadow-sm" />
           </div>
         ))}
       </div>
@@ -159,7 +159,7 @@ export function PlaylistPage() {
                 <SwipeContent className="relative flex items-center transition-[background-color] ease-out hover:bg-accent-muted">
                   <span className="w-12 shrink-0 text-center font-mono text-xs text-muted-foreground tabular-nums">{String(i + 1).padStart(2, "0")}</span>
                   <div className="flex min-w-0 flex-1 items-center gap-3 border-l border-dashed border-line py-3 pr-2 pl-3">
-                    <Poster src={it.poster} alt="" className="w-9 shrink-0 rounded-sm" />
+                    <Poster src={it.poster} alt="" className="w-9 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <div className="font-mono text-xs text-muted-foreground">{it.kicker}</div>
                       <Link to={it.href} draggable={false} className="block truncate font-medium after:absolute after:inset-0">

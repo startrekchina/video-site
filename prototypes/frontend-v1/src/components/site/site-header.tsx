@@ -2,6 +2,7 @@ import { KeyRoundIcon, LogOutIcon, MoonStarIcon, ShieldIcon, SunMediumIcon, Tick
 import { Link, NavLink, useNavigate } from "react-router"
 
 import { actions, useStore } from "@/data/store"
+import { useHeaderTone } from "@/lib/header-tone"
 import { useHotkey } from "@/lib/hotkeys"
 import { toggleTheme, useTheme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
@@ -117,9 +118,24 @@ function UserMenu() {
 
 export function SiteHeader() {
   const me = useStore((s) => s.me)
+  const tone = useHeaderTone()
   return (
-    <header className="sticky top-0 z-50 max-w-screen overflow-x-clip bg-background px-2">
-      <div className="screen-line-top screen-line-bottom mx-auto flex h-(--header-height) items-center gap-2 border-x pr-2 pl-4 group-has-data-[slot=layout-wide]/layout:container after:z-1 sm:gap-4 md:max-w-3xl">
+    <header
+      className={cn(
+        "sticky top-0 z-50 max-w-screen overflow-x-clip bg-background px-2 text-foreground",
+        // Over a dark stage: scope dark tokens to the header; --line is resolved at :root, so override it here.
+        tone !== "default" && "dark [--line:rgb(255_255_255/0.1)]",
+        tone === "stage-top" && "bg-transparent",
+        tone === "stage" && "bg-background/70 backdrop-blur-md",
+      )}
+    >
+      <div
+        className={cn(
+          "screen-line-top screen-line-bottom mx-auto flex h-(--header-height) items-center gap-2 border-x pr-2 pl-4 after:z-1 sm:gap-4 md:max-w-(--content-width)",
+          // Match the stage's translucent frame; the dark --border is opaque and shows against the backdrop glow.
+          tone !== "default" && "border-white/10",
+        )}
+      >
         <Link to={me ? "/" : "/login"} aria-label="首页">
           <SiteMark className="max-sm:hidden" />
           <SiteMark className="sm:hidden" compact />

@@ -20,7 +20,7 @@ function Field({ label, className, children }: { label: string; className?: stri
 export function SiteFooter({ minimal }: { minimal?: boolean }) {
   return (
     <footer className="max-w-screen overflow-x-clip px-2">
-      <div className="mx-auto border-x group-has-data-[slot=layout-wide]/layout:container md:max-w-3xl">
+      <div className="mx-auto border-x md:max-w-(--content-width)">
         <div className="screen-line-top screen-line-bottom before:z-1">
           <div className="stripe-divider h-12" />
         </div>

@@ -50,7 +50,7 @@ function NextUp({ next, onCancel }: { next: Unit; onCancel: () => void }) {
   if (next.kind !== "episode") return null
   return (
     <div className="pointer-events-auto absolute right-3 bottom-16 flex w-[min(22rem,calc(100%-1.5rem))] gap-3 rounded-xl bg-zinc-950/85 p-3 text-white shadow-xl ring-1 ring-white/15 backdrop-blur-md">
-      <Poster src={unitPoster(next)} alt="" className="w-14 shrink-0 rounded" />
+      <Poster src={unitPoster(next)} alt="" className="w-14 shrink-0" />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="min-w-0">
           <div className="font-mono text-[11px] text-white/60">
@@ -182,7 +182,8 @@ export function WatchPage() {
       />
       <div className="h-4" />
       <div className="screen-line-top screen-line-bottom bg-black">
-        <div className="relative aspect-video w-full">
+        {/* Height-capped so the controls stay above the fold: 15rem is the header and title block above the player. */}
+        <div className="relative mx-auto aspect-video w-full max-w-[max(40rem,calc((100svh-15rem)*16/9))]">
           <TokenGate key={unit.id}>
             <Player
               unitKey={unit.id}

@@ -81,14 +81,12 @@ export function Separator({ className }: { className?: string }) {
   return <div className={cn("stripe-divider h-8 w-full border-x", className)} aria-hidden />
 }
 
-/** Standard page column: 3xl wide, matching header and footer. */
-export function Page({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={cn("mx-auto border-x pt-12 md:max-w-3xl", className)} {...props} />
-}
-
-/** Wide page column; header and footer widen with it (the reference's blocks layout). */
-export function PageWide({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="layout-wide" className={cn("container mx-auto border-x pt-12", className)} {...props} />
+/**
+ * Page column, matching header and footer. Media pages use the wide column by default;
+ * `narrow` gives settings and reading pages the 3xl column, and the frame animates between them.
+ */
+export function Page({ className, narrow, ...props }: React.ComponentProps<"div"> & { narrow?: boolean }) {
+  return <div data-width={narrow ? "narrow" : undefined} className={cn("mx-auto border-x pt-12 md:max-w-(--content-width)", className)} {...props} />
 }
 
 export function PageHeading({ className, children, ...props }: React.ComponentProps<"div">) {
