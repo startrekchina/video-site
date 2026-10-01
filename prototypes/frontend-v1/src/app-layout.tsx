@@ -36,7 +36,9 @@ function Providers({ children }: { children: React.ReactNode }) {
   )
 }
 
+/** Hosts member pages and the public pages (guest home, about); guests get no search or catalogue stats. */
 export function AppLayout() {
+  const me = useStore((s) => s.me)
   return (
     <Providers>
       <div className="group/layout relative isolate content-frame">
@@ -45,18 +47,18 @@ export function AppLayout() {
         <main className="max-w-screen overflow-x-clip px-2">
           <Outlet />
         </main>
-        <SiteFooter />
+        <SiteFooter minimal={!me} />
         <FadeBottom />
         <BottomNav />
         <ScrollToTopButton />
-        <CommandMenu />
+        {me && <CommandMenu />}
         <ProtoConsole />
       </div>
     </Providers>
   )
 }
 
-/** Guest pages: only login/register/recovery are reachable before sign-in (requirement 5.1/1). */
+/** Sign-in flow pages: login, register, recovery, reset. */
 export function AuthLayout() {
   return (
     <Providers>
@@ -80,6 +82,11 @@ export function RequireMember() {
   const { pathname } = useLocation()
   if (!me) return <Navigate to={`/login?next=${encodeURIComponent(pathname)}`} replace />
   return <Outlet />
+}
+
+export function HomeGate({ member, guest }: { member: React.ReactNode; guest: React.ReactNode }) {
+  const me = useStore((s) => s.me)
+  return me ? member : guest
 }
 
 export function RequireGuest() {

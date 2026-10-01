@@ -1,5 +1,5 @@
 import { KeyRoundIcon, LogOutIcon, MoonStarIcon, ShieldIcon, SunMediumIcon, TicketIcon, UserIcon } from "lucide-react"
-import { Link, NavLink, useNavigate } from "react-router"
+import { Link, NavLink, useLocation, useNavigate } from "react-router"
 
 import { actions, useStore } from "@/data/store"
 import { useHeaderTone } from "@/lib/header-tone"
@@ -20,6 +20,11 @@ export const MAIN_NAV = [
   { to: "/series", label: "剧集" },
   { to: "/movies", label: "电影" },
   { to: "/library", label: "我的片库" },
+]
+
+const GUEST_NAV = [
+  { to: "/", label: "首页", end: true },
+  { to: "/about", label: "关于" },
 ]
 
 export function NavItem({ to, label, end, className }: { to: string; label: string; end?: boolean; className?: string }) {
@@ -119,6 +124,7 @@ function UserMenu() {
 export function SiteHeader() {
   const me = useStore((s) => s.me)
   const tone = useHeaderTone()
+  const { pathname } = useLocation()
   return (
     <header
       className={cn(
@@ -136,24 +142,30 @@ export function SiteHeader() {
           tone !== "default" && "border-white/10",
         )}
       >
-        <Link to={me ? "/" : "/login"} aria-label="首页">
+        <Link to="/" aria-label="首页">
           <SiteMark className="max-sm:hidden" />
           <SiteMark className="sm:hidden" compact />
         </Link>
 
         <div className="flex-1" />
 
-        {me && (
+        {me ? (
           <nav className="flex items-center gap-4 max-sm:hidden">
             {MAIN_NAV.map((n) => (
               <NavItem key={n.to} {...n} />
             ))}
             {me.role === "admin" && <NavItem to="/admin" label="管理" />}
           </nav>
+        ) : (
+          <nav className="flex items-center gap-4">
+            {GUEST_NAV.map((n) => (
+              <NavItem key={n.to} {...n} />
+            ))}
+          </nav>
         )}
 
         <div className="flex items-center">
-          {me && (
+          {me ? (
             <>
               <Separator orientation="vertical" className="mr-2 max-sm:hidden data-vertical:h-5 data-vertical:self-center" />
               <CommandMenuTrigger className="max-sm:hidden" />
@@ -161,6 +173,16 @@ export function SiteHeader() {
               <UserMenu />
               <Separator orientation="vertical" className="mx-2 data-vertical:h-5 data-vertical:self-center" />
             </>
+          ) : (
+            pathname !== "/login" && (
+              <>
+                <Separator orientation="vertical" className="mr-2 data-vertical:h-5 data-vertical:self-center" />
+                <Button variant="secondary" size="sm" className="shadow-[inset_0_0_1px] shadow-foreground/20" nativeButton={false} render={<Link to="/login" />}>
+                  登录
+                </Button>
+                <Separator orientation="vertical" className="mx-2 data-vertical:h-5 data-vertical:self-center" />
+              </>
+            )
           )}
           <ThemeToggle />
         </div>

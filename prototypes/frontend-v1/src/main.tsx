@@ -6,10 +6,12 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { createBrowserRouter, RouterProvider } from "react-router"
 
-import { AppLayout, AuthLayout, RequireGuest, RequireMember, RequireAdmin } from "@/app-layout"
+import { AppLayout, AuthLayout, HomeGate, RequireGuest, RequireMember, RequireAdmin } from "@/app-layout"
+import { AboutPage } from "@/pages/about"
 import { AccountPage } from "@/pages/account"
 import { AdminPage } from "@/pages/admin"
 import { BrowsePage } from "@/pages/browse"
+import { GuestHomePage } from "@/pages/guest-home"
 import { HomePage } from "@/pages/home"
 import { InvitesPage } from "@/pages/invites"
 import { LibraryPage } from "@/pages/library"
@@ -40,10 +42,12 @@ const router = createBrowserRouter([
   {
     element: <AppLayout />,
     children: [
+      // Public: members see their home, guests the landing page. Requirement 5.1/1 needs updating if this stays.
+      { path: "/", element: <HomeGate member={<HomePage />} guest={<GuestHomePage />} /> },
+      { path: "/about", element: <AboutPage /> },
       {
         element: <RequireMember />,
         children: [
-          { path: "/", element: <HomePage /> },
           { path: "/series", element: <BrowsePage kind="series" /> },
           { path: "/movies", element: <BrowsePage kind="movie" /> },
           { path: "/title/:slug", element: <TitlePage /> },

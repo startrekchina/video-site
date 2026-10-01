@@ -6,13 +6,17 @@ import { actions, useStore, type Scenario } from "@/data/store"
 import { cn } from "@/lib/utils"
 
 const SCENARIOS: { key: Scenario; label: string; home: string }[] = [
-  { key: "guest", label: "访客（未登录）", home: "/login" },
+  { key: "guest", label: "访客（未登录）", home: "/" },
   { key: "new-member", label: "新成员（空数据）", home: "/" },
   { key: "member", label: "成员 picard_fan", home: "/" },
   { key: "admin", label: "管理员 station_keeper", home: "/admin" },
 ]
 
 const PAGES: { to: string; label: string }[] = [
+  { to: "/?variant=a", label: "访客首页 A 舱门" },
+  { to: "/?variant=b", label: "访客首页 B 登舰指南" },
+  { to: "/?variant=c", label: "访客首页 C 站长来信" },
+  { to: "/about", label: "关于" },
   { to: "/login", label: "登录" },
   { to: "/register?code=Q-CONT-INUM-01", label: "注册（有效码）" },
   { to: "/register?code=BORG-X0X0-7777", label: "注册（过期码）" },
