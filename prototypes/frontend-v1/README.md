@@ -15,7 +15,7 @@
 ```bash
 cd prototypes/frontend-v1
 pnpm install
-pnpm dev          # http://127.0.0.1:5178
+pnpm dev          # http://localhost:6120（监听 0.0.0.0，局域网可访问）
 ```
 
 `pnpm build` 会先做类型检查再打包。测试视频 `src/media/test-clip.mp4` 是用 ffmpeg 生成的 60 秒测试图（H.264 + AAC，faststart），不提交到 git；字幕 VTT 已提交。所有单集和电影都播放同一段测试片段。

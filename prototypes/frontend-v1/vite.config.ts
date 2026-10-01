@@ -12,6 +12,6 @@ export default defineConfig({
   resolve: {
     alias: { "@": path.resolve(root, "src") },
   },
-  server: { port: 5178, fs: { allow: [path.resolve(root, "../..")] } },
-  preview: { port: 5178 },
+  server: { port: 6120, host: true, strictPort: true, fs: { allow: [path.resolve(root, "../..")] } },
+  preview: { port: 6120, host: true },
 })
