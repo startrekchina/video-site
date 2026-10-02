@@ -1,3 +1,4 @@
+import "@fontsource-variable/antonio"
 import "@fontsource-variable/geist-mono"
 import "@fontsource-variable/noto-sans-sc"
 import "@/styles/globals.css"

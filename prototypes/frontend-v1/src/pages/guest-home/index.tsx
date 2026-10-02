@@ -1,14 +1,14 @@
 import { VariantSwitcher, useVariant, type Variant } from "@/components/site/variant-switcher"
 
-import { GuestGate } from "./gate"
 import { GuestGuide } from "./guide"
 import { GuestLetter } from "./letter"
+import { GuestStarChart } from "./star-chart"
 
 // Prototype: three guest landing pages for "/", switchable via ?variant=a|b|c on the same route.
 // None of them shows posters or lists the catalogue.
 
 const VARIANTS: (Variant & { Component: () => React.ReactNode })[] = [
-  { key: "a", name: "舱门", Component: GuestGate },
+  { key: "a", name: "星图", Component: GuestStarChart },
   { key: "b", name: "登舰指南", Component: GuestGuide },
   { key: "c", name: "站长来信", Component: GuestLetter },
 ]

@@ -1,9 +1,9 @@
-import { type RefObject, useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { PlayIcon } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 
 import { episodeCode, formatRuntime } from "@/data/catalog"
-import { setHeaderTone } from "@/lib/header-tone"
+import { useStageHeader } from "@/lib/header-tone"
 import { Poster } from "@/components/site/media"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -66,27 +66,6 @@ function useStages(): { stages: Stage[]; label: string } {
       secondary: { label: "作品详情", to: `/title/${work.slug}` },
     })),
   }
-}
-
-/** Keeps the sticky header transparent while it sits over the stage, with a scrim once scrolled. */
-function useStageHeader(ref: RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    const update = () => {
-      const el = ref.current
-      if (!el) return
-      const headerHeight = document.querySelector("header")?.offsetHeight ?? 56
-      if (el.getBoundingClientRect().bottom <= headerHeight) setHeaderTone("default")
-      else setHeaderTone(window.scrollY < 8 ? "stage-top" : "stage")
-    }
-    update()
-    window.addEventListener("scroll", update, { passive: true })
-    window.addEventListener("resize", update)
-    return () => {
-      window.removeEventListener("scroll", update)
-      window.removeEventListener("resize", update)
-      setHeaderTone("default")
-    }
-  }, [ref])
 }
 
 export function HeroTheatre() {

@@ -40,6 +40,8 @@
   --font-sans: "Noto Sans SC Variable", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", "Noto Sans SC Variable", "Noto Sans SC", ui-monospace, Menlo, Consolas, monospace;
   --font-heading: var(--font-sans);
+  /* Condensed LCARS-style face for Latin display labels; CJK falls back to the sans stack. */
+  --font-display: "Antonio Variable", var(--font-sans);
 
   --default-mono-font-feature-settings: "ss11" 1, "zero" 1, "tnum" 1;
 

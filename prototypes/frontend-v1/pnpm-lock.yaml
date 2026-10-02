@@ -11,6 +11,9 @@ importers:
       '@base-ui/react':
         specifier: 1.8.0
         version: 1.8.0(@types/react@19.3.0)(date-fns@4.4.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@fontsource-variable/antonio':
+        specifier: 5.3.0
+        version: 5.3.0
       '@fontsource-variable/geist-mono':
         specifier: 5.3.0
         version: 5.3.0
@@ -265,6 +268,9 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
+
+  '@fontsource-variable/antonio@5.3.0':
+    resolution: {integrity: sha512-FQ9cRyhAHuHqeDbCh7bMeSy6Wf0mtO9BaxI1Zq9q3asJzE+4A405m7tV0ADHraVyqxUnYc5sOusH26sNzvQlRw==}
 
   '@fontsource-variable/geist-mono@5.3.0':
     resolution: {integrity: sha512-vBbuwDEo9AkrqADMXOrlAR3DFcJi4/JxeuU43FoiQERnNwsfXNnvxvReZG02cQKmyk4DZkZdBZX3oTDvy2zBAw==}
@@ -2427,6 +2433,8 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
 
   '@floating-ui/utils@0.2.12': {}
+
+  '@fontsource-variable/antonio@5.3.0': {}
 
   '@fontsource-variable/geist-mono@5.3.0': {}
 

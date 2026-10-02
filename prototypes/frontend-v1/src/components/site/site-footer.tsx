@@ -60,9 +60,12 @@ export function SiteFooter({ minimal }: { minimal?: boolean }) {
           <Link to="/" className="mr-auto transition-[color] hover:text-foreground" aria-label="首页">
             <SiteMark compact />
           </Link>
-          <Link to="/about" className="text-sm transition-[color] hover:text-foreground">
-            关于
-          </Link>
+          {/* Guests already reach /about from the header nav; members have no about nav, so they keep it. */}
+          {!minimal && (
+            <Link to="/about" className="text-sm transition-[color] hover:text-foreground">
+              关于
+            </Link>
+          )}
           <span className="font-mono text-xs max-sm:hidden">原型 · proto/frontend-v1</span>
           <ThemeSwitcher />
         </div>
