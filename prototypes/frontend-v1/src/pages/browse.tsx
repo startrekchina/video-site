@@ -3,7 +3,7 @@ import { ArrowDownWideNarrowIcon, ArrowUpNarrowWideIcon, ChartNoAxesGanttIcon, L
 import { NavLink } from "react-router"
 
 import { MOVIES, SERIES, type WorkKind } from "@/data/catalog"
-import { Page, PageHeading, PageHeadingTagline, PageHeadingTitle } from "@/components/site/panel"
+import { HeadingGap, Page, PageHeading, PageHeadingTagline, PageHeadingTitle } from "@/components/site/panel"
 import { WorkGrid } from "@/components/site/media"
 import { WorksTimeline } from "@/components/site/works-timeline"
 import { Button } from "@/components/ui/button"
@@ -37,8 +37,7 @@ export function BrowsePage({ kind }: { kind: WorkKind }) {
         </PageHeadingTitle>
       </PageHeading>
 
-      <div className="h-4" />
-      <div className="screen-line-bottom h-px" />
+      <HeadingGap />
 
       <div className="flex items-center justify-between">
         <nav className="flex items-center whitespace-nowrap" aria-label="分类">

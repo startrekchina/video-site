@@ -199,7 +199,6 @@ export function AccountPage() {
         </PageHeadingDescription>
       </PageHeading>
       <div className="h-4" />
-      <Separator />
 
       <Panel id="methods" className="scroll-mt-16">
         <PanelHeader>

@@ -32,15 +32,12 @@ const KEPT = [
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
-    <>
-      <Separator />
-      <Panel id={id} className="scroll-mt-16">
-        <PanelHeader>
-          <PanelTitle>{title}</PanelTitle>
-        </PanelHeader>
-        {children}
-      </Panel>
-    </>
+    <Panel id={id} className="scroll-mt-16">
+      <PanelHeader>
+        <PanelTitle>{title}</PanelTitle>
+      </PanelHeader>
+      {children}
+    </Panel>
   )
 }
 
@@ -95,6 +92,8 @@ export function AboutPage() {
         </Prose>
       </Section>
 
+      <Separator />
+
       <Section id="join" title="怎么加入">
         <Prose>
           <p>
@@ -112,6 +111,8 @@ export function AboutPage() {
         )}
       </Section>
 
+      <Separator />
+
       <Section id="rules" title="成员守则">
         <ol className="divide-y divide-line">
           {[
@@ -128,6 +129,8 @@ export function AboutPage() {
         </ol>
       </Section>
 
+      <Separator />
+
       <Section id="privacy" title="隐私与数据">
         <dl className="divide-y divide-line">
           {KEPT.map((k) => (
@@ -141,6 +144,8 @@ export function AboutPage() {
           我们<strong>不收集</strong>邮箱、手机号和真实姓名，不使用第三方统计或广告。连续输错密码时会弹出 Cloudflare Turnstile 人机验证。数据库每天加密备份。
         </p>
       </Section>
+
+      <Separator />
 
       <Section id="recovery" title="找回账号">
         <ol className="divide-y divide-line">
@@ -160,6 +165,8 @@ export function AboutPage() {
         </ol>
       </Section>
 
+      <Separator />
+
       <Section id="copyright" title="版权说明">
         <Prose>
           <p>《星际迷航》（Star Trek）及相关名称、标识和海报的版权归 Paramount 及原权利人所有。本站是粉丝自行维护的非公开站点，与 Paramount 没有任何关联。</p>
@@ -169,6 +176,8 @@ export function AboutPage() {
           </p>
         </Prose>
       </Section>
+
+      <Separator />
 
       <Section id="colophon" title="技术说明">
         <dl className="grid grid-cols-2 gap-px bg-line font-mono">
