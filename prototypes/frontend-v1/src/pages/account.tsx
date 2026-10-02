@@ -265,7 +265,6 @@ export function AccountPage() {
           </PanelTitle>
           <StatusButton
             size="sm"
-            className="mb-1.5"
             successLabel="已添加"
             onClick={async () => {
               await fakeLatency(900)
@@ -304,7 +303,7 @@ export function AccountPage() {
             登录会话<PanelTitleSup>({sessions.length})</PanelTitleSup>
           </PanelTitle>
           {sessions.length > 1 && (
-            <Button variant="outline" size="sm" className="mb-1.5" onClick={() => actions.revokeOtherSessions()}>
+            <Button variant="outline" size="sm" onClick={() => actions.revokeOtherSessions()}>
               退出其他会话
             </Button>
           )}

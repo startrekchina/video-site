@@ -113,7 +113,7 @@ export function LibraryPage() {
           <PanelTitle>
             我的片单<PanelTitleSup>({mine.length})</PanelTitleSup>
           </PanelTitle>
-          <div className="mb-1.5 flex gap-2">
+          <div className="flex gap-2">
             <Button size="sm" onClick={() => setCreating(true)}>
               <PlusIcon data-icon="inline-start" />
               新建

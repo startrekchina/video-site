@@ -21,7 +21,7 @@ export function PanelHeader({ className, ...props }: React.ComponentProps<"heade
   return (
     <header
       data-slot="panel-header"
-      className={cn("screen-line-bottom flex items-end justify-between gap-4 px-4", className)}
+      className={cn("screen-line-bottom flex items-center justify-between gap-4 px-4", className)}
       {...props}
     />
   )
