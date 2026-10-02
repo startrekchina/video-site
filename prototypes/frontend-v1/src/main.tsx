@@ -13,7 +13,6 @@ import { AccountPage } from "@/pages/account"
 import { AdminPage } from "@/pages/admin"
 import { BrowsePage } from "@/pages/browse"
 import { GuestStarChart } from "@/pages/guest-home/star-chart"
-import { HeroStudiesPage } from "@/pages/hero-studies"
 import { HomePage } from "@/pages/home"
 import { InvitesPage } from "@/pages/invites"
 import { LibraryPage } from "@/pages/library"
@@ -46,7 +45,6 @@ const router = createBrowserRouter([
     children: [
       // Public: members see their home, guests the landing page. Requirement 5.1/1 needs updating if this stays.
       { path: "/", element: <HomeGate member={<HomePage />} guest={<GuestStarChart />} /> },
-      { path: "/hero-studies", element: <HeroStudiesPage /> },
       { path: "/about", element: <AboutPage /> },
       {
         element: <RequireMember />,
