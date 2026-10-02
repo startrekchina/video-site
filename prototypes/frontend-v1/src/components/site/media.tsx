@@ -31,7 +31,7 @@ export function ProgressBar({ value, className }: { value: number; className?: s
 
 export function WatchedBadge({ className }: { className?: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full border bg-zinc-50 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground dark:bg-zinc-900", className)}>
+    <span className={cn("inline-flex items-center gap-1 rounded-full border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground", className)}>
       <CheckIcon className="size-3 text-success" />
       已看完
     </span>
@@ -53,7 +53,7 @@ export function WorkTile({ work, className, loading }: { work: Work; className?:
           className="transition-[filter] duration-300 ease-[cubic-bezier(0.42,0,0.58,1)] pointer-fine:grayscale group-hover/tile:grayscale-0 group-has-focus-visible/tile:grayscale-0"
         />
         {work.code && (
-          <span className="absolute top-2 left-2 rounded-md bg-black/65 px-1.5 py-0.5 font-mono text-[10px]/none tracking-wider text-white backdrop-blur-sm">
+          <span className="absolute top-2 left-2 rounded-md bg-zinc-950/65 px-1.5 py-0.5 font-mono text-[10px]/none tracking-wider text-white backdrop-blur-sm">
             {work.code}
           </span>
         )}

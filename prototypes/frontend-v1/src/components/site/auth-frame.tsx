@@ -26,7 +26,7 @@ export function TurnstileStub({ onVerify, verified }: { onVerify: () => void; ve
     <button
       type="button"
       onClick={onVerify}
-      className="flex h-16 w-full items-center gap-3 rounded-lg border bg-zinc-50 px-4 text-left text-sm dark:bg-zinc-900"
+      className="flex h-16 w-full items-center gap-3 rounded-lg border bg-muted px-4 text-left text-sm"
       aria-pressed={verified}
     >
       <span className={`flex size-6 items-center justify-center rounded border-2 ${verified ? "border-success bg-success text-white" : "border-muted-foreground/40 bg-background"}`}>

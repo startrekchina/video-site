@@ -98,7 +98,7 @@ function ResetLinkDialog({ member, onClose }: { member: Member; onClose: () => v
           </DialogTitle>
           <DialogDescription>一次性有效，24 小时后过期。请通过站外渠道（私信）发给本人，不要公开发布。</DialogDescription>
         </DialogHeader>
-        <div className="flex min-w-0 items-center gap-1 rounded-lg border bg-zinc-50 p-1 pl-3 dark:bg-zinc-900">
+        <div className="flex min-w-0 items-center gap-1 rounded-lg border bg-muted p-1 pl-3">
           <MiddleTruncation className="min-w-0 flex-1 font-mono text-xs" end={8}>{url}</MiddleTruncation>
           <CopyButton variant="ghost" size="icon-sm" text={url} aria-label="复制链接" />
         </div>

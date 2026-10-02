@@ -167,20 +167,20 @@ export function SiteHeader() {
         <div className="flex items-center">
           {me ? (
             <>
-              <Separator orientation="vertical" className="mr-2 max-sm:hidden data-vertical:h-5 data-vertical:self-center" />
+              <Separator orientation="vertical" className="bg-line mr-2 max-sm:hidden data-vertical:h-5 data-vertical:self-center" />
               <CommandMenuTrigger className="max-sm:hidden" />
-              <Separator orientation="vertical" className="mx-2 max-sm:hidden data-vertical:h-5 data-vertical:self-center" />
+              <Separator orientation="vertical" className="bg-line mx-2 max-sm:hidden data-vertical:h-5 data-vertical:self-center" />
               <UserMenu />
-              <Separator orientation="vertical" className="mx-2 data-vertical:h-5 data-vertical:self-center" />
+              <Separator orientation="vertical" className="bg-line mx-2 data-vertical:h-5 data-vertical:self-center" />
             </>
           ) : (
             pathname !== "/login" && (
               <>
-                <Separator orientation="vertical" className="mr-2 data-vertical:h-5 data-vertical:self-center" />
+                <Separator orientation="vertical" className="bg-line mr-2 data-vertical:h-5 data-vertical:self-center" />
                 <Button variant="secondary" size="sm" className="shadow-[inset_0_0_1px] shadow-foreground/20" nativeButton={false} render={<Link to="/login" />}>
                   登录
                 </Button>
-                <Separator orientation="vertical" className="mx-2 data-vertical:h-5 data-vertical:self-center" />
+                <Separator orientation="vertical" className="bg-line mx-2 data-vertical:h-5 data-vertical:self-center" />
               </>
             )
           )}
