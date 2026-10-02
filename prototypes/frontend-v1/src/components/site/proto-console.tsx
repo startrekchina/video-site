@@ -20,6 +20,7 @@ const PAGES: { to: string; label: string }[] = [
   { to: "/recover", label: "恢复码找回" },
   { to: "/reset/demo-token", label: "重置链接" },
   { to: "/", label: "首页" },
+  { to: "/hero-studies", label: "首页 hero 方案比较" },
   { to: "/title/star-trek-the-next-generation?season=3", label: "剧集页 TNG" },
   { to: "/title/star-trek-section-31", label: "电影页（缺中文简介）" },
   { to: "/watch/tng-s03e26", label: "播放 TNG S03E26" },

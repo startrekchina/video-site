@@ -14,7 +14,7 @@ import { ago, firstUnitId, fraction, kicker, minutesLeft, overview, pickHref, pl
 // transparent header. Stills are out of scope for v1, so the backdrop is the item's own poster,
 // blurred into ambient colour. The thumbnail strip is the home page's 继续观看 list.
 
-type Stage = {
+export type Stage = {
   key: string
   poster: string
   eyebrow: string
@@ -28,7 +28,7 @@ type Stage = {
   secondary: { label: string; to: string }
 }
 
-function useStages(): { stages: Stage[]; label: string } {
+export function useStages(): { stages: Stage[]; label: string } {
   const queue = useQueue()
   if (queue.length)
     return {
