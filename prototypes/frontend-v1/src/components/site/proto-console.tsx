@@ -13,9 +13,6 @@ const SCENARIOS: { key: Scenario; label: string; home: string }[] = [
 ]
 
 const PAGES: { to: string; label: string }[] = [
-  { to: "/?variant=a", label: "访客首页 A 星图" },
-  { to: "/?variant=b", label: "访客首页 B 登舰指南" },
-  { to: "/?variant=c", label: "访客首页 C 站长来信" },
   { to: "/about", label: "关于" },
   { to: "/login", label: "登录" },
   { to: "/register?code=Q-CONT-INUM-01", label: "注册（有效码）" },

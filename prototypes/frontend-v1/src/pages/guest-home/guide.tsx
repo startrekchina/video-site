@@ -9,9 +9,9 @@ import { Button } from "@/components/ui/button"
 import { IconTile } from "@/components/ui/icon-tile"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 
-// Variant B (登舰指南): a long panel page aimed at someone holding an invite code. The primary
-// affordance is the code field; below it, how joining works, what members get, rules and FAQ.
-// Features are described, the catalogue is not.
+// The landing page's narrow-screen layout: a long panel page aimed at someone holding an invite
+// code. The primary affordance is the code field; below it, how joining works, what members get,
+// rules and FAQ. Features are described, the catalogue is not.
 
 const STEPS = [
   { title: "拿到邀请码", body: "向已加入的朋友索要。每位成员的邀请额度有限，邀请码只能用一次，过期作废。" },

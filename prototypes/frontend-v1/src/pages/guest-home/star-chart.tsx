@@ -10,11 +10,11 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "
 
 import { GuestGuide } from "./guide"
 
-// Variant A (星图): the landing page as one sheet of the site's line drawings. From md, a full-width
+// The landing page (星图) as one sheet of the site's line drawings. From md, a full-width
 // stellar-cartography plate (sector grid with graduated edges, star field, the Romulan Neutral Zone as
 // a hatched band, Sol held in a targeting bracket on long crosshairs) over a thin title block that
 // holds the name and both ways in: passkey sign-in and an invite code field. Below md the plate is too
-// small to read, so narrow screens get variant B's page instead.
+// small to read, so narrow screens get the guide page instead.
 // Follows the site theme. LCARS lives inside the plate only (condensed Antonio labels, amber system
 // brackets, the red and cyan target); everything else uses the site's own faces. Says nothing about
 // the catalogue; /about carries the rest.
