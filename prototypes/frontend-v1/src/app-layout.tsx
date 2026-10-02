@@ -3,6 +3,7 @@ import { Navigate, Outlet, useLocation } from "react-router"
 
 import { useStore } from "@/data/store"
 import { BottomNav } from "@/components/site/bottom-nav"
+import { BottomRuler } from "@/components/site/bottom-ruler"
 import { CommandMenu } from "@/components/site/command-menu"
 import { ProtoConsole } from "@/components/site/proto-console"
 import { ScrollToTop as ScrollToTopButton } from "@/components/site/scroll-to-top"
@@ -24,6 +25,7 @@ function FadeBottom() {
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40" aria-hidden>
       <div className="h-(--fade-bottom-height) bg-linear-to-b from-transparent to-background mask-linear-[to_top,var(--background)_25%,transparent] backdrop-blur-[1px]" />
       <div className="bg-background pb-[env(safe-area-inset-bottom,0px)]" />
+      <BottomRuler />
     </div>
   )
 }
