@@ -16,6 +16,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { ShimmeringText } from "@/components/ui/shimmering-text"
 import { Tabs, TabsIndicator, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { NotFoundPage } from "./not-found"
+import { CommentsSection } from "./watch-comments"
 
 const NEXT_COUNTDOWN = 10
 const TOKEN_LATENCY_MS = 900
@@ -152,6 +153,7 @@ const KEYS: [string, string][] = [
 export function WatchPage() {
   const { unitId } = useParams()
   const unit = getUnit(unitId!)
+  const viewer = useStore((s) => s.me?.username)
   const pr = useStore((s) => (unitId ? s.progress[unitId] : undefined))
   const [ended, setEnded] = useState(false)
   const [sub, setSub] = useState<SubtitleLang>(() => (localStorage.getItem("proto-sub") as SubtitleLang) || "zh")
@@ -254,6 +256,9 @@ export function WatchPage() {
           <SeasonList unit={unit} />
         </>
       )}
+
+      <Separator />
+      <CommentsSection key={`${unit.id}:${viewer}`} unitId={unit.id} kind={unit.kind} />
 
       {ended && !next && unit.kind === "episode" && (
         <div className="fixed inset-x-0 bottom-20 z-40 mx-auto flex w-fit items-center gap-3 rounded-xl bg-popover px-4 py-3 text-sm shadow-lg ring-1 ring-foreground/10">

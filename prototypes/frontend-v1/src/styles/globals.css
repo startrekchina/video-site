@@ -272,6 +272,27 @@
   font-size: var(--typeset-size);
 }
 
+/* Comment bodies: compact flow so a short reply stays one tight block. */
+.typeset-comment {
+  --typeset-size: 14px;
+  --typeset-leading: 1.7;
+  --typeset-flow: 0.5em;
+}
+.typeset-comment :where(pre) {
+  font-size: 0.8125em;
+  padding: 0.5em 0.75em;
+}
+.typeset-comment :where(blockquote) {
+  color: var(--color-muted-foreground);
+  padding-inline-start: 0.75em;
+}
+.typeset-comment :where(ul, ol) {
+  padding-inline-start: 1.25em;
+}
+.typeset-comment :where(li) {
+  margin-block-start: 0.2em;
+}
+
 /* ArtPlayer: align chrome with the site's zinc palette and the site's Noto Sans SC type. */
 .art-video-player {
   font-family: var(--font-sans) !important;
