@@ -21,7 +21,7 @@ export function SiteFooter({ minimal }: { minimal?: boolean }) {
   return (
     <footer className="max-w-screen overflow-x-clip px-2">
       <div className="mx-auto border-x md:max-w-(--content-width)">
-        <div className="screen-line-top screen-line-bottom before:z-1">
+        <div className="screen-line-top screen-line-bottom before:-top-px before:z-1">
           <div className="stripe-divider h-12" />
         </div>
 
@@ -54,7 +54,7 @@ export function SiteFooter({ minimal }: { minimal?: boolean }) {
           </>
         )}
 
-        <div className="screen-line-top h-4" />
+        <div className={cn("h-4", !minimal && "screen-line-top")} />
 
         <div className="screen-line-top screen-line-bottom flex items-center gap-3 px-4 py-3 text-muted-foreground">
           <Link to="/" className="mr-auto transition-[color] hover:text-foreground" aria-label="首页">

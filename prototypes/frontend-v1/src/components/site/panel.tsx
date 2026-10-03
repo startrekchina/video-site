@@ -11,7 +11,7 @@ export function Panel({ className, ...props }: React.ComponentProps<"section">) 
   return (
     <section
       data-slot="panel"
-      className={cn("screen-line-top screen-line-bottom border-x", className)}
+      className={cn("screen-line-top screen-line-bottom border-x in-data-[slot=page]:border-x-0", className)}
       {...props}
     />
   )
@@ -78,7 +78,7 @@ export function PanelFooterLink({ to, children }: { to: string; children: React.
 
 /** Diagonal-stripe gap between panels. */
 export function Separator({ className }: { className?: string }) {
-  return <div className={cn("stripe-divider h-8 w-full border-x", className)} aria-hidden />
+  return <div className={cn("stripe-divider h-8 w-full border-x in-data-[slot=page]:border-x-0", className)} aria-hidden />
 }
 
 /**
@@ -86,7 +86,7 @@ export function Separator({ className }: { className?: string }) {
  * `narrow` gives settings and reading pages the 3xl column, and the frame animates between them.
  */
 export function Page({ className, narrow, ...props }: React.ComponentProps<"div"> & { narrow?: boolean }) {
-  return <div data-width={narrow ? "narrow" : undefined} className={cn("mx-auto border-x pt-12 md:max-w-(--content-width)", className)} {...props} />
+  return <div data-slot="page" data-width={narrow ? "narrow" : undefined} className={cn("mx-auto border-x pt-12 md:max-w-(--content-width)", className)} {...props} />
 }
 
 export function PageHeading({ className, children, ...props }: React.ComponentProps<"div">) {
