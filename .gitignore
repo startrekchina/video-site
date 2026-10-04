@@ -37,6 +37,7 @@ next-env.d.ts
 
 # agent runtime/state
 .sisyphus/
+.zcode/*
 
 # local SSH material (defense-in-depth)
 *.key
