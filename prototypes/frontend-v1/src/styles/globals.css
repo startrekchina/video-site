@@ -1,0 +1,313 @@
+@import "tailwindcss";
+@import "shadcn/tailwind.css";
+@import "tw-animate-css";
+
+@import "./typeset.css";
+@import "./scroll-fade-effect.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-accent: var(--accent);
+  --color-accent-muted: var(--accent-muted);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-line: var(--line);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-info: var(--info);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --color-link: var(--link);
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--surface-foreground);
+  --color-selection: var(--selection);
+  --color-selection-foreground: var(--selection-foreground);
+
+  --font-sans: "Noto Sans SC Variable", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "Noto Sans SC Variable", "Noto Sans SC", ui-monospace, Menlo, Consolas, monospace;
+  --font-heading: var(--font-sans);
+  /* Condensed LCARS-style face for Latin display labels; CJK falls back to the sans stack. */
+  --font-display: "Antonio Variable", var(--font-sans);
+
+  --default-mono-font-feature-settings: "ss11" 1, "zero" 1, "tnum" 1;
+
+  /* CJK reads cramped at Latin-style negative tracking; keep chanhdai.com's tight headings but halve the squeeze. */
+  --tracking-tight: -0.0125em;
+
+  --animate-spinner-opacity: spinner-opacity var(--tw-animation-duration, var(--tw-duration, 1s)) linear infinite;
+
+  @keyframes spinner-opacity {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0.15;
+    }
+  }
+}
+
+@utility link-underline {
+  @apply underline decoration-current/30 decoration-1 underline-offset-3 transition-colors hover:decoration-current;
+}
+
+/* Full-bleed hairlines that extend past the centered column, the core motif of the reference design. */
+@utility screen-line-top {
+  @apply relative;
+  &:before {
+    content: "";
+    @apply absolute top-0 left-[-100vw] -z-1 h-px w-[200vw] bg-line;
+  }
+}
+
+@utility screen-line-top-* {
+  &:before {
+    background-color: --value(--color-*, [color]);
+  }
+}
+
+@utility screen-line-bottom {
+  @apply relative;
+  &:after {
+    content: "";
+    @apply absolute bottom-0 left-[-100vw] -z-1 h-px w-[200vw] bg-line;
+  }
+}
+
+@utility screen-line-bottom-* {
+  &:after {
+    background-color: --value(--color-*, [color]);
+  }
+}
+
+@utility screen-line-top-none {
+  @apply before:content-none;
+}
+
+@utility screen-line-bottom-none {
+  @apply after:content-none;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility diagonal-stripes {
+  @apply [--pattern-foreground:var(--color-line)]/56;
+  @apply bg-[repeating-linear-gradient(315deg,var(--pattern-foreground)_0,var(--pattern-foreground)_1px,transparent_0,transparent_50%)] bg-size-[10px_10px];
+}
+
+@utility dot-grid {
+  @apply [--pattern-foreground:var(--color-zinc-950)]/5 dark:[--pattern-foreground:var(--color-white)]/5;
+  @apply bg-[radial-gradient(var(--pattern-foreground)_1px,transparent_0)] bg-size-[8px_8px];
+}
+
+@utility stripe-divider {
+  @apply relative h-8;
+  &:before {
+    content: "";
+    @apply absolute left-[-100vw] -z-1 h-full w-[200vw] diagonal-stripes;
+  }
+}
+
+@utility extend-touch-target {
+  @media (pointer: coarse) {
+    @apply relative touch-manipulation after:absolute after:-inset-2;
+  }
+}
+
+/* Poster corners scale with width (7%, clamped to 4–12px). Only for 2:3 boxes: the vertical
+   radius resolves against height, so it is divided by 1.5 to keep the corners circular. */
+@utility rounded-poster {
+  border-radius: clamp(4px, 7%, 12px) / clamp(4px, calc(7% / 1.5), 12px);
+}
+
+/* Column width shared by header, page and footer (applied from md up via md:max-w-(--content-width)).
+   Media pages use the wide column; pages that mark their column data-width="narrow" get the
+   reading column. Registered so the layout root can transition it and every column, including a
+   page that has just mounted, follows the same interpolated value and the rules stay aligned. */
+@property --content-width {
+  syntax: "<length>";
+  inherits: true;
+  /* Must be computationally independent: rem here would invalidate the whole registration. */
+  initial-value: 1152px;
+}
+
+@utility content-frame {
+  --content-width: 72rem;
+  transition: --content-width 320ms cubic-bezier(0.2, 0, 0, 1);
+  &:has([data-width="narrow"]) {
+    --content-width: 48rem;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.141 0.005 285.823);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.141 0.005 285.823);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-muted: color-mix(in oklab, var(--accent) 50%, transparent);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --border: oklch(0.92 0.004 286.32);
+  --line: color-mix(in oklab, var(--border) 64%, var(--background));
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.705 0.015 286.067);
+  --info: oklch(0.67 0.17 244.98);
+  --success: oklch(0.627 0.194 149.214);
+  --warning: oklch(0.666 0.179 58.318);
+  --destructive: oklch(0.577 0.245 27.325);
+  --link: oklch(0.488 0.243 264.376);
+  --surface: oklch(0.985 0 0);
+  --surface-foreground: oklch(0.141 0.005 285.823);
+  --selection: oklch(0.141 0.005 285.823);
+  --selection-foreground: oklch(0.985 0 0);
+
+  /* Same as --radius-lg (control corners); shadcn components derive smaller corners from it. */
+  --radius: 0.5rem;
+  --header-height: --spacing(14);
+  --fade-bottom-height: --spacing(24);
+}
+
+.dark {
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.141 0.005 285.823);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-muted: color-mix(in oklab, var(--accent) 20%, transparent);
+  --accent-foreground: oklch(0.985 0 0);
+  --border: oklch(0.274 0.006 286.033);
+  --input: lab(100% 0 0 / 0.15);
+  --ring: oklch(0.552 0.016 285.938);
+  --success: oklch(0.723 0.219 149.579);
+  --warning: oklch(0.769 0.188 70.08);
+  --destructive: oklch(0.637 0.237 25.331);
+  --link: oklch(0.623 0.214 259.815);
+  --surface: oklch(0.21 0.006 285.885);
+  --surface-foreground: oklch(0.985 0 0);
+  --selection: oklch(0.985 0 0);
+  --selection-foreground: oklch(0.141 0.005 285.823);
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    @apply border-border outline-ring/50;
+  }
+
+  ::selection {
+    @apply bg-selection text-selection-foreground;
+  }
+
+  html {
+    @apply scroll-pt-18;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 5px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+}
+
+.typeset-description {
+  --typeset-size: 15px;
+  --typeset-leading: 1.7;
+  --typeset-flow: 1em;
+  font-size: var(--typeset-size);
+}
+
+/* Comment bodies: compact flow so a short reply stays one tight block. */
+.typeset-comment {
+  --typeset-size: 14px;
+  --typeset-leading: 1.7;
+  --typeset-flow: 0.5em;
+}
+.typeset-comment :where(pre) {
+  font-size: 0.8125em;
+  padding: 0.5em 0.75em;
+}
+.typeset-comment :where(blockquote) {
+  color: var(--color-muted-foreground);
+  padding-inline-start: 0.75em;
+}
+.typeset-comment :where(ul, ol) {
+  padding-inline-start: 1.25em;
+}
+.typeset-comment :where(li) {
+  margin-block-start: 0.2em;
+}
+
+/* ArtPlayer: align chrome with the site's zinc palette and the site's Noto Sans SC type. */
+.art-video-player {
+  font-family: var(--font-sans) !important;
+}
+.art-video-player .art-subtitle {
+  font-family: var(--font-sans);
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.9),
+    0 0 8px rgb(0 0 0 / 0.5);
+}
+
+/* Narrow screens: drop secondary player controls so the control bar never overflows. */
+@media (max-width: 480px) {
+  .art-video-player .art-control-pip,
+  .art-video-player .art-control-fullscreenWeb {
+    display: none !important;
+  }
+}
