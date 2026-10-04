@@ -143,6 +143,8 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 
 ## 6. 实现决策
 
+本节保留已确认的产品行为，补充后端实现约束和接口草案。表名、字段名、接口路径用于指导迁移和 loader / action 开发，不要求照搬认证库的内部命名。标为“待站长确认（不作为已定需求）”的建议不能直接当作开发验收依据，集中清单见 6.11。
+
 ### 6.1 总体架构
 
 - 全站使用 React Router v7 框架模式，前后端作为一个 Worker 部署在 Cloudflare Workers 上。页面的登录校验在服务端的 loader 中完成。
@@ -152,6 +154,19 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 - 界面只做中文，不做 i18n。
 - 全站返回 `X-Robots-Tag: noindex`，并配置 `robots.txt` 禁止所有爬虫。
 
+#### 6.1.1 服务端边界与公共约定
+
+- 路由模块负责 loader / action 的输入输出，认证、D1 查询、签名、R2 和备份逻辑放在 `*.server.ts` 或 Worker 服务端模块。浏览器构建不能引用 Secrets、数据库绑定或对象存储键。
+- 每个受保护的 loader、action 和资源路由都单独校验会话、成员状态和权限，不能只依赖父布局 loader；框架的数据请求、预取和直接 HTTP 请求也受同一规则约束。`userId` 和角色取自服务端会话，不接受客户端指定当前身份。
+- 会话 Cookie 建议命名为 `__Host-session`：随机不透明值，`HttpOnly; Secure; SameSite=Lax; Path=/`，不设置 `Domain`；D1 保存其哈希而非原值。登录完成时换发会话标识，恢复后若按确认策略建立会话则使用全新标识，退出时同时撤销 D1 记录并清除 Cookie。期限和滑动续期策略见 6.11。
+- 改变状态的请求走 action 或非 GET 接口，校验 `Origin` 与配置的 `APP_ORIGIN` 一致，并验证绑定当前会话或匿名表单挑战的 CSRF token；登录、注册和恢复也受保护。拒绝跨站请求，不开放带凭证的跨域媒体访问，`SameSite` 不能代替 CSRF 校验。跳转目标只接受站内相对路径。
+- JSON action 成功结构为 `{ data, requestId }`，失败为 `{ error: { code, message, fieldErrors?, challenge? }, requestId }`；`challenge` 仅给出所需的 `turnstile` 或 `totp` 挑战及不透明挑战 ID。页面 loader 返回页面所需的类型化数据；表单提交可在成功后返回 `303` 站内跳转，媒体返回字节流，不套 JSON。
+- `400` 表示格式或字段不合法；`401` 表示未认证或凭证无效；`403` 表示已认证但权限不足、CSRF 或挑战未满足；`404` 表示资源不存在或不可见；`409` 表示已消费、版本冲突或额度不足；`429` 表示限流；依赖暂不可用返回 `503`，意外错误返回脱敏 `500`。限流提供可重试信息，不能泄露内部 SQL、栈、R2 key 或上游原始错误。
+- 稳定错误码至少区分 `AUTH_REQUIRED`、`AUTH_INVALID`、`CSRF_INVALID`、`TURNSTILE_REQUIRED`、`TOTP_REQUIRED`、`INVITATION_INVALID`、`INVITATION_EXPIRED`、`INVITATION_USED`、`INVITATION_REVOKED`、`QUOTA_EXHAUSTED` 和 `REVISION_CONFLICT`；前端按 code 处理，不解析中文 message。邀请码无效使用 `400`，其已用/过期/作废及额度不足使用 `409`。
+- HTML 页面未登录时跳转登录页，JSON 和媒体接口返回错误而非登录页 HTML。登录、恢复不区分“用户名不存在”和“密码/恢复凭证错误”；注册仍按原文区分邀请码无效、过期、已用和作废，不返回邀请人的私人资料。
+- 登录态 HTML、loader 数据、认证 action、邀请凭证和媒体响应使用 `Cache-Control: private, no-store`，禁止共享缓存绕过鉴权。公开静态资源可以按文件版本缓存；静态资源、重定向、错误和媒体响应同样带 `X-Robots-Tag: noindex`。Workers 静态资源头与 Worker 生成响应头分别配置，不能假定其中一处覆盖另一处。
+- 动态响应设置 `Referrer-Policy: no-referrer` 和 `X-Content-Type-Options: nosniff`。浏览器响应不含内部 R2 key/URL 或 Worker Secrets；只有对应签发/绑定流程向有权接收者返回必要的一次性凭证、TOTP 绑定材料或短期授权地址，列表、无关响应和错误不得包含凭证原值或完整 token。日志只记录请求 ID、路由模板、状态、错误码和必要的不透明资源 ID，始终不记录 Cookie、密码、邀请码、恢复码、TOTP、其他凭证原值、完整 token 或完整 URL；平台自动 URL 日志也必须验证脱敏，不能只清理应用日志。
+
 ### 6.2 数据模型（概念层）
 
 - 作品分为电影和剧集两种。剧集下有季，季下有集。电影和集统一抽象为“可播放单元”，播放、进度、收藏和片单都只和可播放单元或作品打交道，不用区分电影和剧集。
@@ -160,6 +175,37 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 - 一个可播放单元可以挂多条字幕轨，每条记录语言、格式和显示名称。v1 只用 VTT，以后接入 ASS 时不需要改表结构。
 - 片单里的条目既可以是作品，也可以是可播放单元，并且保留排序。
 - 邀请码记录发出人、使用人、状态和有效期。成员表记录邀请人，邀请链由这两者串联出来。
+
+#### 6.2.1 字段与关系草案
+
+下表是既有对象的存储映射，不增加新的业务对象。所有 ID 是稳定的内部 ID，和 TMDB ID 分开；时间统一使用 UTC，HTTP 输出 ISO 8601 时间，位置和时长以秒为单位。中文和英文原始资料保留，空中文按缺失处理。
+
+| 对象 / 建议表名 | 字段要点与一致性约束 |
+| --- | --- |
+| 作品 `works` | `id, kind, tmdb_id, title_zh, title_en, overview_zh, overview_en, year, poster_asset`；`kind` 仅为 `movie` / `series`；唯一键 `(kind, tmdb_id)`，不能把电影和剧集的 TMDB 数字空间混为一谈。 |
+| 季 `seasons` | `id, work_id, season_number, tmdb_id`，另存双语资料和季海报；唯一键 `(work_id, season_number)`，外键指向剧集作品。manifest 的季海报 `tmdb_id` 是剧集 ID，不是季 ID；季的 TMDB ID 从 TMDB 季详情取得。 |
+| 可播放单元 `playable_units` | `id, kind, work_id, season_id, episode_number, tmdb_id, duration_seconds`，集另存双语资料；电影行无季号/集号，以 `work_id` 唯一；集行必须有季和集号，以 `(season_id, episode_number)` 唯一，且季属于同一作品。集记录即“集”对象，不再另建一份集表。 |
+| 媒体 `media_files` | `id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate`；外键关联单元，`object_key` 唯一，逻辑唯一键 `(playable_unit_id, format, variant)`。v1 导入只允许一条 MP4 片源，模型不限制以后增加格式或档位。 |
+| 字幕 `subtitle_tracks` | `id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256`；逻辑唯一键 `(playable_unit_id, track_key)`，`object_key` 唯一。语言和格式不是主键，避免将多条同语言轨道或以后的 ASS 挤成一个对象；v1 仅发布中文/英文 VTT。 |
+| 成员 `users` | `id, username, username_key, password_hash, role, status, invited_by_user_id, invite_quota`，以及凭证版本、认证失败计数和时间；用户名按待确认的规范化规则生成唯一 `username_key`。角色仅 `member` / `admin`，状态至少区分正常和封禁；邀请人是成员外键，不允许自己邀请自己，注册后不改邀请来源。 |
+| 会话 `sessions` | `id, token_hash, user_id, credential_version, created_at, expires_at, revoked_at`，以及会话列表所需的脱敏设备描述；`token_hash` 唯一，外键指向成员。不持久化原始 Cookie，也不把原始会话凭证返回列表。 |
+| 邀请码 `invitations` | `id, code_hash, issuer_user_id, used_by_user_id, created_at, expires_at, revoked_at, used_at`；码哈希唯一，消费人唯一。过期由服务端时间计算；“有效、已用、作废、过期”由字段派生，避免状态列和时间互相矛盾。额度计数的具体含义见 6.11。 |
+| 恢复及认证凭证 | `recovery_codes` 记录 `user_id, code_hash, generation, used_at`；`reset_links` 记录凭证哈希、目标成员、签发管理员、有效期和消费时间。TOTP 记录加密密文、随机 nonce、密钥版本和最近接受的时间步；通行密钥记录唯一 `credential_id`、公钥、计数器和设备属性。认证库可合并其内部表，但必须保留这些一次性/唯一约束；挑战记录只承担认证所需的临时状态。 |
+| 观看进度 `watch_progress` | 主键 `(user_id, playable_unit_id)`；`position_seconds, completed, updated_at`；`revision` 仅在确认采用 6.7 的版本方案后启用。总时长来自已导入媒体，不相信客户端提交的时长；自动完成与手动状态的冲突规则见 6.7。 |
+| 收藏 `favorites` | 主键 `(user_id, work_id)`，仅收藏作品；重复添加和删除已不存在的收藏都返回同一最终状态。 |
+| 片单 `playlists` / 条目 `playlist_items` | 片单记录 `id, owner_user_id, title, visibility, revision, created_at, updated_at`，`visibility` 为 `private` / `members`；条目记录稳定 `id, playlist_id, work_id?, playable_unit_id?, position`。两种目标必须且只能选一个，各自有外键；`(playlist_id, position)` 唯一。公开只扩大站内读取权限，不改变所有者的写权限。 |
+
+- 关联列设外键；同作品的季/集关系用复合外键或等价约束保证，类型和互斥字段用 `CHECK`，电影单元唯一性用部分唯一索引。不能只靠客户端或导入前的一次查询保证关系。v1 没有账号/作品删除功能，不能以级联删除实现封禁；片单删除时可在同一事务删除条目。
+- 索引围绕已知查询建立：季的 `(work_id, season_number)`、集的 `(season_id, episode_number)`、媒体/字幕的单元外键、会话的 `(user_id, expires_at)`、邀请的 `(issuer_user_id, created_at)`、成员的邀请人外键、进度的 `(user_id, updated_at)`、片单的 `(owner_user_id, updated_at)` 和条目的顺序键；恢复/重置凭证按哈希查找并按有效期清理。仅为中英文作品名搜索按当前规模实现参数化查询，不凭空承诺普通 B-tree 可加速任意子串搜索。
+
+#### 6.2.2 D1 写入与幂等
+
+- 所有用户输入使用预编译参数绑定。迁移按版本管理并在 staging 验证外键和索引；采用 D1 支持的单条条件写入和 `batch()` 事务，不套用跨多次网络调用的交互式 `BEGIN` / `COMMIT`。
+- 一次性消费使用类似 `UPDATE ... WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > now` 的条件，并确认影响行数为 1。**条件更新影响 0 行不会自动让 D1 batch 回滚**：后续写入必须受同一消费结果约束，或由数据库约束使失败分支整批回滚；不能先消费后在 JS 中检查再另写成员/密码。
+- 注册时将邀请码消费、成员创建、邀请链关联和恢复码哈希写入放在同一原子提交中；消费人的唯一关联和成员的注册邀请码关联需互相校验。用户名冲突或邀请码抢占失败不能烧掉邀请码。发码与额度更新、恢复凭证消费与密码更新/旧会话撤销、片单重排与版本更新也遵守同样边界。scrypt 和外部 Turnstile 验证在提交前完成，提交时重新校验必要状态。
+- 发码需要服务端认可的 `operationId`，限定在发出人和操作类型内并设唯一约束，避免网络重试重复扣额；只返回本次生成的原码，不提供事后查询原码的接口。若提交成功但响应丢失，可返回该操作已完成，不能再生成一份替代码或重复扣额。其作废/额度返还仍按 6.11 的确认结果处理。
+- 进度、收藏按组合主键条件 upsert；片单修改以 `expectedRevision` 条件写入，成功整体增加版本，失败返回 `409` 及当前版本，不能部分重排。重排需处理位置唯一约束，不能顺序移动时撞上旧位置。
+- 权限、封禁、会话撤销和一次性凭证读取走 D1 主库；不启用读副本即可满足这一边界。以后用 Sessions API 时，将合并后的鉴权查询作为 `withSession('first-primary')` 的首次查询，不能把后续可能走副本的独立状态查询当作即时封禁检查。成员状态还需纳入敏感条件写入，避免鉴权后封禁与提交竞争。
 
 ### 6.3 身份认证
 
@@ -171,17 +217,74 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 - 会话存在 D1，浏览器端用 HttpOnly、Secure、SameSite 的 Cookie 保存会话标识。
 - 认证逻辑可以使用 Better Auth（它的 username、passkey、twoFactor 插件和 D1 适配器正好覆盖这些需求），也可以自己实现，开发时再决定。无论选哪种，认证模块都要能以插件方式接入以后的邮件验证码和 OAuth 登录。
 
+#### 6.3.1 凭证与挑战的安全约束
+
+- 密码哈希存储算法版本、上述 scrypt 参数、随机盐和派生值；校验时用常量时间比较。限制输入大小，实测当前 Workers 运行时的 CPU、内存和并发成本，不能因库默认值不同改用其他算法。原文关于 PBKDF2 上限是待实测说明，不作为新平台承诺。
+- 选择 Better Auth 前验证其密码哈希替换接口、D1 迁移、一次性消费事务和 Cookie 行为能满足本文；插件名称相符不等于安全契约已经满足。若不能兼容，记录差距交站长决定，不以库默认行为覆盖 scrypt 或恢复规则。
+- 密码和 TOTP 登录可分成两个 action：密码通过后只建立短期、单用途、限次数的待验证挑战，不授予完整成员会话；开启 TOTP 的账号完成验证后才建立正式会话。不能以反复通过密码阶段重置 TOTP 失败计数。通行密钥与 TOTP 组合规则尚待确认。
+- 通行密钥注册和登录校验服务端随机 challenge、预期 `origin` / RP ID、签名和用户验证要求；challenge 绑定用途及成员/匿名登录流程、带有效期并原子消费。不得把客户端返回的成员 ID 当作账号归属。计数器异常按库支持的 WebAuthn/同步通行密钥语义处理，不能自行规定“计数为零即封禁”。
+- TOTP 用带认证的加密保存，建议 AES-GCM，随机 nonce 不复用，附加认证数据绑定成员 ID、用途和密钥版本；密钥不与播放/备份密钥共用。只在绑定时向当前成员展示配置密钥，确认有效验证码后才启用。验证码通过的时间步条件更新，防止相同验证码并发重放；容许时钟偏差窗口和挑战有效期见 6.11。
+- 修改密码、重发恢复码、解绑认证设备需要当前会话和当前凭证的再验证；已开启 TOTP 时不能跳过该步骤。成员会话列表仅返回设备概述、创建时间、有效期及是否当前会话，撤销请求限定 `user_id = 当前成员`。
+
+#### 6.3.2 限流与 Turnstile
+
+| 入口 | 限流键与处理边界 |
+| --- | --- |
+| 登录、TOTP / 通行密钥验证 | 按操作和规范化账号标识的不可逆摘要限流，已识别挑战再按挑战 ID 限制尝试；不存在的账号也经过同样分支。 |
+| 注册 | 按邀请码摘要和匿名流程标识限流；额外的来源 IP 只能作为辅助防滥用信号，不能作为唯一配额。 |
+| 恢复码、重置链接 | 按目标账号/凭证摘要及操作类型限流，不记录原码，不因攻击者换 IP 绕过同一账号的失败计数。 |
+| token 签发/续期、管理员敏感 action | 按当前成员和操作限流，和登录失败限流分开；具体阈值待确认。正常 GET/HEAD Range、拖动和字幕读取不能消耗登录尝试预算。 |
+
+- Workers Rate Limiting 的计数按 Cloudflare 位置生效且最终一致，用来降低滥用成本，不能作为全局精确锁、邀请额度或一次性凭证账本。连续认证失败的状态保存在 D1，条件累加/清零，避免仅存在某个 isolate 或 IP 上；匿名状态应有过期和大小边界。
+- 达到待确认的失败阈值后，接口返回 `TURNSTILE_REQUIRED`。提交的 `turnstileToken` 必须服务端调用 Siteverify，并核对当前环境的 hostname、操作 action 和成功结果；过期、重复使用或错环境拒绝。验证依赖不可用时返回可重试错误，不绕过挑战，也不把临时故障计为密码错误。
+- 具体请求数、时间窗口、挑战触发阈值、计数衰减和解除条件不在本文新定数值。以后落地为集中配置，并在本地模拟失败/成功响应，staging 再核实平台限流实际行为。
+
 ### 6.4 账号恢复
 
 - 第一层：成员注册或开启二步验证时，系统生成一组一次性恢复码（默认 10 个），只保存哈希值。成员可以用任意一个恢复码重设密码。
 - 第二层：恢复码全部丢失时，管理员在后台生成一次性重置链接（默认 24 小时有效），通过站外渠道交给成员。
 - 通过重置链接恢复账号后，旧会话全部失效。是否同时清除二步验证和通行密钥，开发时再定，默认是清除后让成员重新绑定。
 
+#### 6.4.1 一次性恢复的提交边界
+
+- 恢复码和重置链接由密码学安全随机数生成，数据库只存哈希；查找和校验不输出原值。恢复码在注册、启用二步验证或重新生成时，仅在本次成功响应中展示；重发时原子撤销旧组，不能让两组同时有效。
+- 恢复 action 提交 `username, recoveryCode, newPassword`，或 `resetToken, newPassword`，需要 CSRF，达到阈值时还需 `turnstileToken`。验证新密码后，在一个事务内消费凭证、更新密码/凭证版本，并撤销所有旧会话；两个并发请求最多一个成功。恢复码恢复也采用此旧会话撤销约束，不把恢复当作普通已登录改密。
+- 重置链接 loader 仅验证流程并渲染表单，不能在 GET 时消费凭证，避免链接预览器烧掉它。浏览器地址中的凭证不写日志、不进入 Referer、不缓存，表单页不加载会携出链接的第三方资源。
+- 被封禁成员不能通过恢复解除封禁或获得有效会话。恢复后的二步验证/通行密钥处理仍按原文留待决定；不因“默认清除”就提前固定策略。普通改密撤销哪些会话、恢复后是否自动登录、再次签发链接是否撤销旧链接，见 6.11。
+
 ### 6.5 邀请与权限
 
 - 角色只有两种：成员和管理员。
 - 管理员生成邀请码不受数量限制。每位成员有一个邀请额度（默认 2 个），管理员可以为每个人单独调整。
 - 封禁一名成员时，可以选择只封禁他本人，或者沿邀请链连带封禁他邀请的人。封禁后该成员的所有会话立即失效，已经签发的播放 token 最多 30 分钟后自然失效。
+
+#### 6.5.1 权限矩阵与 HTTP / loader / action 草案
+
+站长是拥有管理员权限的运维者，不增加第三种业务角色。下表路径是后端接口命名草案，页面路径可随前端路由确定；身份和错误语义不能随路径调整而改变。公开“站内片单”仍需登录，公开恢复入口仅用于凭证恢复，不公开任何片库或账号资料。
+
+| 入口与方法 | 权限 | 请求字段 / loader 数据与返回信息 |
+| --- | --- | --- |
+| 登录/注册页面、静态资源、`GET /robots.txt` | 访客可读 | 页面只给匿名 CSRF/认证挑战和必要的公开配置；静态海报保持公开，robots 内容为 `User-agent: *` 和 `Disallow: /`。 |
+| `POST /auth/login`、`/auth/login/totp` | 访客可提交 | `username, password, csrfToken, turnstileToken?`，或 `challengeId, totp, csrfToken`；返回下一挑战或最小成员信息并设置 Cookie，失败不暴露账号存在性。 |
+| `POST /auth/passkeys/options`、`/auth/passkeys/verify` | 访客登录流程 / 成员绑定流程 | 请求声明用途，绑定必须是当前成员；返回 WebAuthn 公共选项，接收 assertion/attestation 与挑战 ID，不返回凭证私密状态。 |
+| `POST /auth/register` | 有效邀请码的访客 | `username, password, invitationCode, csrfToken, turnstileToken?`；一次性原子消费，返回成员最小资料及本次恢复码。是否自动登录见 6.11；邀请码失败使用明确错误码，用户名冲突不消耗码。 |
+| `GET /auth/recover`、`GET /auth/reset` 与对应 POST | 持恢复凭证的访客 | GET 仅恢复表单；POST 按 6.4 字段提交，返回已恢复的结果，凭证失败统一脱敏。该公开页面例外需按 6.11 确认；若不独立公开，则嵌入登录页。 |
+| `POST /auth/logout`、`GET /account/sessions`、`POST /account/sessions/:id/revoke` | 正常成员，仅自己的会话 | 退出/撤销带 CSRF；列表不返回会话 token。退出当前会话清 Cookie，重复撤销自己的记录是幂等成功。 |
+| `POST /account/password`、`/account/recovery-codes/regenerate`、`/account/totp/*`、`/account/passkeys/:id/remove` | 正常成员，仅自己，需再验证 | 改密接收 `currentPassword, newPassword`；其他敏感操作接收再验证挑战/结果、CSRF 和设备 ID。恢复码和 TOTP 绑定材料只在对应本次响应展示。 |
+| 片库/作品/季/播放页 loader，搜索 loader | 正常成员 | 返回作品 ID、双语展示资料/回退后的标题简介、公开海报路径、季/集顺序、时长、可播性、本人状态；搜索接收有长度上限的 `q`。不返回 `object_key`。 |
+| `POST /playback/tokens` | 正常成员 | `playableUnitId, mediaFileId, csrfToken`；检查文件确属该单元且可用，返回 `mediaFileId, url, expiresAt` 和字幕 ID/名称/语言及授权地址。续期重复此接口重新鉴权，旧 token 不是续期凭据。 |
+| `GET/HEAD /media/:mediaFileId`、`/subtitles/:subtitleTrackId` | 有效资源 token；额外会话要求见 6.6 | query 接收 `token`；返回 200/206 字节流、HEAD 元数据或脱敏错误。只用资源 ID 在服务端映射 R2 key，不接受客户端对象路径。 |
+| `GET/PUT /me/progress/:playableUnitId` | 正常成员，仅自己 | PUT 接收 `positionSeconds` 或显式 `completed` 手动操作；返回存储位置、状态和 `updatedAt`。仅在站长确认采用 6.7 的版本方案后启用请求字段 `expectedRevision`、返回字段 `revision` 及冲突 `409 / REVISION_CONFLICT`，这些仍为方案草案，不是已定契约。不存在的单元拒绝，成员 ID 从会话取得。 |
+| `GET /me/favorites`、`PUT/DELETE /me/favorites/:workId` | 正常成员，仅自己 | 返回作品集合/最终收藏状态；不能把集 ID 当作品收藏。 |
+| `GET /playlists/:id`、`POST /playlists`、`PATCH/DELETE /playlists/:id`、条目 action | 正常成员；写入仅所有者 | 读取自己的私有或任何站内公开片单；写入接收 `title, visibility, expectedRevision`，条目接收目标类型与 ID，重排接收完整有序条目 ID。返回片单、目标概要和版本，不接受修改 `ownerUserId`。他人私有片单统一 `404`。 |
+| `GET/POST /me/invitations`、`POST /me/invitations/:id/revoke` | 正常成员，仅自己发出的码；管理员不限额度 | 发码接收 `operationId, expiresAt?` 和 CSRF；返回本次原码、ID、状态/期限及剩余额度，列表返回状态和已使用成员的必要站内标识。不能作废已用码；重复作废自己的未用码幂等成功。 |
+| `GET /admin/users`、成员/邀请链 loader | 正常管理员 | 列表分页，返回角色、状态、额度及邀请关系；不得包含密码哈希、TOTP 密文、恢复码哈希或会话凭证。 |
+| `POST /admin/users/:id/ban`、`/quota`、`/role`、`/reset-link` | 正常管理员；建议绑定操作的 TOTP 再验证，待确认 | 分别接收 `cascade`、`inviteQuota`、`role` 或重置目标，另带 CSRF/再验证信息；返回实际受影响成员 ID/最终状态、额度或角色，重置原链接只返回本次。站长身份不绕过服务端角色校验。 |
+
+- 片单条目的可播放目标在 v1 按原文仅开放单集，电影通过作品条目加入；不因底层使用统一单元就扩展收藏或片单的产品粒度。允许重复条目与否见 6.11，顺序仍必须稳定。
+- 封禁提交必须同时更新受影响成员状态、凭证版本和撤销会话，原子完成后才报告成功；token 签发/续期和新的登录立即拒绝，失败批次不留下半条邀请链已封禁的状态。连带的深度、管理员节点边界及解封不从 `cascade` 自行推导。
+- 邀请额度通过 D1 条件写入保证，不用 Rate Limiting 计数器。额度究竟在生成还是使用时扣除、作废/过期是否返还，属于待确认策略；实现前不得把“默认 2 个”解释成某一种周期或自动补充制度。
+- **建议，待站长确认（不作为已定需求）**：管理员的封禁、额度调整、角色变更和重置链接签发使用 TOTP 再验证，验证证明绑定当前管理员、会话、具体操作及目标，一次消费；没有绑定 TOTP 时先引导绑定，不以普通登录替代。确认强制范围和挑战期限后再开发，不增加“站长”角色或预设最后一位管理员的保护规则。
 
 ### 6.6 播放与媒体分发
 
@@ -195,12 +298,49 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 - 播放器使用 ArtPlayer，一方面可以加载外挂 VTT 字幕并切换中英文，另一方面方便以后接入弹幕插件。
 - v1 不限制每个账号的同时播放数。以后要加这个功能，入口放在 token 签发和续期这一步，限额由管理员在后台随时调整。
 
+#### 6.6.1 token 载荷与撤销边界
+
+- token 使用 HMAC-SHA-256，格式草案为 `base64url(payload).base64url(signature)`；签名覆盖带用途前缀的载荷原始字节，不重新序列化后验签。载荷包含 `v, kid, environment, userId, mediaFileId, resourceType, resourceId, iat, exp`；`exp - iat` 不超过已定的 30 分钟。`kid` 只从服务端允许的密钥版本集合选取，不接受客户端指定算法或密钥来源。
+- `environment` 和用途前缀防跨环境/跨协议重用；每个环境的签名密钥独立。媒体 `resourceId = mediaFileId`，字幕的关联授权必须核对该轨道和媒体属于同一单元。载荷不包含 R2 bucket、key、URL 或明文会话 token；ID 可读，签名并不加密载荷。
+- 严格限制 token 长度和解码结构，拒绝不认识的版本、错误类型、异常时间及多余的重复 query 参数；以固定长度的签名字节用常量时间校验，不用字符串 `===`。验签通过前不查 R2、不向响应泄露对象元数据。
+- 仅将 `userId` 写在 token 中不能识别拿着复制链接的另一个人。成员绑定必须在资源入口核对请求者的服务端身份，不能用请求体/query 的成员 ID 代替；请求者未登录或 token 的成员与请求者不同均拒绝。
+- **建议，待站长确认（不作为已定需求）**：同源媒体/字幕请求同时携带当前 Cookie；载荷增加 `sessionId, credentialVersion`，每次 GET/HEAD 合并从 D1 主库检查会话未过期/未撤销、当前成员正常、成员和会话与 token 一致。这样退出、被封禁、恢复或撤销会话后，下一个媒体请求即拒绝；不缓存鉴权结果，不用只读 replica 提供即时撤销。另一成员即使登录也不能使用复制的 token。该方案会使退出更快停止新请求，不能把原文“自然到期”改写成已确认的即时撤销策略。
+- 一次已开始的流不会因数据库改动自动收回已发出的字节。实现必须在 token 到期时停止继续输出并取消 R2 读取，避免无 Range 的长响应越过“封禁后最多 30 分钟”的上限；到期前签发的续期不延长旧流的截止时间，新的签发/续期重新检查状态。
+- **建议，待站长确认（不作为已定需求）**：视频和每条字幕分别签发资源专用 token；字幕 token 仍携带所属 `mediaFileId`，`resourceType = subtitle`，只对一个 `subtitleTrackId` 有效。替代方案是媒体 token 可读同一单元的关联字幕，但不允许跨单元；两者需选定后冻结 HTTP 契约，不能把“同样机制”默认解释成“同一个 token”。
+- 自动续期已定，具体提前量、重试次数和播放器换 URL 的方式未定。建议播放页在到期前请求同一签发 action 并保留播放位置；后台返回 `expiresAt`，401/403 后停止续期并转登录/提示，临时 503 不无限重试。开发时验证两小时播放、拖动及字幕切换，不能假定换 URL 一定无缝。
+
+#### 6.6.2 R2 与 HTTP Range 契约
+
+鉴权先于 HEAD、Range 判断、条件响应和任何 R2 读取。Worker 使用私有 R2 binding，将资源 ID 映射到 D1 中的对象键，不重定向到 R2，也不返回可绕过 Worker 的预签名地址。
+
+| 请求 | 外部行为 |
+| --- | --- |
+| `GET` 无 Range | `200 OK`，流式返回整文件，`Content-Length` 为对象总字节数，不带 `Content-Range`。到 token 截止时间取消尚未发送的流。 |
+| `GET` 单个有效字节范围 | 支持 `bytes=start-end`、`bytes=start-`、`bytes=-suffix`，把原始 Range 头交给 R2 的 ranged read，不能先取全文件再切片；返回 `206`，以实际返回范围计算头和长度。end 超出尾部时截断到文件末尾。 |
+| 范围无法满足 | start 超出文件、反向范围或零长度 suffix 返回 `416 Range Not Satisfiable`，`Content-Range: bytes */total`，无媒体 body；总大小仅在授权通过后可见。 |
+| 非法 Range / 未支持的范围形式 | 格式不合法返回 `400`；非 bytes 单位和有效的多范围请求在 v1 忽略 Range，按无 Range 返回 `200`，不声称支持 multipart，也不拼成错误的单段 206。 |
+| `HEAD` | 经过相同授权，忽略 Range，`200` 返回完整 GET 的元数据和总长度，没有 body；用 R2 `head()`，不为了 HEAD 拉取视频内容。 |
+| `If-Range` | 不能直接假定 R2 支持；Worker 校验 ETag/时间条件，匹配才保留 Range，否则返回完整 `200`。v1 可不实现其他条件缓存响应；任何条件响应都不能绕过鉴权。 |
+| 文件缺失 / 方法不支持 | 缺失返回脱敏 `404`，记录资源 ID 供排查；其他方法返回 `405` 及 `Allow: GET, HEAD`，不开放浏览器上传。 |
+
+- 成功响应设 `Accept-Ranges: bytes`；206 的 `Content-Range` 为 `bytes start-end/total`，`Content-Length = end - start + 1`。R2 对象 `size` 是总大小，不当作部分 body 长度；依据返回的 `range` 核对实际范围，不仅依据请求的 end。
+- MP4 使用 `video/mp4`，字幕使用 `text/vtt; charset=utf-8`；字幕接受同样的资源鉴权和 GET/HEAD 规则。只复制允许的 R2 HTTP 元数据，再覆盖安全/缓存头，不能让上传的 `cacheControl` 变成公开缓存。
+- R2 `body` 以流交给响应；增加截止时间/取消处理时也不能整体 `arrayBuffer()` 或缓存进内存。媒体不压缩、不改写字节，不能让 Content-Length 与 Range 语义偏离；客户端断开时取消上游读取。
+- v1 不将授权媒体响应放进共享 CDN/Cache API；query token 和 Cookie 不能成为“忽略查询参数缓存”的入口。签发结果、200、206、416 和错误均按私密缓存边界处理。日志/追踪必须剔除 query 的 `token`、恢复凭证和 R2 下载地址；按当前官方文档，默认 invocation log 会记录请求 URL，若不能脱敏则关闭该项并保留白名单应用日志，部署前验证实际日志。
+
 ### 6.7 观看进度与片单
 
 - 播放页定期上报播放位置（默认 15 秒一次），暂停和离开页面时也上报一次。进度存在 D1，按“成员 + 可播放单元”保存，所以换设备也能接着看。
 - 播放位置达到总时长的 90% 就标记为已看完（默认值，可调）。成员也可以手动标记。
 - “继续观看”显示成员最近看过、还没看完的可播放单元。如果一集已经看完，就推荐同一部剧的下一集。
 - 收藏只针对作品。片单是有序列表，条目可以是作品或单集，成员可以设为私有或站内公开。
+
+#### 6.7.1 写入与读取约束
+
+- 上报位置必须是有限非负数，不能超出服务端已知总时长；手动已看/未看与自动上报明确区分，不能把缺省 `completed` 当作手动“未看”。看完阈值读取集中配置。
+- 所有进度、收藏及片单写入以当前成员限定 ownership。站内公开片单只返回片单及作品/单集概要，不带所有者的私人进度；私有片单不能通过条目 ID 绕过权限。
+- **建议，待站长确认（不作为已定需求）**：进度采用 `expectedRevision`，迟到/重复上报不能覆盖新版本，冲突后取当前数据再决定是否重报；不简单取位置最大值，以免正常回看无法保存。请求 `expectedRevision`、返回 `revision` 和冲突 `409 / REVISION_CONFLICT` 仅在确认采用版本方案后启用，仍为方案草案。多设备冲突和手动未看能否被后续自动上报覆盖需确认。
+- “下一集”按同一作品的季号、集号排序查询；只有实际已导入可播媒体的单元才能返回播放地址。跨季、缺集时如何提示仍由前端按既有产品行为处理，不伪造不存在的片源。
 
 ### 6.8 离线导入工具
 
@@ -214,6 +354,17 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 
 导入可以重复执行而不产生副作用：记录以 TMDB ID 或季号、集号为唯一键，已经存在的文件会跳过。网站本身不提供内容管理后台，TMDB API Key 只放在站长本地。
 
+#### 6.8.1 输入、预检与断点重试
+
+- 输入契约由明确的 `environment`（仅 `staging` / `prod`）、仓库 manifest 和本机媒体映射组成。媒体映射声明 `kind, tmdbId`，集再声明 `seasonNumber, episodeNumber`，以及仅本地使用的 `videoPath`、字幕 `language, displayName, trackKey, sourcePath`；不靠文件名猜作品或集号，不把本机绝对路径存入 D1。工具启动时展示目标环境并校验资源归属，缺配置或身份歧义立即停止，不能默认写 prod。
+- manifest 约束 v1 可导入作品和季；季条目的 `tmdb_id + season` 映射到所属剧和季号，再从 TMDB 获取季/集身份。电影和剧集分别使用其 TMDB 类型，不以标题匹配。manifest 的 `file` 是 `.jpg` 原图名，页面海报引用必须映射到仓库中存在的 `.webp` 静态资产；本项目海报留在 public，素材 README 中“生产导入 R2”的旧描述不改变 6.1 决策。
+- 上传前完成本地预检：MP4 容器有效、视频 H.264、音频 AAC，解析容器确认 `moov` 位于媒体数据 `mdat` 前而非仅看扩展名；记录时长、字节数和 SHA-256。失败给出具体文件与原因并提示先转码，工具不在线转码，也不自动上传不合格文件。
+- 字幕先按既有规则转为 VTT，再验证 UTF-8、`WEBVTT` 头、cue 时间语法、开始不晚于结束、时间可解析和标签/文本可安全渲染；ASS 转换明确提示样式丢失，不能把 ASS 原文件发布给 v1 播放器。语言限中文/英文，同一轨道用稳定 `trackKey` 识别。
+- TMDB key 仅从站长本机环境变量 `TMDB_API_KEY` 读取，禁止写进输入文件、上传清单或 Worker Secrets。中文缺失保留为空并回退英文，不能把两种文本覆盖为同一列；上游超时/限流可重试，不把失败写成成功的空资料覆盖已有记录。
+- 顺序为“预检及身份确认 → 上传并验证完整 R2 对象 → D1 原子挂接记录”。D1 和 R2 没有跨产品事务；上传过程中不修改现有可播记录，不能让 D1 引用未完成对象。大文件 multipart 的 upload ID、分片进度及校验值保存在本机断点记录，完成后才发布；失效上传重新开始并处理未完成分片。
+- 使用稳定逻辑唯一键和服务端生成的私密对象键防重复。本机检查发现 D1 与 R2 的长度/校验均吻合时跳过；R2 完整但 D1 未提交时可校验后补挂接，D1 存在而 R2 缺失时只补缺文件。相同身份却不同校验值必须报冲突，不能以“幂等”名义覆盖旧可播内容；替换既有媒体不在本次导入规则内。
+- D1 提交失败时，v1 只保留完整且可验证的对象供重试，不在失败路径自动删除对象。如需清理，必须暂停导入并排除并发挂接后另行操作，不能仅凭一次“无引用”检查删除对象。中断后从本机记录和 D1/R2 实际状态重建进度，不相信单一“已上传”标志。最终报告已导入/已跳过/冲突/失败的逻辑 ID 和数量，不输出凭证或远端私密路径；私密路径仅存在本地配置、内部 D1/R2 数据，不进公开仓库或浏览器。
+
 ### 6.9 环境与备份
 
 - staging 和 prod 是两套完全独立的资源，各自有自己的 Worker、D1 和 R2。
@@ -222,6 +373,40 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 - WebDAV 地址必须能从公网通过 HTTPS 访问，最好用 443 端口。如果它在家里的 NAS 上，推荐用 Cloudflare Tunnel 暴露出来，不需要在路由器上开端口。
 - Cloudflare API Token、WebDAV 账号密码和备份加密密钥都存在 Worker Secrets 里。
 - 视频原片只在站长本地冷备份，不存第二份云端副本。
+
+#### 6.9.1 绑定、Secrets 与集中配置
+
+每个环境分别配置下列逻辑名称，实际资源标识和值不写入公开仓库。未来新建工具链优先使用 `cf`，先查当前帮助再确定命令；本项目尚无 Wrangler 配置，不在本文猜写 CLI 或迁移技术栈。
+
+| 类别 | 建议名称与用途 |
+| --- | --- |
+| Worker bindings | `DB`：本环境 D1；`MEDIA_BUCKET`：本环境私有 R2（媒体、字幕和备份按逻辑用途隔离）；`ASSETS`：公开静态资源；`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`：按确认后的限流策略配置。staging/prod 不共享 Rate Limiting namespace/counters。 |
+| Worker 配置 | `APP_ENV, APP_ORIGIN, WEBAUTHN_RP_ID, TURNSTILE_SITE_KEY`，以及备份目标数据库标识、Cron 调度和兼容日期；真实 Cloudflare 标识只保存在本机/平台配置，缺失或混用环境时拒绝运行。`node:crypto` 支持按选定兼容日期核实，不能只凭 Vitest 自动兼容通过就认定生产可用。 |
+| Worker Secrets | `PLAYBACK_HMAC_KEY`：播放签名；`TOTP_ENCRYPTION_KEY`：TOTP 认证加密；`TURNSTILE_SECRET_KEY`：服务端挑战验证；`CLOUDFLARE_API_TOKEN`：备份导出所需的最小权限；`BACKUP_ENCRYPTION_KEY`：备份加密；`WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD`：HTTPS PUT 目标和凭证。认证库确有要求时再增加 `AUTH_SECRET`，不得与其他密钥复用。 |
+| 仅站长本机 | `TMDB_API_KEY`、目标环境资源映射和离线导入所需的最小权限 D1/R2 凭证；不把导入管理能力做成浏览器接口，不给 Worker 播放路径额外的上传管理 token。 |
+| 集中默认配置 | 邀请额度 `2`、恢复码数量 `10`、重置链接有效期 `24 小时`、看完阈值 `90%`、进度上报间隔 `15 秒`、备份保留 `30 天` 集中维护，沿用原值；播放 token 固定的 `30 分钟` 也统一维护。待确认的新阈值不能先写成默认产品值。 |
+
+本机 `.dev.vars` 使用前确认已被 git 忽略；样例仅用占位符。密钥版本随密文/token 保存；旧密钥必须能解密保留期内的备份和已有 TOTP 数据，轮换时不能先丢弃解密材料。保存位置、轮换周期和丢失处置见 6.11。
+
+#### 6.9.2 每日备份执行与失败行为
+
+1. 每日 Cron 在本环境发起全量 D1 SQL 导出，包括 schema 和全部业务数据；导出无法通过普通 D1 binding 替代。当前官方 API 是 `POST /accounts/{account_id}/d1/database/{database_id}/export`，首次使用 `output_format: 'polling'`，之后以返回的 bookmark 填入 `current_bookmark` 持续轮询同一任务，直至完成或失败；不能伪造同步 dump API。
+2. 导出期间数据库可能无法服务查询，持续轮询中断时平台会取消导出。不得将仍在执行的导出留到第二天 Cron 才继续。完成后及时读取返回的短期 `signed_url` 并流式存入私有 R2 备份对象；不能把下载 URL 返给浏览器、写日志或交给 WebDAV 抓取。
+3. R2 记录本次备份 ID、环境、备份时间、导出 bookmark、schema 版本、长度和 SHA-256；只有完整写入并校验后才标记 R2 完成。备份控制状态可放在私有 R2 元数据/伴随记录，不因此追加业务表；重试复用已验证的备份 ID，避免重复导出和混淆日期。
+4. 从 R2 加密后用 HTTPS `PUT` 推送 WebDAV。采用带版本的认证加密封装（建议 AES-GCM；若分块，每块独立唯一 nonce、认证序号/总块数，并验证最终完整性）；大小不得要求整个 SQL 常驻内存，采用有界缓冲/流处理。目标只能来自 Secret，不跟随把授权头带到其他主机的重定向。只有 R2 完成、加密完整、WebDAV 成功且可校验上传一致性后，才记录“备份完整成功”；超时或响应不确定先核对再重试，不上传未加密 SQL。
+5. 导出/R2 失败不创建成功标记；WebDAV 失败保留完整 R2 副本和脱敏失败状态，重试同一加密任务，不重新消费不必要的导出。保留 `30 天` 按集中配置清理两端已完成备份，清理失败可重试，不把部分失败当作已删除；媒体对象与备份清理前缀必须隔离。失败时是否额外保住最后一份旧备份、如何告警和何时重试属 6.11 待决策略。
+
+每日 Cron 当前最长执行时间为 15 分钟，导出轮询、加密和 PUT 全程应被 scheduled 生命周期等待，不依赖 HTTP 返回后 30 秒的 `waitUntil`。必须在 staging 测量备份大小、耗时和内存；若不能在单次时限内完成，报告站长决定调度/恢复办法，不能擅自引入 Queues、Workflows 或其他新产品。Cron 时刻、导出查询中断的维护窗口以及失败后的主动重试尚未确定。
+
+#### 6.9.3 手动恢复顺序与完整性
+
+1. 站长选择正确环境及恢复点，先阻止目标上的写入/导入并保留当前恢复点；具体维护入口待确认。Time Travel 原地恢复会覆盖目标数据并取消进行中的查询，不能当作普通在线查询。
+2. 优先按事故选择 Time Travel 或完整备份。WebDAV 副本须验证密文认证、备份元数据、长度和校验，先在 Cloudflare 内解密到私有对象再导入；不在本机下载未加密 SQL，不让包含密码哈希/TOTP 数据的明文副本离开 Cloudflare。
+3. SQL 恢复使用当时官方支持的导入流程。当前 D1 REST import 为 `init → 上传 SQL → ingest → poll`，参数和临时地址以官方响应为准；上传及轮询在 Cloudflare 内完成，不能把 SQL 文本交给站长本机 CLI 作为中间明文文件。先在隔离目标验证，确认 schema 兼容、外键完整、业务计数与摘要一致，再执行目标切换/原地恢复；选择哪一种恢复目标见 6.11。
+4. 验证 `media_files` 和字幕关联的 R2 对象确实存在且长度/校验匹配；**恢复 D1 不会恢复 R2 媒体，也不会恢复 Worker Secrets**。缺媒体时需从站长本地冷备及字幕原件重新导入；尚未补齐的文件保持不可播，不先开放错误地址。备份所需的历史解密密钥必须单独保管。
+5. 恢复可能带回旧会话、已消费的邀请码/恢复码、旧角色和封禁前状态。**建议，待站长确认（不作为已定需求）**：重新开放前撤销恢复出的会话、使旧播放 token 无效，并复核恢复点之后的封禁/权限与一次性凭证变更；具体重放或统一撤销办法须先确认，不能承诺回滚后这些状态自动安全。
+
+平台行为核对于 2026-10-04，开发时按实际兼容日期再核实：[D1 batch / Sessions](https://developers.cloudflare.com/d1/worker-api/d1-database/)、[外键](https://developers.cloudflare.com/d1/sql-api/foreign-keys/)、[R2 ranged read / If-Range 边界](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)、[Rate Limiting 一致性](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)、[node:crypto](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)、[D1 export](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/export/)、[D1 import](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/import/)、[Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)、[Workers 执行时限](https://developers.cloudflare.com/workers/platform/limits/)、[URL invocation logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)。
 
 ### 6.10 成本估算
 
@@ -234,6 +419,24 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | 合计 | 约 31 美元/月，在 50 美元的预算以内 |
 
 以后如果增加 HLS 多档码率，存储会涨到 2.2 至 3 TB，每月约 38 至 50 美元，那时需要重新评估是否保留原始 MP4。
+
+### 6.11 实现前待站长确认（不作为已定需求）
+
+以下仅列原文未定或无法推导的产品/运维策略，不阻止完成已有边界内的设计；确认后更新对应契约和验收条件。
+
+| 事项 | 需要决定的内容 / 当前建议 |
+| --- | --- |
+| 认证实现与账号规则 | Better Auth 或自研，先验证上述 scrypt、D1 原子写入和插件契约；用户名大小写/Unicode 规范化、长度及密码规则。不能自行加邮箱/OAuth 登录。 |
+| 首个管理员与角色边界 | 首个站长账号怎样创建、初次 TOTP 怎样绑定；管理员敏感操作强制 TOTP 的范围/期限，以及最后一位管理员、自我降权/封禁是否保护。保持两种角色。 |
+| 会话与认证组合 | 会话期限、滑动续期、注册/恢复后是否自动登录；普通改密撤销哪些会话；通行密钥是否仍需已开启的 TOTP；TOTP 时钟窗口和再验证挑战期限。 |
+| 恢复后的认证设备 | 原文“开发时再定、默认清除”继续保留待决；确认恢复码和重置链接分别是否清除 TOTP/通行密钥、再次签发是否撤销旧重置链接。 |
+| 公开恢复入口 | 原文访客仅看登录/注册、测试又拒绝其他页面；建议恢复/重置作为专用公开表单例外，或嵌入登录页，不默认扩大公开页面。 |
+| 邀请额度 | 生成/使用时扣额，作废/过期是否返还，管理员降额低于已发/已用数量时的处理，邀请码的缺省有效期、发出人封禁后未用码是否仍可注册；不预设周期补额。 |
+| 连带封禁与解封 | 仅直接邀请人或全部后代、管理员节点如何处理、并发新增邀请的边界；是否提供解封及连带恢复规则。没有确认前不增加解封 action。 |
+| 媒体访问与续期 | 建议 Cookie + 会话/凭证版本绑定、主库即时检查；须确认退出/撤销后旧 token 的处理。确认字幕专用 token 或同单元共享授权，以及续期提前量、失败重试/换 URL 策略。30 分钟有效期和封禁停止上限不改。 |
+| 进度与片单 | 多设备/迟到上报的冲突规则，手动未看与后续自动完成的优先级，片单是否允许重复目标。建议版本条件写入，不能把建议当既定跨设备产品行为。 |
+| 限流 | 各入口请求数/窗口、连续失败阈值、Turnstile 触发和解除、计数保留/衰减；确认后集中配置，不新增未经同意的数值默认。 |
+| 备份与恢复运维 | Cron 时刻、允许的导出维护窗口、重试/告警、WebDAV 完整性核对能力；30 天清理与最后可用副本保护的取舍；备份密钥保管/轮换，恢复目标及重开时会话、封禁和一次性凭证处理。D1 恢复不能替代媒体冷备。 |
 
 ## 7. 测试决策
 
@@ -250,6 +453,25 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
   - 访问控制：未登录时访问除登录页、注册页和静态资源以外的任何页面，都会跳转或被拒绝。
 - 测试边界二：离线导入工具。用一份精简的样例 manifest、几个很小的样例视频和字幕文件，导入到本地的 D1 和 R2。验证数据是否正确写入、连续导入两次结果是否一致，以及格式不对的视频是否被拒绝。
 - 备份定时任务：把 WebDAV 目标换成本地模拟服务，验证上传的内容是加密的，并且解密后能正常还原。
+
+### 7.1 后端补充验收条件
+
+沿用外部可观察行为的边界，HTTP 集成使用 `@cloudflare/vitest-pool-workers` 的真实 Workers 运行时和本地 D1/R2；只观察请求、响应、数据及对象状态，不断言内部函数调用。涉及 6.11 的策略用例在站长确认后冻结期望，本地模拟不宣称验证了线上复制延迟、Rate Limiting 全局精度或实际导出耗时。
+
+| 领域 | 可验收场景 |
+| --- | --- |
+| 数据关系 | 电影与集均可播放；电影仅一个 v1 MP4；季/集唯一键和同作品外键生效；重复/错误关联不能留下孤立媒体、字幕或片单条目；同语言字幕用不同轨道身份不互相覆盖。 |
+| 注册/邀请并发 | 同一个邀请码并发注册仅一个成功；失败的用户名冲突不消费码；发码并发和相同 `operationId` 重试不超额/重复扣额，响应丢失不重复发码；额度、作废和过期按确认策略验收。不能以 batch 成功掩盖条件更新 0 行。 |
+| 认证与限流 | 正常密码、通行密钥和 TOTP 流程；挑战错用途/过期/重放被拒绝；连续失败达到已配置阈值时要求 Turnstile，伪造、重放、错 hostname/action 被拒绝，验证依赖失败不放行。共享 IP 下不同成员不会仅因同 IP 耗尽登录预算；正常 Range/拖动不消耗该预算。 |
+| 恢复与会话 | 恢复码/重置链接并发消费仅一次成功；GET 链接预览不消费；恢复后所有旧会话失效、密码已更新；重新生成恢复码后旧组失效；他人不能撤销/列举我的会话，恢复不能解除封禁。认证设备清理和普通改密按确认结果验收。 |
+| 管理与 ownership | 普通成员不能发管理员请求；管理员敏感操作按已确认的 TOTP 规则拒绝缺失/旧/错目标证明；只封本人不影响邀请人，连带只影响确认范围且会话全部撤销。进度、收藏、私有片单和邀请不能用替换 ID 越权，公开片单可读但非所有者不可写；片单冲突重排整体失败。 |
+| token | 篡改、到期、未来异常时间、错环境、错文件/字幕/单元、另一成员请求均拒绝；签发/续期拒绝封禁或失效会话；GET/HEAD 未授权不暴露文件大小/类型。确认即时检查方案后测试退出/撤销/恢复的下一个 Range 拒绝；跨到期的已开启流不能继续输出。 |
+| Range | 对已知字节夹具验证完整 200、HEAD 无 body、闭区间/开放尾/后缀 206、end 截断、尾外/反向/零后缀 416、错误语法 400、多范围/非 bytes 回退 200 和 If-Range 不匹配回退；逐项核对 body 字节、`Content-Range`、`Content-Length`、`Accept-Ranges`、类型和私密缓存头。字幕同样验证授权。 |
+| 响应与隐私 | 直接请求受保护 loader 数据/action 也须认证；跨站 action/CSRF 失败；公开资产、错误、重定向、媒体均 noindex；robots 禁止全部。浏览器响应不含内部 R2 key/URL 或 Worker Secrets；验证发码/恢复码签发、TOTP 绑定及播放签发仅向有权接收者返回必要一次性凭证、绑定材料或短期授权地址，列表、无关响应和错误不带凭证原值或完整 token。捕获日志始终不含凭证原值、完整 token（包括 query token）、内部 R2 key/URL 或 Worker Secrets；默认平台 URL 日志在 staging 单独检查。 |
+| 导入 | ffmpeg 生成小片段，合法/错误 codec、非 faststart、损坏 MP4、非法 VTT 分别验证；manifest 季身份、JPG→WebP 映射和双语回退正确；两次导入无重复。注入上传中断、R2 已完成/D1 失败、D1 有记录/R2 缺失和校验冲突；D1 提交失败后完整对象仍保留，不触发自动删除，重试只补缺，不破坏旧片源/并发引用。 |
+| 备份/恢复 | 模拟导出轮询、失败、下载过期、R2 失败、WebDAV 拒绝/超时；失败不出现完整成功标记，不外传明文，重试核对既有对象；密文篡改/截断/错密钥不能恢复。恢复到隔离 D1 后检查 schema、外键、计数、一次性状态及 R2 引用，缺媒体明确不可播；保留清理不删媒体，按确认策略测试会话/封禁复核。 |
+
+备份测试用本地模拟 Cloudflare export/import 与 WebDAV HTTP 服务，只用虚构成员；生产未加密备份不能用于本机测试。部署前在 staging 另验 D1 导出生命周期/维护影响、Cron 时限、实际内存、scrypt 运行时、限流绑定和日志配置，不能用本地通过替代这些平台验证。当前仓库尚无应用代码、package.json、迁移或 runner，本次只补充测试计划，不声称已运行这些用例。
 
 ## 8. 范围外（后续版本）
 
