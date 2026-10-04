@@ -6,6 +6,7 @@ import { displayTitle, episodeCode, formatRuntime, getWork, MOVIES, SERIES, type
 import { actions, useStore, workProgress, type Progress } from "@/data/store"
 import { cn } from "@/lib/utils"
 import { AddToPlaylist } from "@/components/site/add-to-playlist"
+import { EpisodeStill } from "@/components/site/episode-still"
 import { Poster, ProgressBar, WatchedBadge } from "@/components/site/media"
 import { Page, Panel, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel"
 import { IconTile } from "@/components/ui/icon-tile"
@@ -151,7 +152,8 @@ function EpisodeRow({ ep }: { ep: Episode }) {
       <div className="flex w-14 shrink-0 flex-col items-center justify-center gap-1 font-mono text-xs text-muted-foreground sm:w-16">
         <span className="tabular-nums">{String(ep.number).padStart(2, "0")}</span>
       </div>
-      <div className="flex min-w-0 flex-1 items-center gap-3 border-l border-dashed border-line py-3 pr-2 pl-4">
+      <div className="flex min-w-0 flex-1 items-center gap-2 border-l border-dashed border-line py-3 pr-2 pl-3 sm:gap-3 sm:pl-4">
+        <EpisodeStill src={ep.still} />
         <div className="min-w-0 flex-1">
           <h3 className="flex items-center gap-2 leading-snug font-medium">
             <Link to={`/watch/${ep.id}`} className="truncate outline-none after:absolute after:inset-0 focus-visible:underline">
@@ -160,14 +162,14 @@ function EpisodeRow({ ep }: { ep: Episode }) {
             {zhMissing && <Tag className="shrink-0">EN</Tag>}
           </h3>
           <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground max-sm:line-clamp-1">{ep.overviewZh ?? ep.overviewEn}</p>
-          <div className="mt-1.5 flex items-center gap-3 font-mono text-xs text-muted-foreground">
-            <span>{episodeCode(ep)}</span>
-            <span>{ep.runtimeMin} 分钟</span>
-            {watched && <WatchedBadge />}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-muted-foreground">
+            <span className="whitespace-nowrap">{episodeCode(ep)}</span>
+            <span className="whitespace-nowrap">{ep.runtimeMin} 分钟</span>
+            {watched && <span className="max-sm:basis-full"><WatchedBadge /></span>}
             {inProgress && (
-              <span className="flex items-center gap-2">
-                <ProgressBar value={pr.positionSec / pr.durationSec} className="w-16" />
-                剩 {Math.round((pr.durationSec - pr.positionSec) / 60)} 分钟
+              <span className="flex min-w-0 basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:basis-auto">
+                <ProgressBar value={pr.positionSec / pr.durationSec} className="w-12 shrink-0 sm:w-16" />
+                <span className="whitespace-nowrap">剩 {Math.round((pr.durationSec - pr.positionSec) / 60)} 分钟</span>
               </span>
             )}
           </div>

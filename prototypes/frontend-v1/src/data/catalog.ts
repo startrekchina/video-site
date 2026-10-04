@@ -2,6 +2,7 @@
 // fetched by scripts/fetch-tmdb.mjs, zh-CN with en-US fallback). This mirrors
 // what the offline import tool (requirements 6.8) will write into D1.
 import manifest from "../../../../public/assets/posters/star-trek/manifest.json"
+import stillManifest from "../../../../public/assets/stills/star-trek/manifest.json"
 import tmdb from "./tmdb.json"
 
 type ManifestEntry = (typeof manifest)[number]
@@ -19,6 +20,7 @@ export type Episode = {
   overviewEn: string
   runtimeMin: number
   airDate: string | null
+  still?: string | null
 }
 
 export type Season = {
@@ -51,6 +53,11 @@ export type Work = {
 }
 
 const POSTER_DIR = "/assets/posters/star-trek/"
+const STILL_DIR = "/assets/stills/star-trek/"
+const STILLS = new Map(stillManifest.episodes.map((ep) => [
+  `${ep.tmdbId}/${ep.season}/${ep.episode}`,
+  ep.file ? STILL_DIR + ep.file : null,
+]))
 
 // Short codes (TOS, TNG, …) are fan conventions, not TMDB data.
 const SERIES_CODE: Record<string, string> = {
@@ -163,6 +170,7 @@ function build(): Work[] {
             overviewEn: ep.overview.en ?? "",
             runtimeMin: ep.runtimeMin ?? 45,
             airDate: ep.airDate,
+            still: STILLS.get(`${main.tmdb_id}/${p.season!}/${ep.number}`) ?? null,
           }
         }),
       }

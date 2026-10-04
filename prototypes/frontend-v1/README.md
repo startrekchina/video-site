@@ -8,6 +8,7 @@
 2. `docs/requirements.md` 的 v1 用户故事能不能落到一套完整、不打架的页面和导航结构里。
 3. ArtPlayer 在这套风格里的样子，以及中英字幕切换、续播、下一集提示、键盘操作的交互细节。
 4. 播放页评论区的定稿形态（需求外，站长要求试做），见下文“播放页评论区”。
+5. 非播放页的选集列表能否用小尺寸单集剧照辅助辨认，同时保留标题、观看状态和操作按钮的空间。
 
 ## 运行
 
@@ -22,6 +23,26 @@ pnpm dev          # http://localhost:6120（监听 0.0.0.0，局域网可访问�
 `pnpm build` 会先做类型检查再打包。测试视频 `src/media/test-clip.mp4` 是用 ffmpeg 生成的 60 秒测试图（H.264 + AAC，faststart），不提交到 git；字幕 VTT 已提交。所有单集和电影都播放同一段测试片段。
 
 剧集与电影资料已缓存进 `src/data/tmdb.json`，随仓库提交、开箱即用。要重新从 TMDB 拉取（例如新增作品或更新资料）时，先在环境变量里设置 `TMDB_API_KEY`（key 只留在本机，不提交进仓库），再运行 `node scripts/fetch-tmdb.mjs`。
+
+## 非播放页单集剧照
+
+`/title/:slug` 的按季选集列表使用 TMDB 季页面中的单集剧照，按作品 TMDB ID、季号、集号与 `public/assets/stills/star-trek/manifest.json` 匹配。`Episode.still` 可为空；缺图或加载失败都保留相同尺寸的中性占位，不用作品或季海报代替。播放页及其选集列表保持不变，播放器时间轴预览图仍在需求范围外。
+
+- 图片放在原有虚线边框内、标题左侧，手机 80×45，`sm` 起 112×63。标题和简介继续截断，观看状态与进度在窄屏换行，标记已看按钮始终独立可用。
+- 本地图片统一为 240×135 WebP、质量 55；输入取 TMDB 未裁切的 `w300` 图片，等比缩放并补边，4:3 画面不拉伸、不裁切。浏览器只加载本地 WebP，不向 TMDB 发图片请求。
+- 图片是辅助辨认的装饰，使用空 `alt`、`loading="lazy"`、`decoding="async"`；固定尺寸在加载前后不变。素材来源与每集来源页保存在 manifest 中，详细说明见 [`../../public/assets/stills/star-trek/README.md`](../../public/assets/stills/star-trek/README.md)。
+
+已生成的图片随仓库提供，启动原型无需采集。重建素材需 `curl.exe`、支持 `libwebp` 的 FFmpeg，以及已连接的 Kimi WebBridge 浏览器扩展；在同一 `WEBBRIDGE_SESSION` 会话中先打开任意 TMDB 页面，不需要 TMDB API key。在原型目录运行：
+
+```bash
+node scripts/fetch-episode-stills.mjs --all       # 采集来源、下载、压缩并写 manifest
+node scripts/fetch-episode-stills.mjs --collect   # 只采集来源，写本地缓存
+node scripts/fetch-episode-stills.mjs --compress  # 使用来源缓存下载、压缩并写 manifest
+```
+
+原图与 `sources.json` 只保存在 Git 忽略的 `assets-raw/episode-stills/`。采集连接可用 `WEBBRIDGE_URL`、`WEBBRIDGE_SESSION` 指定，详情见素材 README。剧照仅延续原型素材展示用途，不代表取得了再分发许可。
+
+`pnpm test` 运行 Node 测试，验证逐集索引、来源记录、本地 WebP 文件与尺寸、目录匹配和空图回退、装饰图片与占位的渲染，以及采集脚本缓存复用的边界行为。它不启动 HTTP 服务，也不连接 TMDB。已通过 Kimi WebBridge 验证 1440×1000 桌面和 360×800 手机布局、切季、已看状态切换及图片加载失败占位；截图见 [桌面](screenshots/episode-stills-desktop.png)、[手机](screenshots/episode-stills-mobile.png)、[手机观看进度](screenshots/va-tng-s3-mobile.png)。
 
 ## 怎么用
 
