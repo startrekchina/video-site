@@ -86,11 +86,13 @@ HLS、ASS 渲染、弹幕、同时播放数限制、OAuth 登录等范围外功�
 ```bash
 pnpm install --frozen-lockfile
 cp .dev.vars.example .dev.vars   # 本地占位 Secrets，不提交
+pnpm db:migrate:local            # 先应用 D1 迁移，状态与 cf dev 共用
 pnpm dev                         # cf dev，监听 0.0.0.0:6120
 ```
 
 | 命令 | 作用 |
 | --- | --- |
+| `pnpm db:migrate:local` | `cf d1 migrations apply`：将 `migrations/` 应用到本地占位 D1，持久化到被忽略的 `.cloudflare/state`，可重复运行 |
 | `pnpm typecheck` | 由 `cloudflare.config.ts` 生成绑定类型、生成路由类型，再运行 `tsc` |
 | `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟，Secrets 取 `.dev.vars.example` 的占位值 |
 | `pnpm build` | development 模式构建到 `.cloudflare/output/v0` |
