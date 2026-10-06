@@ -48,3 +48,9 @@ id_ed25519.pub
 
 # local worktrees
 .worktree/
+
+# formal app build and local state
+/.react-router
+/.cloudflare
+.dev.vars*
+!.dev.vars.example

@@ -77,7 +77,27 @@ HLS、ASS 渲染、弹幕、同时播放数限制、OAuth 登录等范围外功�
 - 媒体存储：Cloudflare R2（私有）
 - 播放器：ArtPlayer
 
-工具链基线（`cf` CLI、`@cloudflare/vite-plugin` 2.0 beta、Workers Vitest）及已知限制见 [`PLAN.md`](PLAN.md) 第 2 节；本地开发和部署步骤随正式工程骨架补充。
+工具链基线（`cf` CLI、`@cloudflare/vite-plugin` 2.0 beta、Workers Vitest）及已知限制见 [`PLAN.md`](PLAN.md) 第 2 节。
+
+## 本地开发
+
+需要 Node 22.18+（推荐 24）和 pnpm 12。正式工程在仓库根目录，与 `prototypes/frontend-v1/` 互不依赖。
+
+```bash
+pnpm install --frozen-lockfile
+cp .dev.vars.example .dev.vars   # 本地占位 Secrets，不提交
+pnpm dev                         # cf dev，监听 0.0.0.0:6120
+```
+
+| 命令 | 作用 |
+| --- | --- |
+| `pnpm typecheck` | 由 `cloudflare.config.ts` 生成绑定类型、生成路由类型，再运行 `tsc` |
+| `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟，Secrets 取 `.dev.vars.example` 的占位值 |
+| `pnpm build` | development 模式构建到 `.cloudflare/output/v0` |
+| `pnpm build:staging` / `pnpm build:production` | 按环境构建；需要本机 `.env`（见 `.env.example`），缺少资源标识时构建失败 |
+| `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
+
+`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
 
 ## 许可证
 

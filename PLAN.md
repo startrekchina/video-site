@@ -47,16 +47,17 @@
 
 ### T2.2 正式工程骨架
 
-- [ ] 在仓库根目录建立 React Router v7 + Workers 正式工程（`app/`、`workers/`、`cloudflare.config.ts`、`vite.config.ts`、`react-router.config.ts`、`tsconfig.json`、`vitest.config.ts`），`public/` 作为公开静态资源。
+- [x] 在仓库根目录建立 React Router v7 + Workers 正式工程（`app/`、`workers/`、`cloudflare.config.ts`、`vite.config.ts`、`react-router.config.ts`、`tsconfig.json`、`vitest.config.ts`），`public/` 作为公开静态资源。
 - [ ] `pnpm dev`（`cf dev`，`0.0.0.0:6120`）、`pnpm typecheck`、`pnpm build`（及 `build:staging` / `build:production`）、`pnpm test` 均可运行；`.gitignore` 覆盖 `node_modules`、`build`、`.cloudflare`、`.react-router`、`.dev.vars*`、`.env*`。
-- [ ] 公共响应约定先落地并有测试：所有动态响应带 `X-Robots-Tag: noindex`、`Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff`；HTML 默认 `Cache-Control: private, no-store`；`GET /robots.txt` 返回 `User-agent: *` 与 `Disallow: /`；静态资源经 `public/_headers` 带 noindex（需求 6.1、6.1.1）。
+  - 进展：`typecheck`、`test`、`build`、`build:staging`、`build:production`（占位 `.env`）均已通过，忽略规则已补齐。`pnpm dev` 的同款配置已在探针中于其他端口验证；6120 目前被 `.worktree/frontend-v1` 的原型 dev server 占用，按规则未关闭，正式工程尚未在 6120 实际启动（见第 5 节）。
+- [x] 公共响应约定先落地并有测试：所有动态响应带 `X-Robots-Tag: noindex`、`Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff`；HTML 默认 `Cache-Control: private, no-store`；`GET /robots.txt` 返回 `User-agent: *` 与 `Disallow: /`；静态资源经 `public/_headers` 带 noindex（需求 6.1、6.1.1）。静态资源头在 staging 部署后另行核对。
 - 验收：上述命令全部通过；Workers Vitest 中请求 `/`、`/robots.txt`、不存在的路径，断言状态码与安全头；不依赖 `prototypes/`。
 
 ### T2.3 环境、绑定与 Secrets
 
-- [ ] `cloudflare.config.ts` 声明需求 6.9.1 的逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`、发件配置项，以及 Secrets `PLAYBACK_HMAC_KEY`、`TOTP_ENCRYPTION_KEY`、`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`。
-- [ ] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；缺失或混用时构建失败。
-- [ ] 集中默认配置（需求 6.9.1 “集中默认配置”整行，含全部限流数值、会话期限、TOTP 参数、额度、分页和 token 时长）落在一个服务端模块并有单测核对数值。
+- [x] `cloudflare.config.ts` 声明需求 6.9.1 的逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`TOTP_ENCRYPTION_KEY`、`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`。发件人地址、发件域名和邮件 API 基础地址等发件配置项待站长提供已购服务的 API 文档后在第三阶段加入，不预先猜写。
+- [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；缺失或混用时构建失败。
+- [x] 集中默认配置（需求 6.9.1 “集中默认配置”整行，含全部限流数值、会话期限、TOTP 参数、额度、分页和 token 时长）落在一个服务端模块（`app/lib/settings.server.ts`）并有单测核对数值。
 - [ ] **阻塞（待站长授权）**：用 `cf d1 create`、`cf r2 buckets create` 创建 staging / prod 的 D1 与私有 R2，确定 Rate Limiting namespace，写入线上 Secrets，并决定 staging 的访问域名；Cron 表达式 `0 20 * * *` 在备份任务实现时再加入。
 - 验收：`cf deploy --prebuilt --mode staging --dry-run` 与 `--mode production` 列出各自独立的绑定；仓库内 `git grep` 不出现真实 ID 或密钥。
 
@@ -102,7 +103,9 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面�
 | Better Auth 是否满足需求规则 | 待 T2.4 | 有差距时由站长决定 |
 | 已购发件服务的 API 文档与配置 | 阻塞，第三阶段前需要 | 站长提供后接入，测试用本地模拟服务 |
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | 待 staging 资源 | 第六阶段执行，不以本地结果代替 |
+| 6120 端口被原型 dev server（`.worktree/frontend-v1`）占用 | 阻塞正式工程的本机 dev 与浏览器验收 | 按规则不关闭他人实例；需站长决定是否停止原型 dev server，让正式工程使用 6120 |
 
 ## 6. 进展与验证记录
 
 - 2026-10-05：完成工具链探针（见第 2 节），建立本计划。
+- 2026-10-06：T2.2 / T2.3 骨架完成。`pnpm typecheck` 通过；`pnpm test` 2 个文件 5 项通过（首页、robots.txt、404 的状态码与安全头；集中配置数值；测试环境绑定）；`pnpm build` 通过；以占位 `.env` 执行 `build:staging` / `build:production` 后 `cf deploy --prebuilt --dry-run` 分别列出独立的 Worker、D1、R2 与 Rate Limiting 绑定，缺少 `.env` 时构建明确失败。T2.4 的两次子代理执行均中途失败、未产出结果，POC 改为重新组织执行。
