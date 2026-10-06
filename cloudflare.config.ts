@@ -21,6 +21,7 @@ function environment(mode: string) {
       return {
         worker: "video-site-dev",
         resource: "video-site-dev",
+        mediaBucket: "video-site-dev-media",
         d1Id: LOCAL_D1_ID,
         rateLimitBase: 1000,
         appOrigin: process.env.APP_ORIGIN ?? "http://localhost:6120",
@@ -28,8 +29,9 @@ function environment(mode: string) {
       };
     case "staging":
       return {
-        worker: "video-site-staging",
-        resource: "video-site-staging",
+        worker: "stcn-video-site-staging",
+        resource: requiredEnv("STAGING_D1_DATABASE_NAME"),
+        mediaBucket: requiredEnv("STAGING_MEDIA_BUCKET_NAME"),
         d1Id: requiredEnv("STAGING_D1_DATABASE_ID"),
         rateLimitBase: 2000,
         appOrigin: requiredEnv("STAGING_APP_ORIGIN"),
@@ -37,8 +39,9 @@ function environment(mode: string) {
       };
     case "production":
       return {
-        worker: "video-site",
-        resource: "video-site-production",
+        worker: "stcn-video-site",
+        resource: requiredEnv("PRODUCTION_D1_DATABASE_NAME"),
+        mediaBucket: requiredEnv("PRODUCTION_MEDIA_BUCKET_NAME"),
         d1Id: requiredEnv("PRODUCTION_D1_DATABASE_ID"),
         rateLimitBase: 3000,
         appOrigin: "https://video.startrekchina.org",
@@ -60,13 +63,23 @@ export default defineConfig(({ mode = "development" }) => {
       entrypoint,
       compatibilityDate: "2026-09-25",
       compatibilityFlags: ["nodejs_compat"],
+      domains: mode === "staging" || mode === "production" ? [new URL(e.appOrigin).hostname] : [],
+      workersDev: false,
+      previewUrls: false,
+      observability: {
+        enabled: true,
+        redactQueryString: true,
+        logs: { enabled: true, invocationLogs: false },
+        // Auth tokens also appear in path parameters; enable traces after their redaction is verified.
+        traces: { enabled: false },
+      },
       env: {
         APP_ENV: bindings.text(mode),
         APP_ORIGIN: bindings.text(e.appOrigin),
         WEBAUTHN_RP_ID: bindings.text(new URL(e.appOrigin).hostname),
         TURNSTILE_SITE_KEY: bindings.text(e.turnstileSiteKey),
         DB: bindings.d1({ name: e.resource, id: e.d1Id }),
-        MEDIA_BUCKET: bindings.r2({ name: `${e.resource}-media` }),
+        MEDIA_BUCKET: bindings.r2({ name: e.mediaBucket }),
         // Auxiliary only: quotas are decided by exact D1 counters (requirements 6.3.2).
         AUTH_RATE_LIMITER: rateLimit(1, 10),
         PLAYBACK_RATE_LIMITER: rateLimit(2, 30),
@@ -75,12 +88,7 @@ export default defineConfig(({ mode = "development" }) => {
         PLAYBACK_HMAC_KEY: bindings.secret(),
         BETTER_AUTH_SECRET: bindings.secret(),
         TURNSTILE_SECRET_KEY: bindings.secret(),
-        EMAIL_API_KEY: bindings.secret(),
-        CLOUDFLARE_API_TOKEN: bindings.secret(),
         BACKUP_ENCRYPTION_KEY: bindings.secret(),
-        WEBDAV_URL: bindings.secret(),
-        WEBDAV_USERNAME: bindings.secret(),
-        WEBDAV_PASSWORD: bindings.secret(),
       },
     },
   };

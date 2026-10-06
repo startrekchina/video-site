@@ -6,7 +6,7 @@
 
 v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确认，对应接口行为和第 7 节测试期望已同步。邮箱验证、成员修改邮箱、管理员删评和单个成员解封均纳入 v1；发信沿用站长已购买服务的 HTTPS API。历史备份恢复后保留讨论，由管理员手动重新删除不应恢复的内容。
 
-规则确认**不代表功能已实现或已验收**：正式开发处于第二阶段“工程基础”，工程骨架、环境声明、D1 迁移 / 约束 / 夹具和前端基础已落地。Better Auth/passkey 已锁定 1.7.7，原生服务端配置、认证表 0008 迁移、Secrets/常量适配及 21 项新基线探针完成，全部 105 项 Workers 测试、类型检查、构建和本地迁移通过。T2.7 的旧成员/业务外键/凭证迁移与关于页新文案尚未完成；认证 HTTP 路径尚未挂载，完整邀请/权限/发信流程按第三阶段接入。旧 POC 的 29 项测试保留作历史差距证据；云端资源、已购发件服务接入和平台实测仍待完成。详细进展见 [`PLAN.md`](PLAN.md)。前端参考原型保留在 `prototypes/frontend-v1/`。
+规则确认**不代表功能已实现或已验收**：正式开发处于第二阶段“工程基础”，工程骨架、环境声明、D1 迁移 / 约束 / 夹具和前端基础已落地。Better Auth/passkey 已锁定 1.7.7，原生服务端配置、认证表 0008 迁移、Secrets/常量适配及 21 项新基线探针完成，全部 105 项 Workers 测试、类型检查、构建和本地迁移通过。staging 已复用站长既有 Worker、域名和私有媒体桶，隔离新 D1 应用 8 个迁移，四项 Secrets 与正式工程部署及 HTTPS 冒烟检查通过；production 资源映射和独立密钥已准备，尚未上线。T2.7 的旧成员/业务外键/凭证迁移与关于页新文案尚未完成；认证 HTTP 路径尚未挂载，完整邀请/权限/发信流程按第三阶段接入。旧 POC 的 29 项测试保留作历史差距证据；已购发件服务、备份外部凭证和平台实测仍待完成。详细进展见 [`PLAN.md`](PLAN.md)。前端参考原型保留在 `prototypes/frontend-v1/`。
 
 ## 文档
 
@@ -38,7 +38,7 @@ v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确�
 
 - [x] 建立根目录 `PLAN.md`，把功能顺序和验收条件整理为可执行待办；工具链已在本机探针中验证。
 - [x] 使用 `cf` CLI 建立 React Router v7 + Workers 正式工程，配置类型检查、构建和 Workers Vitest 测试入口；不使用 Wrangler。
-- [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；配置声明、占位构建 / dry-run 与 `0.0.0.0:6120` 本地开发已验证，云端资源及线上 Secrets 待授权。
+- [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；staging 当前工程、8 个迁移、四项 Secrets 及 HTTPS 冒烟检查通过。production 资源与独立密钥已准备，尚未迁移或部署；邮件/备份外部凭证仍待提供。
 - [x] 完成 Better Auth 旧规则 POC 与差距报告；29 项测试是行为/差距证据，不等于新方案验收。
 - [x] 站长决定调整需求并采用 Better Auth；需求、接口、验收和计划已同步，变更索引见需求 6.3.4。
 - [x] 落地旧基线 D1 迁移/约束与虚构成员、生成媒体/字幕夹具；已新增锁定库的原生认证表，旧成员与业务外键仍待迁移。
@@ -111,6 +111,12 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 | `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
 
 `cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
+
+已授权的云端配置复用既有 Worker，D1 名称/ID 与媒体桶名由 `.env.example` 所列环境变量分别映射；旧 staging 数据库因 schema 不兼容而保留，当前工程使用新库，不对旧库套用迁移。staging 沿用原有自定义域名，production 使用本文确定的正式域名；Custom Domain 由 `worker.domains` 管理，workers.dev 与版本预览入口关闭。
+
+`bindings.secret()` 在实际部署时要求值齐全。当前只声明四项已准备的 Secrets；邮件 API、备份 API Token 和 WebDAV 凭证随对应模块接入再声明，禁止用样例值满足线上检查。本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，授权部署时可用 `pnpm exec cf deploy --prebuilt --mode staging --secrets-file .dev.vars.staging.secrets.json` 上传。密钥还须由站长保存到密码管理器和离线副本，保管/轮换见需求 6.9.1。
+
+线上启用应用日志和 query 脱敏，关闭含请求 URL 的 invocation logs；原生 traces 的凭证路径脱敏验证前保持关闭。配置核对和页面冒烟检查不替代第六阶段的真实日志内容、安全与性能验收。
 
 测试数据工厂 `test/fixtures/catalog.ts` 只创建虚构成员、作品、季和集。需要媒体夹具时，安装 PATH 上可用的 ffmpeg 后运行 `node scripts/gen-test-media.mjs`：生成 4 秒 H.264 + AAC、faststart 的 MP4 到被忽略的 `test/fixtures/media/`，可重复生成。自行编写的中英文 VTT 在 `test/fixtures/subtitles/` 中随代码提交；约束测试不依赖生成的 MP4。
 

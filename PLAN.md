@@ -34,7 +34,8 @@
 - **`cf build` 不向 React Router 转发 `--mode`**：staging / prod 构建改用 `react-router build --mode <mode>`，部署用 `cf deploy --prebuilt --mode <mode>`（mode 须与构建一致）。本地开发直接 `cf dev`（mode 为 `development`）。
 - **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；staging / prod 的真实 ID 由被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
 - **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `staging` / `production`）返回完整配置；Worker 名、D1、R2、Rate Limiting namespace 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 staging / prod。
-- **Secrets**：以 `bindings.secret()` 声明，本地开发与测试从被忽略的 `.dev.vars` 读取并提供 `.dev.vars.example` 占位样例；缺失时 `cf` 仅警告，服务端读取处须自行拒绝空值。线上 Secrets 由站长授权后用 `cf workers secrets update` 或部署时 `--secrets-file` 写入。
+- **Secrets**：以 `bindings.secret()` 声明，本地开发缺失时警告，**实际部署会拒绝缺少声明的 Secret**。当前只声明已准备的认证、播放、Turnstile 和备份加密四项；邮件 API、备份 API Token 与 WebDAV 五项在对应模块接入真实配置时再声明，不上传占位凭证。线上可用部署时 `--secrets-file` 写入，密钥文件必须被 Git 忽略。
+- **云端复用与日志**：按站长授权复用既有 staging Worker 与访问域名，D1 名称/ID 和 R2 桶名分别从本机 `.env` 注入，不能按数据库名推断媒体桶。Custom Domain 通过 `worker.domains` 管理；关闭 workers.dev / preview URLs。启用应用日志、query 脱敏并关闭 invocation logs；原生 traces 含路径，凭证路径脱敏验证前保持关闭。
 
 ## 3. 第二阶段：工程基础
 
@@ -55,10 +56,12 @@
 
 ### T2.3 环境、绑定与 Secrets
 
-- [x] `cloudflare.config.ts` 声明逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`BETTER_AUTH_SECRET`、`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`。T2.7 已移除旧独立 TOTP Secret；认证 IP/路径限流使用库的 D1 表，既有 Rate Limiting bindings 不作为原生认证计数器。发件人地址、发件域名和邮件 API 基础地址等发件配置项待站长提供已购服务的 API 文档后在第三阶段加入，不预先猜写。
+- [x] `cloudflare.config.ts` 声明逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`BETTER_AUTH_SECRET`、`TURNSTILE_SECRET_KEY`、`BACKUP_ENCRYPTION_KEY`。T2.7 已移除旧独立 TOTP Secret；认证 IP/路径限流使用库的 D1 表，既有 Rate Limiting bindings 不作为原生认证计数器。`EMAIL_API_KEY` 及发件人地址、发件域名、邮件 API 基础地址在第三阶段接入已购服务时加入；`CLOUDFLARE_API_TOKEN` 与 `WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD` 在备份模块接入时加入，样例中的预留值不作为部署凭证。
 - [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；缺失或混用时构建失败。
 - [x] 集中默认配置已落在 `app/lib/settings.server.ts`；T2.7 已适配 30 天滚动会话/1 天更新/5 分钟新鲜度、1 小时邮件链接、二步备用码及原生限流，移除旧绝对期限和失败后才要求 Turnstile 的常量，新基线单测与运行探针通过。
-- [ ] **阻塞（待站长授权）**：用 `cf d1 create`、`cf r2 buckets create` 创建 staging / prod 的 D1 与私有 R2，确定 Rate Limiting namespace，写入线上 Secrets，并决定 staging 的访问域名；Cron 表达式 `0 20 * * *` 在备份任务实现时再加入。
+- [ ] 完成 staging / prod 云端配置与 Secrets；Cron 表达式 `0 20 * * *` 在备份任务实现时再加入。
+  - 2026-10-06 已获站长授权，staging 复用既有 Worker、自定义域名和私有媒体桶；旧 D1 schema 与当前迁移不兼容，保留旧库并创建隔离新库，8 个迁移已应用。认证/播放/Turnstile/备份加密四项 Secrets 已写入，当前正式工程已部署并通过 HTTPS 冒烟检查；旧 Worker 版本仍可追溯，旧 Secrets 未删除。
+  - production 已核对既有 Worker、空 D1、独立私有媒体桶；独立 Turnstile 已创建，资源映射和四项新 Secrets 保存在本机忽略文件，最新配置构建 / dry-run 通过。尚未给 production 应用迁移、上传 Secrets 或替换代码。两环境的邮件/备份外部凭证仍待提供；此项不勾选，不再记为全部待授权。
 - 验收：`cf deploy --prebuilt --mode staging --dry-run` 与 `--mode production` 列出各自独立的绑定；仓库内 `git grep` 不出现真实 ID 或密钥。
 
 ### T2.4 Better Auth 评估与采用决定（需求 6.3.4、6.16）
@@ -115,12 +118,14 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
 | --- | --- | --- |
 | React Router v7 与 `@cloudflare/vite-plugin` 2.0 beta 的产物目录不一致 | 已用同步插件绕过，构建 / 预览 / dry-run 已验证 | 需求定 v7，暂不升级。若站长同意升级 v8（官方支持组合），需同步修改需求 6.1 与 README 技术栈 |
 | `cf` 与 Vite 插件 2.0 均为 beta | 风险 | 锁定精确版本；升级单独提交并重跑全部验证 |
-| staging / prod 云端资源、Secrets、staging 域名 | 阻塞，待站长授权 | 骨架先以 dry-run 验证；授权后创建并记录（不入库真实 ID） |
+| staging / prod 云端资源与 Secrets | staging 已部署；production 构建 / dry-run 通过 | 复用站长现有资源，旧 staging D1 保留；production 未上线。邮件/备份外部凭证仍待提供；真实资源标识和密钥只在本机忽略文件与平台保存 |
 | Better Auth 接入 | 已决定采用并调整需求；实现/新验收待完成 | 原生会话、加密、二步备用码和邮箱找回已定。T2.7 迁移旧 schema/配置/文案，第三阶段实现邀请/权限/UV/改邮箱门禁与失败续作；不因旧规则差距重新等待选型。真实验证器与 staging 成本待测 |
 | 已购发件服务的 API 文档与配置 | 阻塞，第三阶段前需要 | 站长提供后接入，测试用本地模拟服务 |
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | 待 staging 资源 | 第六阶段执行，不以本地结果代替 |
 
 ## 6. 进展与验证记录
+
+- 2026-10-06：按站长授权接管既有 staging Worker，复用自定义域名及私有媒体桶；旧 staging D1 属于另一套 schema，未改动旧库，创建新 D1 并应用 0001–0008。两环境独立 Turnstile 和认证/播放/备份加密密钥已准备，staging 四项 Secrets 随版本上传。首次实际部署因未接入服务的五项必需 Secret 声明失败，未切换旧版本；移除这些提前声明后部署成功，未写入假凭证。远程核对域名、私有桶、关闭 workers.dev/preview URLs、query 脱敏、关闭 invocation logs/traces、DB/媒体绑定和 2001–2004 namespace；8 个迁移记录和 `foreign_key_check`（0 个违规）通过。首页/关于页/robots.txt 返回 200、未知路径和未挂载认证返回 404，安全头及 3 个客户端资源通过。类型检查、105 项测试、两环境最终构建 / dry-run 与客户端隐私扫描通过。production 未应用迁移或部署，旧 staging 库和旧 Secrets 保留。6120 服务仍可访问，不重启。业务资料迁移、关于页文案、完整认证与平台性能/日志内容验收仍待完成。
 
 - 2026-10-06：推进 T2.7 原生认证基础。正式依赖锁定 1.7.7，新增配置工厂和生成的 0008 迁移；Secrets/常量按新需求适配。21 项 workerd/D1 探针通过，实测 DATE 列保存 ISO 8601 文本并还原为 Date，生产配置 Cookie 为 `__Host-session`，原生 token/滚动会话/改密换新会话、1 小时邮箱 JWT 与重置链接、二步备用码/账号锁定、持久化 IP 限流和 captcha 拒绝分支符合探针预期。全部工程 4 个文件 105 项测试、`pnpm typecheck`、`pnpm build`、本地 0008 增量迁移通过。首次与类型生成/测试/迁移并行构建报字体产物 ENOENT，其他进程结束后同样构建命令通过；后续这些产物生成检查逐项执行。旧用户/业务外键/凭证退役、关于页新文案、真实 WebAuthn 和完整 HTTP 门禁仍未完成，不开放认证 HTTP 路径，不创建云端资源或重启 6120。
 

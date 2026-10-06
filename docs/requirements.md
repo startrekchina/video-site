@@ -610,9 +610,9 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | --- | --- |
 | Worker bindings | `DB`：本环境自有 D1；`MEDIA_BUCKET`：私有 R2；`ASSETS`：公开素材；`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER` 可作辅助防滥用。认证入口使用 Better Auth 的 D1 持久化限流；站点发信/签发/管理业务配额仍由 D1 精确判定。各环境资源与计数隔离。 |
 | Worker 配置 | `APP_ENV, APP_ORIGIN, WEBAUTHN_RP_ID, TURNSTILE_SITE_KEY`，以及**发信服务的发件人地址与发件域名、邮件服务商 API 基础地址**、备份目标数据库标识、Cron 调度和兼容日期；真实 Cloudflare 标识只保存在本机/平台配置，缺失或混用环境时拒绝运行。发件域名需按服务商要求配置 SPF/DKIM（必要时的 DMARC），staging 与 prod 用不同的发件人标识以便区分测试邮件。`node:crypto` 支持按选定兼容日期核实，不能只凭 Vitest 自动兼容通过就认定生产可用。 |
-| Worker Secrets | `BETTER_AUTH_SECRET`：库 Cookie/JWT 签名以及 TOTP/备用码认证加密，必需且每环境独立；`PLAYBACK_HMAC_KEY`：播放签名；`TURNSTILE_SECRET_KEY`：人机验证；`EMAIL_API_KEY`：已购发信 HTTPS API；`CLOUDFLARE_API_TOKEN`：备份导出最小权限；`BACKUP_ENCRYPTION_KEY`：备份加密；`WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD`：HTTPS 目标。取消独立 `TOTP_ENCRYPTION_KEY` 与可选 `AUTH_SECRET` 设计；现有配置/样例尚待代码任务迁移。 |
+| Worker Secrets | `BETTER_AUTH_SECRET`：库 Cookie/JWT 签名以及 TOTP/备用码认证加密，必需且每环境独立；`PLAYBACK_HMAC_KEY`：播放签名；`TURNSTILE_SECRET_KEY`：人机验证；`EMAIL_API_KEY`：已购发信 HTTPS API；`CLOUDFLARE_API_TOKEN`：备份导出最小权限；`BACKUP_ENCRYPTION_KEY`：备份加密；`WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD`：HTTPS 目标。已取消独立 `TOTP_ENCRYPTION_KEY` 与可选 `AUTH_SECRET` 设计；工程基础仅声明并配置已准备的四项 Secrets，邮件与备份外部凭证在对应模块接入时加入必需声明，不以占位值部署。 |
 | 仅站长本机 | `TMDB_API_KEY`、目标环境资源映射和离线导入所需的最小权限 D1/R2 凭证；不把导入管理能力做成浏览器接口，不给 Worker 播放路径额外的上传管理 token。 |
-| 集中默认配置 | 站点业务默认：邀请额度 2、邀请码 30 天、预留 15 分钟、看完 90%、进度 15 秒、备份 30 天、评论 1000 字/每页 10 条/回复每批 10 条、播放 token 30 分钟、签发与管理各 30 次/分钟、发信间隔 60 秒/每用途每小时 5 次。认证配置统一维护 6.3 的原生参数及显式选择：滚动会话 30 天/updateAge 1 天/freshAge 5 分钟、验证与重置链接各 1 小时、二步挑战 5 分钟、备用码 10 个、TOTP 6 位/30 秒/±1 步、原生尝试/锁定/IP 限流。旧 settings 常量尚待调整，未通过新的运行验收。 |
+| 集中默认配置 | 站点业务默认：邀请额度 2、邀请码 30 天、预留 15 分钟、看完 90%、进度 15 秒、备份 30 天、评论 1000 字/每页 10 条/回复每批 10 条、播放 token 30 分钟、签发与管理各 30 次/分钟、发信间隔 60 秒/每用途每小时 5 次。认证配置统一维护 6.3 的原生参数及显式选择：滚动会话 30 天/updateAge 1 天/freshAge 5 分钟、验证与重置链接各 1 小时、二步挑战 5 分钟、备用码 10 个、TOTP 6 位/30 秒/±1 步、原生尝试/锁定/IP 限流。settings 与原生配置已调整并通过最小运行探针，完整 HTTP 和平台验收仍待完成。 |
 
 **密钥轮换（已确认）**：**手动轮换，不设定期自动轮换**。每个环境的密钥**相互独立**，同一密钥不复用于不同环境。保管方式为三处：线上 Worker Secrets、站长的密码管理器、以及**离线副本**。旧密钥必须**保留到引用它的全部备份都被删除或重加密之后**才能弃用，**包括受保护而超期保留的最后一份副本**；**缺密钥的备份不算可恢复副本**。
 
