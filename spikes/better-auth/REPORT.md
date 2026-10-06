@@ -1,8 +1,8 @@
-# Better Auth 兼容性 POC
+# Better Auth 旧需求兼容性 POC
 
-2026-10-06；对应需求 6.3.1 / 6.16 与 PLAN T2.4。结论：**Better Auth 1.7.7 未通过采用门槛，等待站长决定。** 不能直接采用默认注册、恢复、会话及 twoFactor 流程。
+2026-10-06；对应调整前需求与 PLAN T2.4。旧评估结论是 Better Auth 1.7.7 不满足当时的自定义认证契约；**站长随后明确决定调整需求并采用 Better Auth，该选型阻塞已解除。** 当前规则以本地 `dev` 的 `docs/requirements.md` 第 6.0、6.2.2、6.3–6.5 节为准，可执行 `git show dev:docs/requirements.md` 阅读；本 POC 分支保留旧实验，不将旧快照当作当前需求。
 
-本 POC 独立于正式工程，只有虚构成员和测试 Secret；正式工程没有依赖或导入此目录。已在 workerd（`nodejs_compat`、兼容日期 2026-09-25）完成 29 项测试与类型检查。失败行为以“断言库确实存在差距”的测试表达，测试绿色不表示认证符合需求。浏览器真实 WebAuthn 仪式、staging CPU / 内存 / 并发成本仍未验证。
+本 POC 独立于正式工程，只有虚构成员和测试 Secret。已在 workerd（`nodejs_compat`、兼容日期 2026-09-25）完成 29 项测试与类型检查；其中使用旧自定义哈希/策略，差距用“断言差异存在”的测试表达。该结果既不代表旧兼容门槛通过，也不代表新原生配置/邀请门禁已验收；正式工程尚未接入库。真实 WebAuthn、staging CPU/内存/并发仍未验证。
 
 ## 运行
 
@@ -16,9 +16,9 @@ pnpm typecheck
 
 测试每条用例重置 D1 并应用独立迁移，不创建云端资源。类型由 `cf workers types` 生成；正式应用的测试与构建仍在仓库根目录运行。
 
-## 逐项核对
+## 历史逐项核对（调整前标准）
 
-“源码”表示仅审查当前锁定版本的发布产物，不冒充端到端运行通过。路径 `BA` 为 `node_modules/better-auth/dist`、`PK` 为 `node_modules/@better-auth/passkey/dist`。
+下表保留原始 A1–A7/B1–B10 的检查标准、当时结论与证据，包括“不能沿用”“硬要求”等当时规则用语；它们不再是当前验收条件。“源码”不表示端到端通过。路径 `BA` 为 `node_modules/better-auth/dist`、`PK` 为 `node_modules/@better-auth/passkey/dist`。
 
 | 检查点 | 结论 | 证据与差距 |
 | --- | --- | --- |
@@ -40,18 +40,22 @@ pnpm typecheck
 | B9 十个恢复码、只存哈希、重生成撤销旧组 | **部分 / 不通过** | 实测默认 10 个、替换旧组，但可用全局 Secret 解密取回全部原码；存的是可逆密文，不是哈希。库有自定义 encrypt / decrypt 接口，预期仍是可恢复的码数组，不直接支持业务恢复码哈希表；其作用是第二因素登录，不是需求中的密码恢复。重生成仅校验密码，未强制 TOTP 再验证。 |
 | B10 管理员证明绑定账号 / 会话 / 操作 / 目标 / 5 分钟 / 10 次 / 一次消费 | **不通过** | verify-totp 对已登录用户重复成功，返回 token / user；客户端 operation / target 不参与校验，没有上述证明。需独立业务挑战，与库 session 的 freshAge 不等价。 |
 
-## 站长决策选项
+## 已确认采用决定与新验证任务
 
-| 方案 | 后续工作与代价 |
+| 差距 | 当前处理 |
 | --- | --- |
-| A：保留 Better Auth 作为有限组件 | 只复用通过的哈希接口及审查后的 WebAuthn；项目自管 D1 注册 / 恢复事务、哈希会话、TOTP 与证明。实际上要替换库大部分核心流程，还需新增全局 Cookie Secret 并同步需求；未获批准前不实施。 |
-| B：允许替代认证实现（建议） | 按既定需求采用 D1 原子批次、自管会话与业务挑战，复用 node:crypto / Web Crypto 和成熟 WebAuthn 库，不手写 WebAuthn。比套多层 adapter / hooks 更少隐含行为；仍需新的实现计划与完整验收，当前不实施。 |
-| C：修改需求以适配库默认行为 | 涉及明文 bearer、事务、时间步重放与恢复规则，不建议；任何改动须站长明确决定并同步需求，不能以此 POC 自动降低要求。 |
+| A1/A2 默认哈希和账号规则 | 改为库默认 scrypt、密码长度/NFKC、username 规则；旧定制测试不证明这些新行为通过。 |
+| A3/A5 D1 多步写入 | 接受部分认证状态，邀请码采用持久预留与业务完成门禁；密码找回仅邮箱路径，故障后重新申请/重试清理，不自建三路径原子恢复。 |
+| A4 会话 | 原生 D1 token、30 天滚动/updateAge 1 天，改密可换全新会话；取消 180 天上限和仅页面续期，关闭 Cookie 缓存，即时权限仍读主库。 |
+| A6 原生入口 | 保留库响应和 Origin/Fetch Metadata、持久化 IP/路径限流及 captcha；本站业务保留 CSRF、邮件/额度精确配额，包装入口不能绕过防护。 |
+| B1/B3 通行密钥与二步 | 用库 afterVerification 补 UV 门禁；密码仍需 TOTP/备用码，v1 拒绝 trustDevice/OTP；接受库内部瞬时会话，不提前给客户端成员权限。 |
+| B6/B7/B8 TOTP | 原生全局认证 Secret 加密、5 次挑战与账号锁；接受不同挑战可复用有效时间步的边界，不增加独立 AAD/时间步账本。 |
+| B9/B10 备用码与管理 | 备用码只作第二因素，接受原生加密保存；管理员绑定 TOTP + 5 分钟新鲜会话，不再每操作签发一次性证明。 |
 
-方案 B 是建议，不是已获授权。POC 不合入 dev，不创建正式认证模块。
+方案已确定，无需再次询问采用/替代。实现任务见当前 `PLAN.md` T2.7 与第三阶段；本次只同步文档，原 POC 测试和源码保持历史证据，不合入正式运行代码。
 
 ## 外部参考与后续验证
 
 - [D1 batch 官方说明](https://developers.cloudflare.com/d1/worker-api/d1-database/)：SQL 失败回滚整批；条件写影响零行须由业务条件 / 约束让整批失败。
 - [Better Auth session 官方说明](https://better-auth.com/docs/concepts/session-management)：有效期与刷新选项；本报告具体行为以锁定 1.7.7 的运行结果和发布源码为准。
-- staging 验证 scrypt CPU / 内存 / 并发、脱敏日志与真实平台行为；真实验证器覆盖 origin / RP / UV / counter / 用途错配。尚未完成的补救不能标为兼容性通过。
+- 新基线须另验 schema/日期/稳定成员 ID、原生默认密码/用户名、滚动会话、JWT/重置链接、备用码/锁定、IP 限流/captcha、注册/封禁/改邮箱门禁与故障续作。staging 验 scrypt 成本和脱敏日志，真实设备验 origin/RP/UV/counter/用途；未完成任务不标通过。
