@@ -15,6 +15,7 @@ v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确�
 - [协作约定](AGENTS.md)：语言、Git 流程、目录结构和安全规则。
 - [前端参考原型](prototypes/frontend-v1/README.md)：独立运行方式、页面与交互基准、验证记录和迁移时须修正的已知问题。
 - [前端基础验收记录](docs/screenshots/phase2/README.md)：正式关于页 / 404 的桌面、手机和浅 / 深色截图及交互核对。
+- [认证历史 POC](spikes/better-auth/REPORT.md)：旧需求的行为/差距证据，归档在 `dev` 的独立实验目录；运行命令见报告，正式工程不依赖它。
 - [海报素材说明](public/assets/posters/star-trek/README.md)：海报来源和命名规则。
 
 ## 开发节奏 TODO

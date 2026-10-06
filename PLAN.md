@@ -64,7 +64,7 @@
 ### T2.4 Better Auth 评估与采用决定（需求 6.3.4、6.16）
 
 - [x] 在独立分支完成 Better Auth 1.7.7 最小 POC，对调整前需求的 scrypt、注册 / 恢复原子性、Cookie / 会话、通行密钥、TOTP、恢复码与管理员证明逐项核对，明确区分 workerd 实测与发布源码审查。29 项测试和类型检查通过；测试包含复现库缺陷的断言，绿色不代表兼容性通过。
-- [x] 输出逐项通过/差距报告：分支 `spike/auth-poc-report`，实验提交 `4fc3bc4`，采用决定说明更新于 `e7d5635`，文件 `spikes/better-auth/REPORT.md`。可用 `git show spike/auth-poc-report:spikes/better-auth/REPORT.md` 阅读；POC 保持独立，不接入正式工程。
+- [x] 输出逐项通过/差距报告：实验提交 `4fc3bc4`，采用决定说明更新于 `e7d5635`，源码和报告归档在独立目录 [`spikes/better-auth/`](spikes/better-auth/REPORT.md)。按任务交付流程合入 `dev`；正式构建、依赖、迁移和测试入口不引用该目录，旧实验规则不作为当前认证实现。
 - [x] 2026-10-06 站长决定调整需求并采用 Better Auth。当前规则和旧→新变更写入需求 6.3.4，不实现旧自管认证契约，也不再等待方案决定；POC 29 项是历史差距证据，真实 WebAuthn、新基线集成和 staging 成本仍未验证。
 - 验收：旧 POC 的 Workers Vitest 用例/报告及已确认采用决定；报告标注旧规则评估与当前结论。新集成按 T2.7 和第三阶段另验。
 
@@ -119,6 +119,8 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | 待 staging 资源 | 第六阶段执行，不以本地结果代替 |
 
 ## 6. 进展与验证记录
+
+- 2026-10-06：按站长提醒将已完成的 `spike/auth-poc-report` 实验源码与报告归档到 `dev`。合并只在 PLAN 产生旧选型说明冲突，保留已确认 Better Auth 的当前计划与进展；POC 仍在独立目录使用独立依赖、迁移和 runner。合并后的正式工程 `pnpm typecheck`、`pnpm test`（83 项）、`pnpm build`，以及 POC `pnpm test`（29 项）、`pnpm typecheck` 全部通过；6120 服务保持运行，归档不表示 T2.7 已完成。
 
 - 2026-10-06：站长明确要求全部按 Better Auth 适配并同步文档。需求/用户故事/接口/schema 草案/Secrets/恢复运维/测试期望、AGENTS、README、原型边界和历史截图说明已同步；T2.4 采用决定完成，T2.7 新增未完成迁移与验证任务。当前代码仍按旧基线，83 项工程测试和 29 项 POC 测试只记为历史验证，不代表新认证通过。本次为文档任务，核对 Markdown 链接、表格、规则与差异；不修改运行代码或重启 6120 服务。
 
