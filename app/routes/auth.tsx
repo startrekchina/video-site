@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FingerprintIcon, TicketIcon } from "lucide-react";
+import { CircleCheckIcon, FingerprintIcon, TicketIcon } from "lucide-react";
 import { data, Link, useSearchParams } from "react-router";
 import type { Route } from "./+types/auth";
 import { AuthFrame } from "@/components/site/auth-frame";
@@ -69,7 +69,7 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
         if (fields.newPassword !== fields.confirmPassword) throw new Error("两次密码输入不一致。");
         if (!params.get("token")) throw new Error("链接缺少凭证，请重新申请邮件。");
         await call("/api/auth/reset-password", { token: params.get("token"), newPassword: fields.newPassword });
-        setMessage("密码已更新，旧会话已撤销。请重新登录；已启用的二步验证仍然有效。"); form.reset();
+        window.location.replace("/reset-password/complete");
       } else {
         await call(`/api/auth/${resend ? "send-verification-email" : "request-password-reset"}`, { email: fields.email,
           ...(resend ? { callbackURL: `${window.location.origin}/verify-email` } : { redirectTo: `${window.location.origin}/reset-password` }) }, captcha);
@@ -77,6 +77,13 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
       }
     } finally { if (needsCaptcha) { setCaptcha(""); setGeneration(value => value + 1); } }
   }
+  if (config.page === "/reset-password/complete") return <AuthFrame title="密码已重置" description="请使用新密码重新登录。">
+    <div className="grid gap-6">
+      <Alert role="status"><CircleCheckIcon aria-hidden="true" /><AlertTitle>旧会话已撤销</AlertTitle>
+        <AlertDescription>已绑定的通行密钥和未用备用码仍然保留。已开启二步验证时，登录仍需完成验证。</AlertDescription></Alert>
+      <Button nativeButton={false} render={<Link to="/login" replace />} className="w-full">前往登录</Button>
+    </div>
+  </AuthFrame>;
   return <AuthFrame title={title} description={description} aside={login ? <span>还没有账号？请向已加入的朋友索要邀请码，然后<Link to="/register" className="link-underline text-foreground">注册</Link>。</span>
     : <span>已经有账号？<Link to="/login" className="link-underline text-foreground">登录</Link>{!register && <> · <Link to="/register" className="link-underline text-foreground">邀请码注册</Link></>}</span>}>
     {verified ? <div className="grid gap-3"><Link className="underline" to="/login">前往登录</Link><Link className="underline" to="/verify-pending">重新发送验证邮件</Link></div>

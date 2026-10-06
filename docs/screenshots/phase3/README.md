@@ -15,6 +15,7 @@ Chrome 扩展弹出面板持续挡住自动操作，因此本轮使用 Codex 内
 | 管理成员 | [截图](admin-desktop-light.jpg) | [截图](admin-desktop-dark.jpg) | [截图](admin-mobile-light.jpg) | [截图](admin-mobile-dark.jpg) |
 | 登录 | [截图](login-desktop-light.jpg) | [截图](login-desktop-dark.jpg) | [截图](login-mobile-light.jpg) | [截图](login-mobile-dark.jpg) |
 | 注册资料 | [截图](register-account-desktop-light.jpg) | [截图](register-account-desktop-dark.jpg) | [截图](register-account-mobile-light.jpg) | [截图](register-account-mobile-dark.jpg) |
+| 重置完成 | [截图](reset-complete-desktop-light.png) | [截图](reset-complete-desktop-dark.png) | [截图](reset-complete-mobile-light.png) | [截图](reset-complete-mobile-dark.png) |
 
 其他视图：[邀请码注册第一步（桌面）](register-invite-desktop-light.jpg)、[第一步（手机）](register-invite-mobile-light.jpg)、[密码对话框（桌面）](password-dialog-desktop-dark.jpg)、[密码对话框（手机）](password-dialog-mobile-light.jpg)、[邀请码期限（手机）](invite-expiry-mobile-light.jpg)、[全站邀请码](admin-invites-desktop-dark.jpg)、[邀请关系](admin-tree-desktop-dark.jpg)。
 
@@ -31,12 +32,16 @@ Chrome 扩展弹出面板持续挡住自动操作，因此本轮使用 Codex 内
 
 浏览器验证了本地既有虚构账号的正常登录／退出、账号资料、密码对话框打开／取消／Esc、邀请码生成及复制链接、期限对话框、管理三标签切换、搜索空结果／清除、邀请关系根节点，以及手机导航和浅／深色布局。注册第一步与资料步骤可以往返，切换登录后重新进入注册会清空上次状态；没有在浏览器提交新密码、注册或二步凭证。
 
-`pnpm typecheck`、`pnpm test`（10 文件、158 项）、`pnpm test:tools`（4 项）、development／staging／production 构建及两环境 `cf deploy --prebuilt --dry-run` 通过。隔离 workerd/D1 测试覆盖认证门禁、跨站防护、邀请码并发和幂等、邮件配额、重定向拒绝、凭证路径日志抑制、原生 TOTP／备用码、会话撤销、密码故障分支、管理员保护、连带边界、搜索和分层分页；浏览器可见的普通成员管理页返回 403。
+`pnpm typecheck`、`pnpm test`（10 文件、159 项）、`pnpm test:tools`（4 项）、development／staging／production 构建及两环境 `cf deploy --prebuilt --dry-run` 通过。隔离 workerd/D1 测试覆盖认证门禁、跨站防护、邀请码并发和幂等、邮件配额、重定向拒绝、凭证路径日志抑制、重置完成页与原表单分离、原生 TOTP／备用码、会话撤销、密码故障分支、管理员保护、连带边界、搜索和分层分页；浏览器可见的普通成员管理页返回 403。
+
+2026-10-06 补充重置完成页：沿用窄列居中卡片、原有 Alert 和 Button；成功时替换当前历史条目到 `/reset-password/complete`，不保留 token、密码表单和提交按钮，失败仍留在原表单。桌面/手机浅深色四张截图复核，360 px 没有横向溢出；“前往登录”实际跳转成功。页面不含 CAPTCHA，主题和视口已恢复，预览标签保留。站长已确认真实找回、重置和登录完成，新完成页的检查没有再次改动密码。
+
+该修正已更新 staging，公开完成页 200、安全头、无密码表单及原有门禁通过。按站长后续指定使用 Kimi WebBridge，已观察云端完成页并保存截图；站长关闭扩展面板后，快照确认登录按钮跳转到 `/login` 且显示“登录”，云端跳转复核通过。任务标签已恢复到完成页供站长查看，此前本地内置浏览器的页面和按钮检查保持有效。
 
 首次全量运行曾因冷启动 SSR 编译及并行密码哈希超过测试时限失败。测试并发限制为 2，SSR 预热上限为 60 秒，普通请求断言仍保留原时限；最终全量通过，不将超时误记为功能通过。
 
 ## 尚未完成
 
-真实 WebAuthn 验证器和手机安全上下文、找回/重置/登录的客户端确认、Postal 套餐限额、staging 的认证专项 CPU／内存/并发尚未验收；验证邮件实际送达及邮箱验证、虚构凭证日志探针已通过。找回邮件 accepted、三个恢复/登录 POST 为 200，D1 已更新密码并建立修改后的会话，服务端链路通过。正常版本的 44 次请求执行错误为 0，CPU P50 12.006 ms / P99 197.124 ms，V8 isolate memory P99 29,975,306 bytes，仅代表这一批页面/接口样本。额外本地验收成员的创建命令因可能发送验证邮件被自动审批拒绝，改用隔离测试覆盖数据场景；浏览器中其他成员的管理弹窗和多层邀请关系仍需补验。上述事项保持在 PLAN 中未勾选，不能据本记录宣称第三阶段整体验收完成。
+真实 WebAuthn 验证器和手机安全上下文、Postal 套餐限额、staging 的认证专项 CPU／内存/并发尚未验收；验证邮件及邮箱验证、找回/重置/登录的实际体验和凭证日志探针已通过。找回邮件 accepted、三个恢复/登录 POST 为 200，D1 已更新密码并建立修改后的会话，站长确认客户端成功。正常版本的 44 次请求执行错误为 0，CPU P50 12.006 ms / P99 197.124 ms，V8 isolate memory P99 29,975,306 bytes，仅代表这一批页面/接口样本。额外本地验收成员的创建命令因可能发送验证邮件被自动审批拒绝，改用隔离测试覆盖数据场景；浏览器中其他成员的管理弹窗和多层邀请关系仍需补验。上述事项保持在 PLAN 中未勾选，不能据本记录宣称第三阶段整体验收完成。
 
 本地成果随后按站长授权部署到 staging：11 个迁移及代码/静态资源在线，访客页面、成员/管理员门禁、跨站拒绝、UV 选项与静态 noindex 通过。初次应用日志字段抽查通过后，进一步探针发现平台附带路径 token，已抑制原生重置凭证路径日志；13 条新样本中该路径事件为 0、普通表单事件为 1，全部元数据均不含唯一虚构 token。站长真实注册已完成，首次邮件及两次手动重发因 Workers 不支持 `redirect: "error"` 而在请求发出前失败；改为 `manual` 后匿名探针正常返回，修复已部署、临时诊断入口已移除，随后手动重发实际收到邮件并完成验证，D1 状态已核对。远程触发器解析和 cf strict 的处置见 README 及 PLAN。production 未上线、Git 未推送。本地服务保持运行，启动命令为 `pnpm dev`；已有 6120 实例时直接复用。

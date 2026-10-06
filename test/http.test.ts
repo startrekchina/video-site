@@ -15,6 +15,16 @@ function expectSecurityHeaders(res: Response) {
 }
 
 describe("worker responses", () => {
+  it("renders reset completion without a password form or captcha and keeps the reset form separate", async () => {
+    const response = await fetchPath("/reset-password/complete");
+    expect(response.status).toBe(200); expectSecurityHeaders(response);
+    const html = await response.text();
+    expect(html).toContain("密码已重置"); expect(html).toContain("旧会话已撤销");
+    expect(html).toMatch(/href="\/login"[^>]*>前往登录/);
+    expect(html).not.toMatch(/<form\b|type="password"|保存新密码|challenges\.cloudflare\.com/);
+    const reset = await (await fetchPath("/reset-password?token=fictional-link")).text();
+    expect(reset).toContain('name="newPassword"'); expect(reset).toContain("保存新密码");
+  });
   it("does not emit reset-link logs that Cloudflare would enrich with the path credential", async () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
