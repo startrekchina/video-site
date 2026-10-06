@@ -34,7 +34,7 @@
 - **`cf build` 不向 React Router 转发 `--mode`**：staging / prod 构建改用 `react-router build --mode <mode>`，部署用 `cf deploy --prebuilt --mode <mode>`（mode 须与构建一致）。本地开发直接 `cf dev`（mode 为 `development`）。
 - **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；staging / prod 的真实 ID 由被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
 - **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `staging` / `production`）返回完整配置；Worker 名、D1、R2、Rate Limiting namespace 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 staging / prod。
-- **Secrets**：以 `bindings.secret()` 声明，本地开发缺失时警告，**实际部署会拒绝缺少声明的 Secret**。当前声明认证、播放、Turnstile、备份加密与邮件五项；备份 API Token 与 WebDAV 四项在对应模块接入时再声明，不上传占位凭证。线上可用部署时 `--secrets-file` 写入，密钥文件必须被 Git 忽略；既有四项密钥交接文件不包含站长另行配置的 EMAIL_API_KEY，不能据此宣称 production 已齐备。
+- **Secrets**：以 `bindings.secret()` 声明，本地开发缺失时警告，**实际部署会拒绝缺少声明的 Secret**。当前声明认证、播放、Turnstile、备份加密与邮件五项；备份 API Token 与启用的 WebDAV / S3 目标凭证在对应模块接入时再声明，不上传占位凭证。线上可用部署时 `--secrets-file` 写入，密钥文件必须被 Git 忽略；既有四项密钥交接文件不包含站长另行配置的 EMAIL_API_KEY，不能据此宣称 production 已齐备。
 - **云端复用与日志**：按站长授权复用既有 staging Worker 与访问域名，D1 名称/ID 和 R2 桶名分别从本机 `.env` 注入，不能按数据库名推断媒体桶。Custom Domain 通过 `worker.domains` 管理；关闭 workers.dev / preview URLs。启用应用日志、query 脱敏并关闭 invocation logs；原生 traces 含路径，凭证路径脱敏验证前保持关闭。
 
 ## 3. 第二阶段：工程基础
@@ -56,10 +56,10 @@
 
 ### T2.3 环境、绑定与 Secrets
 
-- [x] `cloudflare.config.ts` 声明逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`BETTER_AUTH_SECRET`、`TURNSTILE_SECRET_KEY`、`BACKUP_ENCRYPTION_KEY`。T2.7 已移除旧独立 TOTP Secret；认证 IP/路径限流使用库的 D1 表，既有 Rate Limiting bindings 不作为原生认证计数器。T3.1 已加入 EMAIL_API_KEY 及 EMAIL_API_BASE_URL / EMAIL_SENDER_DOMAIN / EMAIL_FROM / EMAIL_REPLY_TO，真实值从本机 .env 注入；`CLOUDFLARE_API_TOKEN` 与 `WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD` 在备份模块接入时加入，样例中的预留值不作为部署凭证。
+- [x] `cloudflare.config.ts` 声明逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`BETTER_AUTH_SECRET`、`TURNSTILE_SECRET_KEY`、`BACKUP_ENCRYPTION_KEY`。T2.7 已移除旧独立 TOTP Secret；认证 IP/路径限流使用库的 D1 表，既有 Rate Limiting bindings 不作为原生认证计数器。T3.1 已加入 EMAIL_API_KEY 及 EMAIL_API_BASE_URL / EMAIL_SENDER_DOMAIN / EMAIL_FROM / EMAIL_REPLY_TO，真实值从本机 .env 注入；`OWNER_EMAIL`、`CLOUDFLARE_API_TOKEN` 及启用的 WebDAV / S3 目标配置在备份模块接入时加入，样例中的预留值不作为部署凭证。
 - [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；缺失或混用时构建失败。
 - [x] 集中默认配置已落在 `app/lib/settings.server.ts`；T2.7 已适配 30 天滚动会话/1 天更新/5 分钟新鲜度、1 小时邮件链接、二步备用码及原生限流，移除旧绝对期限和失败后才要求 Turnstile 的常量，新基线单测与运行探针通过。
-- [ ] 完成 staging / prod 云端配置与 Secrets；Cron 表达式 `0 20 * * *` 在备份任务实现时再加入。
+- [ ] 完成 staging / prod 云端配置与 Secrets；定时入口在备份任务实现时再加入，业务频率/时间由站长在网页设置，只有配置完整的 WebDAV / S3 目标才能启用（需求 6.9.2）。
   - 2026-10-06 已获站长授权，staging 复用既有 Worker、自定义域名和私有媒体桶；旧 D1 schema 与当前迁移不兼容，保留旧库并创建隔离新库，8 个迁移已应用。认证/播放/Turnstile/备份加密四项 Secrets 已写入，当前正式工程已部署并通过 HTTPS 冒烟检查；旧 Worker 版本仍可追溯，旧 Secrets 未删除。
   - production 已核对既有 Worker、空 D1、独立私有媒体桶；独立 Turnstile 已创建，资源映射和四项新 Secrets 保存在本机忽略文件，最新配置构建 / dry-run 通过。尚未给 production 应用迁移、上传 Secrets 或替换代码。两环境的邮件/备份外部凭证仍待提供；此项不勾选，不再记为全部待授权。
 - 验收：`cf deploy --prebuilt --mode staging --dry-run` 与 `--mode production` 列出各自独立的绑定；仓库内 `git grep` 不出现真实 ID 或密钥。
@@ -117,7 +117,16 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
    - 邀请码、成员/邀请链、额度、角色、首管本机提升、封禁/单个解封、管理员绑定 TOTP + 5 分钟新鲜会话；业务原子批次与并发保护。
 2. **第四阶段 片库与播放闭环**：离线导入 CLI（manifest / TMDB、MP4 与 faststart 预检、VTT、R2 / D1 幂等挂接）；访客入口、成员首页、片库、作品与选集接入真实数据；ArtPlayer、播放 token、续期、R2 Range 与字幕授权，两小时连续播放验证。
 3. **第五阶段 观看进度、片单与讨论**：进度上报与 `expectedRevision`、继续观看与下一集；收藏、片单与队列展开；评论、回复、赞踩与管理员删除。
-4. **第六阶段 运维与上线验收**：每日备份（导出、R2、加密 WebDAV、回读校验、保留清理）与手动恢复演练；staging 端到端验收与平台实测（15 分钟 Cron 窗口、Time Travel 隔离、限流、scrypt、日志脱敏）；预算核对与部署、恢复文档，发布 v1。
+4. **第六阶段 运维与上线验收**：站长专用网页备份（`OWNER_EMAIL` + 正常管理员、加密下载、WebDAV / S3）、有外部目标才可配置的定时备份与手动恢复演练；staging 端到端验收与平台实测（网页任务生命周期、15 分钟 Cron 窗口、Time Travel 隔离、限流、scrypt、日志脱敏）；预算核对与部署、恢复文档，发布 v1。
+
+### T6.1 数据库备份与恢复（待第三至第五阶段完成）
+
+- [ ] 在本环境声明服务端 `OWNER_EMAIL`，复用真实会话/成员门禁，仅允许当前已验证邮箱匹配且未封禁、注册完成的管理员；其他管理员、普通成员和访客均拒绝，配置缺失/无效不放行。逐请求复核降权、改邮箱、封禁与撤销会话。
+- [ ] 实现站内备份页、状态读取、手动创建/重试及加密文件直接下载；入口只对站长显示，服务端权限和 CSRF 独立验证，不返回明文 SQL、上游地址、对象键或凭证。
+- [ ] 复用全量 D1 导出 → 私有 R2 校验 → 版本化认证加密流程，接入预配置的 WebDAV / S3 兼容目标；仅对启用目标声明凭证，上传后流式回读校验长度与 SHA-256，分别展示完整/失败状态。
+- [ ] 仅在 WebDAV / S3 目标配置完整后允许站长在网页设置并启用频率与北京时间执行时间；支持修改/关闭，不固定每日 04:00，仅下载不能启用。服务端与定时入口重检所选目标，配置失效拒绝执行；与网页入口共用备份流程及失败人工处理，各端保护最后一份完整可恢复副本，绝不清理媒体或站长本地下载。
+- [ ] 使用虚构数据和模拟 Cloudflare / WebDAV / S3 验证权限、下载可恢复性、环境隔离、部分失败、重试与保留；在 staging 实测网页任务中断与执行生命周期、定时全流程 15 分钟限制和资源消耗。
+- [ ] 演练 6.9.3 的隔离手动恢复、原生凭证清理和重新开放；补齐站内备份使用、目标配置、历史密钥保管与恢复说明。备份功能未实现/未验证，不提前勾选。
 
 ## 5. 未决事项与风险
 
@@ -131,6 +140,8 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | 待 staging 资源 | 第六阶段执行，不以本地结果代替 |
 
 ## 6. 进展与验证记录
+
+- 2026-10-06：站长要求数据库备份作为网站内功能，提供直接下载、WebDAV、S3，并用 Worker 环境变量指定某个管理员邮箱；随后确认只有配置完整的 WebDAV / S3 才可设置频率与执行时间。需求 6.5.1 / 6.9.2 / 6.9.4、接口草案、验收、README 与 T6.1 已同步：`OWNER_EMAIL` + 当前正常管理员由服务端逐请求校验，下载/外部副本继续加密，目标凭证留在 Worker；移除固定每日 04:00 规则，仅下载不启用定时备份，隔离手动恢复规则保留。此项仅完成文档同步，未实现页面/接口或新增环境绑定，仍按第三阶段认证 → 第六阶段备份推进。文档差异、文件链接、表格列数及新增行凭证模式检查通过；未修改运行代码，不重跑代码测试、不部署或重启服务。
 
 - 2026-10-06：推进 T3.1 发信依赖，新增 email.server.ts 的原生 fetch 传输与五项邮件配置绑定；API URL 与两环境发件/回复地址仅在忽略 .env 保存。12 项模拟服务测试与全量 112 项 Workers 测试、类型检查、staging / production 构建及 cf dry-run 通过；15 个客户端文本资源和 186 个源文件/文档的实际配置/已知密钥扫描通过。实际 Postal 路径的匿名空 POST 返回 HTTP 200 / error / AccessDenied，证明路径可达，不证明 API key 有效或邮件送达。线上配置未修改，staging 仍是上一版工程基础和 8 个迁移，production 未迁移/上传 Secret/部署；EMAIL_API_KEY 仅核对到 staging 已存在，未读取值。下一步实现注册预留归属、业务原子完成、邮件配额和认证 HTTP 门禁；6120 配置变更后由 cf 自动重载，服务继续保留。
 - 2026-10-06：完成 T2.7 的 0009 业务资料/注册预留增量迁移与关于页新文案。72 项 schema/迁移专项、全量 100 项测试、类型检查、构建及本地 cf 增量迁移通过；旧待邮箱/自定义凭证契约用例已退役，保留原生认证 21 项探针。Chrome 复核 8 张桌面/手机浅深色截图，无横向溢出或捕获的客户端错误；首次 Vite 优化的旧模块 504 在预热刷新后消失，未改主题代码。6120 原服务已停止，重新在当前任务工作树启动 0.0.0.0:6120 并保持运行。站长提供实际 Postal API 地址、授权选定发件/回复地址并确认 Secret，cf 核对 staging EMAIL_API_KEY/CLOUDFLARE_API_TOKEN 存在，production Secret 列表为空。第三阶段按 T3.1 推进；认证 HTTP 与实际发信尚未开放。
