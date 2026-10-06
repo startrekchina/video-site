@@ -64,7 +64,7 @@
 ### T2.4 Better Auth 最小 POC（需求 6.3.1、6.16）
 
 - [ ] 在独立分支 / 工作树做最小 POC，逐项验证：scrypt（N=2^14、r=8、p=5）替换默认哈希；D1 中注册与邀请码原子消费（`batch()` 条件写入，影响 0 行整批失败）；三条恢复路径的事务及旧会话、旧恢复码、旧重置链接撤销；`__Host-session` Cookie 属性（`HttpOnly; Secure; SameSite=Lax; Path=/`、无 `Domain`）与“仅存哈希”；通行密钥（用户验证、challenge 原子消费）与 TOTP（6 位、30 秒、±1 步、时间步防重放）；会话 180 天绝对 / 30 天不活跃且只在页面 loader 续活。
-- [ ] 输出逐项通过 / 差距报告。**全部满足才采用；有差距则报告站长决定，不绕过门槛自研，也不让库默认行为覆盖需求规则。**
+- [x] 输出逐项通过 / 差距报告（`spike/auth-poc-report` 的 `spikes/better-auth/REPORT.md`）。**库未通过门槛，等待站长决定，不绕过门槛自研，也不让库默认行为覆盖需求规则。**
 - 验收：POC 的 Workers Vitest 用例与报告；结论写入本文件第 5 节。
 
 ### T2.5 D1 迁移、约束与测试夹具
@@ -100,12 +100,14 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面�
 | React Router v7 与 `@cloudflare/vite-plugin` 2.0 beta 的产物目录不一致 | 已用同步插件绕过，构建 / 预览 / dry-run 已验证 | 需求定 v7，暂不升级。若站长同意升级 v8（官方支持组合），需同步修改需求 6.1 与 README 技术栈 |
 | `cf` 与 Vite 插件 2.0 均为 beta | 风险 | 锁定精确版本；升级单独提交并重跑全部验证 |
 | staging / prod 云端资源、Secrets、staging 域名 | 阻塞，待站长授权 | 骨架先以 dry-run 验证；授权后创建并记录（不入库真实 ID） |
-| Better Auth 是否满足需求规则 | 待 T2.4 | 有差距时由站长决定 |
+| Better Auth 是否满足需求规则 | POC 不通过，待站长决定 | 独立分支 `spike/auth-poc-report`：D1 无注册 / 恢复原子性、会话存 bearer 明文及刷新超过绝对上限、TOTP 无 AAD / 独立密钥 / 时间步防重放；报告列 A/B/C 选项，建议 B，未经决定不实现认证 |
 | 已购发件服务的 API 文档与配置 | 阻塞，第三阶段前需要 | 站长提供后接入，测试用本地模拟服务 |
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | 待 staging 资源 | 第六阶段执行，不以本地结果代替 |
 | 6120 端口被原型 dev server（`.worktree/frontend-v1`）占用 | 阻塞正式工程的本机 dev 与浏览器验收 | 按规则不关闭他人实例；需站长决定是否停止原型 dev server，让正式工程使用 6120 |
 
 ## 6. 进展与验证记录
+
+- 2026-10-06：T2.4 主会话完成独立 POC，29 项 Workers 测试与 `cf workers types && tsc` 通过；故障注入与并发用例验证了注册部分写入、重置先消费后失败、会话明文与越过绝对上限、TOTP 重放、五次挑战、可逆备用码及缺少管理员证明。报告按 A1–A7 / B1–B10 区分运行与源码证据，库未通过需求门槛；WebAuthn 真验证器与 staging 成本未验证。仅在独立 POC 分支提交，不合入 dev、不开发替代方案。
 
 - 2026-10-06：修复 T2.5 复核发现的 P1：SQLite `INSERT OR REPLACE` 会绕过 UPDATE 触发器，可改写邀请来源并遗留邮箱占用。增量迁移 `0007_users_insert_guard.sql` 在 INSERT 前拒绝与既有成员 ID 或用户名键冲突的插入；成员变更必须使用 UPDATE。新增两种 REPLACE 语法、ID / 用户名冲突、邮箱占用保留与失败批次回滚回归用例。`pnpm test` 82 项、`pnpm typecheck`、`pnpm build` 通过；本地 `cf` 应用全部 7 个迁移成功。未改写旧迁移。
 
