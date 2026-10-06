@@ -4,11 +4,11 @@
 
 ## 当前状态
 
-v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确认，对应接口行为和第 7 节测试期望已同步。邮箱验证、成员修改邮箱、管理员删评和单个成员解封均纳入 v1；发信沿用站长已购买的 Postal 服务，HTTPS API 文档已核对，实际配置与接入仍待完成。历史备份恢复后保留讨论，由管理员手动重新删除不应恢复的内容。
+v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确认，对应接口行为和第 7 节测试期望已同步。邮箱验证、成员修改邮箱、管理员删评和单个成员解封均纳入 v1；发信沿用站长已购买的 Postal 服务，环境配置与 HTTPS 传输层已落地，完整业务回调和实际投递尚待接入验证。历史备份恢复后保留讨论，由管理员手动重新删除不应恢复的内容。
 
 规则确认**不代表功能已实现或已验收**：第二阶段本地工程基础与 T2.7 已完成，进入第三阶段“邀请、账号与管理”。Better Auth/passkey 锁定 1.7.7，原生认证表、0009 成员资料/注册预留与业务外键迁移、21 项原生探针及关于页新版完成；全量 100 项 Workers 测试、类型检查、构建、本地迁移和桌面/手机浅深色截图验收通过。旧认证契约用例已退役，29 项独立 POC 用例仅作历史差距证据。
 
-staging 已复用既有 Worker、域名和私有媒体桶，云端当前应用 8 个迁移并部署上一版工程基础；EMAIL_API_KEY 与备份 Token 已配置。Postal API 地址和发件/回复地址已在本机记录，真实接入与完整邀请/权限/发信流程按 [`PLAN.md`](PLAN.md) T3.1 推进，认证 HTTP 尚未挂载。production 资源映射和独立密钥已准备，尚未迁移、上传 Secrets 或上线；备份外部配置和平台实测仍待完成。前端参考原型保留在 `prototypes/frontend-v1/`。
+staging 已复用既有 Worker、域名和私有媒体桶，云端当前应用 8 个迁移并部署上一版工程基础；EMAIL_API_KEY 与备份 Token 已配置。Postal 传输层的 12 项模拟测试、全量 112 项 Workers 测试、两环境构建 / dry-run 和客户端隐私扫描通过；真实配置只在本机保存，完整邀请/权限/发信流程按 [`PLAN.md`](PLAN.md) T3.1 推进，认证 HTTP 尚未挂载。production 资源映射和独立密钥已准备，尚未迁移、上传 Secrets 或上线；备份外部配置和平台实测仍待完成。前端参考原型保留在 `prototypes/frontend-v1/`。
 
 ## 文档
 
@@ -52,6 +52,7 @@ staging 已复用既有 Worker、域名和私有媒体桶，云端当前应用 8
 ### 3. 邀请、账号与管理
 
 - [ ] 接入 Better Auth 和邀请注册的预留/创建/完成流程；验默认用户名/密码、一次性邀请码与失败续作、访问门禁、原生跨站/IP 限流/Turnstile 和业务配额。
+- [x] 实现 Postal HTTPS 发信传输与五项环境配置绑定；模拟服务验证单次请求、HTTP / 业务错误、超时及脱敏。实际投递和业务回调见下一项，不因传输测试通过标为完成。
 - [ ] 接入已购 Postal 发件服务；API 文档/地址和两环境 From / Reply-To 已确认，staging Secret 已配置，production Secret 未配置。核对套餐限额，完成原生签名邮箱验证、邮箱重置链接、成员发信限流、待验证账号访问限制和投递失败处理（见需求文档第 6.0 节）。
 - [ ] 完成已登录成员的原生改邮箱与本人会话确认；验证新邮箱前保留旧邮箱，不提供匿名改邮箱、不预占待邮箱、不承诺撤销未过期旧重置链接。
 - [ ] 完成 UV 通行密钥、TOTP/二步备用码、滚动会话、改密、邮箱找回及失败处置；备用码仅第二因素，移除恢复码重设密码/管理员重置流程。
@@ -99,7 +100,7 @@ pnpm db:migrate:local            # 先应用 D1 迁移，状态与 cf dev 共用
 pnpm dev                         # cf dev，监听 0.0.0.0:6120
 ```
 
-启动前检查 6120 端口，已有实例则复用。工程基础验收时服务运行于集成工作树 `.worktree/dev`；`/about` 是公开关于页，未知路径显示 404，`/` 暂为工程首页。登录、注册、邮箱找回和二步备用码按后续阶段实现。旧认证表和关于页恢复文案待 T2.7 迁移，不以展示链接或原生探针表示完整认证已完成。浏览器截图与核对见 [验收记录](docs/screenshots/phase2/README.md)。
+启动前检查 6120 端口，已有实例则复用。原集成工作树服务已停止，当前实例在任务工作树监听 `0.0.0.0:6120`；`/about` 是公开关于页，未知路径显示 404，`/` 暂为工程首页。旧认证表和关于页新文案已完成 T2.7 迁移；登录、注册、邮箱找回、二步备用码及真实发信业务按第三阶段实现，不以展示链接或传输层测试表示完整认证已完成。新截图与核对见 [验收记录](docs/screenshots/phase2-better-auth/README.md)。
 
 已有 `.dev.vars` 需补入至少 32 字符的 `BETTER_AUTH_SECRET`，与播放/备份密钥独立；旧 `TOTP_ENCRYPTION_KEY` 不再声明。测试只用 `.dev.vars.example` 的虚构占位值，不读取本机真实 Secrets。原生认证表由 `cf` 版本化迁移管理，不在请求中自动迁移；D1 的原生 DATE 列实测存 ISO 8601 文本，与旧业务表 UTC 毫秒列分别处理。
 
@@ -116,7 +117,9 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 
 已授权的云端配置复用既有 Worker，D1 名称/ID 与媒体桶名由 `.env.example` 所列环境变量分别映射；旧 staging 数据库因 schema 不兼容而保留，当前工程使用新库，不对旧库套用迁移。staging 沿用原有自定义域名，production 使用本文确定的正式域名；Custom Domain 由 `worker.domains` 管理，workers.dev 与版本预览入口关闭。
 
-`bindings.secret()` 在实际部署时要求值齐全。当前只声明四项已准备的 Secrets；邮件 API、备份 API Token 和 WebDAV 凭证随对应模块接入再声明，禁止用样例值满足线上检查。本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，授权部署时可用 `pnpm exec cf deploy --prebuilt --mode staging --secrets-file .dev.vars.staging.secrets.json` 上传。密钥还须由站长保存到密码管理器和离线副本，保管/轮换见需求 6.9.1。
+`bindings.secret()` 在实际部署时要求值齐全。当前声明认证、播放、Turnstile、备份加密与 EMAIL_API_KEY 五项；备份 API Token 和 WebDAV 凭证随对应模块再声明，禁止用样例值满足线上检查。邮件配置使用 .env.example 中的 STAGING_EMAIL_* / PRODUCTION_EMAIL_*；API 基础地址必须为 HTTPS origin，发件人域名须匹配 EMAIL_SENDER_DOMAIN。传输只发送纯文本正文、最多等待 10 秒、不跟随重定向或自动重发；业务配额、失败记录和认证回调仍在 T3.1 待办中。
+
+本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，只含原有四项密钥，未包含站长另行配置的 EMAIL_API_KEY；production 不能仅凭该文件通过正式部署检查。授权部署时可用 `pnpm exec cf deploy --prebuilt --mode staging --secrets-file .dev.vars.staging.secrets.json` 上传文件中的密钥；既有 EMAIL_API_KEY 由站长在对应 Worker 配置，不复制 staging 的值到 production。密钥还须由站长保存到密码管理器和离线副本，保管/轮换见需求 6.9.1。
 
 线上启用应用日志和 query 脱敏，关闭含请求 URL 的 invocation logs；原生 traces 的凭证路径脱敏验证前保持关闭。配置核对和页面冒烟检查不替代第六阶段的真实日志内容、安全与性能验收。
 

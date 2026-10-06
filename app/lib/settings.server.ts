@@ -9,6 +9,7 @@ export const settings = {
   backupCodeCount: 10,
   resetLinkTtl: HOUR,
   emailVerificationTtl: HOUR,
+  emailRequestTimeout: 10,
   completionThreshold: 0.9,
   progressReportInterval: 15,
   backupRetention: 30 * DAY,

@@ -248,7 +248,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 
 - 沿用站长已经购买的 Postal 发件服务，以 HTTPS API 和 `fetch` 接入 Better Auth 的验证/重置发信回调及站点封禁通知。API key 使用 Worker Secret `EMAIL_API_KEY`，不使用 SMTP，不重新选型。接口依据：[Postal API 说明](https://docs.postalserver.io/developer/api/)、[发信接口](https://apiv1.postalserver.io/controllers/send/message)。
 - 请求实际服务的 `POST /api/v1/send/message`，使用 `Content-Type: application/json` 与 `X-Server-API-Key`；字段映射为 `to`（收件人数组）、`from`、`reply_to`、`subject`、`plain_body` / `html_body`。同时检查 HTTP 状态与 JSON `status`：HTTP 200 不代表业务成功，仅 `status=success` 记为服务已接受；`parameter-error` / `error` 按失败处理。从成功结果只提取必要的 `data.message_id` 作为服务商消息标识，不保存或记录完整回包中的收件人、token 或其他凭证；服务已接受不代表已送达。
-- 每次操作最多一次发信请求，失败或超时不自动重试；超时记录为发送结果未确认。回调捕获并记录脱敏失败，避免注册结果随邮件失败回滚；成员可按配额手动重发。
+- 每次操作最多一次发信请求，传输层单次等待默认 **10 秒**；失败或超时不自动重试，超时/连接中断记录为发送结果未确认。回调捕获并记录脱敏失败，避免注册结果随邮件失败回滚；成员可按配额手动重发。传输层不自动跟随重定向，避免 API key 发往其他地址。
 - 验证（注册、重发、改邮箱）共用目标邮箱摘要的配额，密码找回单独计数：至少间隔 **60 秒**，滚动 **60 分钟最多 5 次**。首次、失败和超时发送尝试均计入；不存在邮箱的找回请求同样计数和反馈。此发信业务配额由 D1 条件写入保证，Better Auth 的 IP 限流不能代替它。
 - 封禁通知不受站内发信频率上限限制；服务商套餐和 API 限额仍适用。发信失败不回滚封禁，不增加自动排队、主动失败告警或投递 webhook。
 - 全部发件地址使用站长确认的统一发件子域，实际域名与地址仅保存在本机/平台配置。站长已提供 API 基础地址、配置 staging API key 并授权代理选择发件/回复地址；staging 使用测试发件人、production 使用正式发件人，Reply-To 指向同一收信地址。退信路径与收信记录已由站长配置，域名与 SPF/DKIM/DMARC 仍由站长维护；production Secret 尚未配置，配置声明不代替实际投递验证。真实地址与凭证不写入公开仓库。
@@ -612,7 +612,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | --- | --- |
 | Worker bindings | `DB`：本环境自有 D1；`MEDIA_BUCKET`：私有 R2；`ASSETS`：公开素材；`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER` 可作辅助防滥用。认证入口使用 Better Auth 的 D1 持久化限流；站点发信/签发/管理业务配额仍由 D1 精确判定。各环境资源与计数隔离。 |
 | Worker 配置 | `APP_ENV, APP_ORIGIN, WEBAUTHN_RP_ID, TURNSTILE_SITE_KEY`，以及**发信服务的发件人地址与发件域名、邮件服务商 API 基础地址**、备份目标数据库标识、Cron 调度和兼容日期；真实 Cloudflare 标识只保存在本机/平台配置，缺失或混用环境时拒绝运行。发件域名需按服务商要求配置 SPF/DKIM（必要时的 DMARC），staging 与 prod 用不同的发件人标识以便区分测试邮件。`node:crypto` 支持按选定兼容日期核实，不能只凭 Vitest 自动兼容通过就认定生产可用。 |
-| Worker Secrets | `BETTER_AUTH_SECRET`：库 Cookie/JWT 签名以及 TOTP/备用码认证加密，必需且每环境独立；`PLAYBACK_HMAC_KEY`：播放签名；`TURNSTILE_SECRET_KEY`：人机验证；`EMAIL_API_KEY`：已购发信 HTTPS API；`CLOUDFLARE_API_TOKEN`：备份导出最小权限；`BACKUP_ENCRYPTION_KEY`：备份加密；`WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD`：HTTPS 目标。已取消独立 `TOTP_ENCRYPTION_KEY` 与可选 `AUTH_SECRET` 设计；工程基础仅声明并配置已准备的四项 Secrets，邮件与备份外部凭证在对应模块接入时加入必需声明，不以占位值部署。 |
+| Worker Secrets | `BETTER_AUTH_SECRET`：库 Cookie/JWT 签名以及 TOTP/备用码认证加密，必需且每环境独立；`PLAYBACK_HMAC_KEY`：播放签名；`TURNSTILE_SECRET_KEY`：人机验证；`EMAIL_API_KEY`：Postal HTTPS API，传输层已声明，staging 已配置；`CLOUDFLARE_API_TOKEN`：备份导出最小权限；`BACKUP_ENCRYPTION_KEY`：备份加密；`WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD`：HTTPS 目标。已取消独立 `TOTP_ENCRYPTION_KEY` 与可选 `AUTH_SECRET` 设计；当前声明认证/播放/Turnstile/备份加密/邮件五项，备份外部凭证随对应模块加入必需声明，不以占位值部署。production Secrets 尚未上传。 |
 | 仅站长本机 | `TMDB_API_KEY`、目标环境资源映射和离线导入所需的最小权限 D1/R2 凭证；不把导入管理能力做成浏览器接口，不给 Worker 播放路径额外的上传管理 token。 |
 | 集中默认配置 | 站点业务默认：邀请额度 2、邀请码 30 天、预留 15 分钟、看完 90%、进度 15 秒、备份 30 天、评论 1000 字/每页 10 条/回复每批 10 条、播放 token 30 分钟、签发与管理各 30 次/分钟、发信间隔 60 秒/每用途每小时 5 次。认证配置统一维护 6.3 的原生参数及显式选择：滚动会话 30 天/updateAge 1 天/freshAge 5 分钟、验证与重置链接各 1 小时、二步挑战 5 分钟、备用码 10 个、TOTP 6 位/30 秒/±1 步、原生尝试/锁定/IP 限流。settings 与原生配置已调整并通过最小运行探针，完整 HTTP 和平台验收仍待完成。 |
 
