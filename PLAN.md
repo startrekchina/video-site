@@ -2,7 +2,7 @@
 
 本文件定义 v1 正式开发的执行顺序、约束和待办；需求以 [`docs/requirements.md`](docs/requirements.md)（下称“需求”）为唯一依据，协作与 Git 规则见 [`AGENTS.md`](AGENTS.md)。两者与本文件冲突时，先停下确认并修正文档，再实现。
 
-- 建立时间：2026-10-05。当前阶段：**第三阶段 邀请、账号与管理**；第二阶段本地工程基础完成，production 配置与平台实测仍按既有待办保留。
+- 建立时间：2026-10-05。当前阶段：**第三阶段 邀请、账号与管理**；第二阶段工程基础完成。production 上线在所有主要功能开发完成后按第六阶段 T6.2 执行，平台实测按对应模块验收。
 - 勾选规则：只有实现完成、相关构建与测试通过、并经复核的事项才勾选；部分完成写在“进展”里，不勾选。依赖站长提供材料或决策的事项标“阻塞”，不自行绕过。
 - 每完成一个可验证的任务或出现新阻塞，同步更新本文件的待办、进展、验证记录和未决事项；影响阶段状态时同步更新 `README.md`。
 
@@ -60,9 +60,9 @@
 - [x] `cloudflare.config.ts` 声明逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`BETTER_AUTH_SECRET`、`TURNSTILE_SECRET_KEY`、`BACKUP_ENCRYPTION_KEY`。T2.7 已移除旧独立 TOTP Secret；认证 IP/路径限流使用库的 D1 表，既有 Rate Limiting bindings 不作为原生认证计数器。T3.1 已加入 EMAIL_API_KEY 及 EMAIL_API_BASE_URL / EMAIL_SENDER_DOMAIN / EMAIL_FROM / EMAIL_REPLY_TO，真实值从本机 .env 注入；`OWNER_EMAIL`、`CLOUDFLARE_API_TOKEN` 及启用的 WebDAV / S3 目标配置在备份模块接入时加入，样例中的预留值不作为部署凭证。
 - [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；缺失或混用时构建失败。
 - [x] 集中默认配置已落在 `app/lib/settings.server.ts`；T2.7 已适配 30 天滚动会话/1 天更新/5 分钟新鲜度、1 小时邮件链接、二步备用码及原生限流，移除旧绝对期限和失败后才要求 Turnstile 的常量，新基线单测与运行探针通过。
-- [ ] 完成 staging / prod 云端配置与 Secrets；定时入口在备份任务实现时再加入，业务频率/时间由站长在网页设置，只有配置完整的 WebDAV / S3 目标才能启用（需求 6.9.2）。
-  - 2026-10-06 已获站长授权，staging 复用既有 Worker、自定义域名和私有媒体桶；旧 D1 schema 与当前迁移不兼容，保留旧库并创建隔离新库。第三阶段 11 个迁移及代码/资源现已部署，认证/播放/Turnstile/备份加密/邮件五项所需 Secrets 保留，旧版本可追溯；实际设备、邮件和认证 CPU 仍待验收。
-  - production 已核对既有 Worker、空 D1、独立私有媒体桶；独立 Turnstile 已创建，资源映射和四项新 Secrets 保存在本机忽略文件，最新配置构建 / dry-run 通过。尚未给 production 应用迁移、上传 Secrets 或替换代码。staging 邮件 Secret 已配置；production 邮件凭证及后续启用的备份目标凭证仍待提供。此项不勾选，不再记为全部待授权。
+- [x] 完成开发所需的 staging 云端配置与 Secrets，并验证 staging / production 的隔离配置声明、资源映射和构建 / dry-run；production 的正式迁移、Secrets 上传、部署和上线验收移至 T6.2。
+  - 2026-10-06 已获站长授权，staging 复用既有 Worker、自定义域名和私有媒体桶；旧 D1 schema 与当前迁移不兼容，保留旧库并创建隔离新库。第三阶段 11 个迁移及代码/资源现已部署，认证/播放/Turnstile/备份加密/邮件五项所需 Secrets 保留，HTTPS 冒烟通过，旧版本可追溯。实际验证/找回邮件及登录已通过；真实设备和认证专项性能按第三阶段继续验收。
+  - production 已核对既有 Worker、空 D1、独立私有媒体桶；独立 Turnstile 已创建，资源映射和四项新 Secrets 保存在本机忽略文件，配置构建 / dry-run 通过。尚未应用迁移、上传 Secrets 或替换代码；这些发布操作及 production 邮件凭证按 T6.2 在上线前处理。备份目标、站长配置和定时入口随 T6.1 接入，不作为工程基础完成条件。
 - 验收：`cf deploy --prebuilt --mode staging --dry-run` 与 `--mode production` 列出各自独立的绑定；仓库内 `git grep` 不出现真实 ID 或密钥。
 
 ### T2.4 Better Auth 评估与采用决定（需求 6.3.4、6.16）
@@ -98,7 +98,7 @@
 
 ### 第二阶段完成定义
 
-T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有书面结论且采用决定已记录；README 写明本地启动、测试、构建、迁移和 dry-run 部署命令。
+T2.1–T2.7 完成：本地启动、类型检查、测试和构建通过，staging 开发资源与 Secrets 可用，两环境隔离配置及构建 / dry-run 验证通过，认证采用决定与前端基础验收已记录，README 写明运行命令。production 上线按 T6.2 执行，不作为本阶段完成条件；各业务模块的真实设备、性能及备份验收仍按后续阶段执行。
 
 ## 4. 第三阶段及后续（顺序与验收入口）
 
@@ -128,11 +128,11 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
 1. **第三阶段 邀请、账号与管理**：按以下顺序细化并验收，不实现旧三路径密码恢复或管理员逐操作证明。
    - 邀请注册预留/库创建/业务完成及失败续作，邮箱必填/未验证门禁，库默认用户名密码；禁止直接 sign-up、客户端改角色/状态及额外登录入口绕过。
    - 原生 username 登录/退出、二步 TOTP/备用码与账号锁、禁用 trustDevice/OTP、Cookie/滚动会话/改密；通行密钥 UV 钩子与真实仪式；每个 loader/action/媒体的即时鉴权。
-   - 已购 Postal 发信 API（**文档与实际配置已提供，staging Secret 已核对；production Secret 未配置**）、签名邮箱验证、邮箱密码重置及部分失败处置、本人会话内改邮箱确认；业务邮件配额、原生 IP 限流/Turnstile/跨站防护。
+   - 已购 Postal 发信 API（**文档与实际配置已提供，staging Secret 已核对；production Secret 按 T6.2 上线前配置**）、签名邮箱验证、邮箱密码重置及部分失败处置、本人会话内改邮箱确认；业务邮件配额、原生 IP 限流/Turnstile/跨站防护。
    - 邀请码、成员/邀请链、额度、角色、首管本机提升、封禁/单个解封、管理员绑定 TOTP + 5 分钟新鲜会话；业务原子批次与并发保护。
 2. **第四阶段 片库与播放闭环**：离线导入 CLI（manifest / TMDB、MP4 与 faststart 预检、VTT、R2 / D1 幂等挂接）；访客入口、成员首页、片库、作品与选集接入真实数据；ArtPlayer、播放 token、续期、R2 Range 与字幕授权，两小时连续播放验证。
 3. **第五阶段 观看进度、片单与讨论**：进度上报与 `expectedRevision`、继续观看与下一集；收藏、片单与队列展开；评论、回复、赞踩与管理员删除。
-4. **第六阶段 运维与上线验收**：站长专用网页备份（`OWNER_EMAIL` + 正常管理员、加密下载、WebDAV / S3）、有外部目标才可配置的定时备份与手动恢复演练；staging 端到端验收与平台实测（网页任务生命周期、15 分钟 Cron 窗口、Time Travel 隔离、限流、scrypt、日志脱敏）；预算核对与部署、恢复文档，发布 v1。
+4. **第六阶段 运维与上线验收**：站长专用网页备份（`OWNER_EMAIL` + 正常管理员、加密下载、WebDAV / S3）、有外部目标才可配置的定时备份与手动恢复演练；staging 端到端验收与平台实测（网页任务生命周期、15 分钟 Cron 窗口、Time Travel 隔离、限流、scrypt、日志脱敏）；预算与部署、恢复文档核对。所有主要功能开发完成并通过相关验证后，按 T6.2 完成 production 配置、迁移、部署和上线验收，发布 v1。
 
 ### T6.1 数据库备份与恢复（待第三至第五阶段完成）
 
@@ -143,18 +143,26 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
 - [ ] 使用虚构数据和模拟 Cloudflare / WebDAV / S3 验证权限、下载可恢复性、环境隔离、部分失败、重试与保留；在 staging 实测网页任务中断与执行生命周期、定时全流程 15 分钟限制和资源消耗。
 - [ ] 演练 6.9.3 的隔离手动恢复、原生凭证清理和重新开放；补齐站内备份使用、目标配置、历史密钥保管与恢复说明。备份功能未实现/未验证，不提前勾选。
 
+### T6.2 production 发布（待主要功能开发完成）
+
+- [ ] 确认第三至第五阶段的认证与管理、片库与播放、进度/片单/讨论，以及 T6.1 备份与恢复等主要功能均已开发完成，相关测试、staging 端到端验收和平台门槛通过。
+- [ ] 上线前补齐 production 独立 Secrets、邮件凭证及启用的备份目标配置，核对 Worker、D1、R2、Turnstile、正式域名和环境隔离；既有资源准备与构建 / dry-run 不代替实际发布验收。
+- [ ] 获站长明确授权后，应用 production 增量迁移、上传 Secrets、部署已验证代码，并核对正式域名 HTTPS、公开入口、成员/管理员门禁、静态资源和安全头；通过后记录实际版本与发布结果。
+
 ## 5. 未决事项与风险
 
 | 事项 | 状态 | 处理 |
 | --- | --- | --- |
 | React Router v7 与 `@cloudflare/vite-plugin` 2.0 beta 的产物目录不一致 | 已用同步插件绕过，构建 / 预览 / dry-run 已验证 | 需求定 v7，暂不升级。若站长同意升级 v8（官方支持组合），需同步修改需求 6.1 与 README 技术栈 |
 | `cf` 与 Vite 插件 2.0 均为 beta | 风险 | 锁定精确版本；升级单独提交并重跑全部验证 |
-| staging / prod 云端资源与 Secrets | staging 第三阶段已部署；production 构建 / dry-run 通过 | 旧 staging D1 保留；production 未上线。staging 邮件 Secret 已配置，production 邮件及后续备份目标凭证待提供；真实配置只在本机忽略文件与平台保存 |
+| staging / prod 云端资源与 Secrets | staging 开发配置完成；production 准备记录与构建 / dry-run 通过 | production 正式配置、迁移、Secrets 上传和部署按 T6.2 在主要功能完成后执行；邮件及启用的备份目标凭证上线前补齐。此项不阻塞工程基础或第三至第五阶段验收；真实配置只在本机/平台保存 |
 | Better Auth 接入 | 第三阶段实现、部署及验证/找回/登录通过；外部验收待完成 | HTTP、邀请/权限/UV/改邮箱门禁及失败续作已接通，页面已按原型复核。凭证日志探针已通过；真实验证器、套餐限额和认证专项性能仍待测，不以本地测试代替 |
 | 已购发件服务的 API 文档与配置 | staging 验证/找回邮件、邮箱验证、新密码和登录实际通过，回调与业务配额已接入 | production 无 Secrets，不复制 staging 密钥。套餐限额待验；真实收件地址仅在本机/平台保存 |
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | staging 资源可用，相关模块与云端验收待完成 | 认证成本/日志按第三阶段，备份按第六阶段执行，不以本地结果代替 |
 
 ## 6. 进展与验证记录
+
+- 2026-10-06：站长明确 production 上线须在所有主要功能开发完成之后。需求 6.9/6.16、AGENTS 与 README 已同步，T2.3 拆出已验证的开发配置并勾选；production 正式配置、迁移、Secrets 上传、部署和上线验收归入第六阶段 T6.2，第三至第五阶段验收不以 production 上线为条件。既有 production 准备记录保留，发布待办仍未勾选；原型业务页面迁移按对应阶段验收。文档差异、链接与敏感信息检查通过；本次仅改文档，未运行代码构建/测试、未执行云端操作或推送。
 
 - 2026-10-06：站长确认实际找回邮件、新密码提交及登录已完成，并指出成功后原密码表单仍可操作。新增沿用 AuthFrame 的 `/reset-password/complete`，成功时用 location.replace 替换当前历史条目、移除 URL token 并重新读取真实会话；旧表单/成员导航不再残留，失败保留表单。159 项测试、类型检查及三环境构建通过；1440×1000 / 360×800 浅深色四张截图复核，手机无横向溢出，完成页无密码输入/验证码，本地“前往登录”实际跳转 `/login`。已恢复原视口和跟随系统主题；随后按站长指定改用 Kimi WebBridge 2.0.22。staging 在本次既有 API 例外内完成修正部署（1180 项静态资源、启动 44 ms），完成页 200/安全头/无表单及原有门禁复核通过。Kimi 已获取云端完成页和截图；站长关闭扩展弹窗后，确认登录按钮跳转到 `/login` 且显示“登录”，完成云端复核，任务标签恢复到完成页供查看。需求、README、验收记录已同步，未代设凭证、未触及 production 或推送 Git。
 

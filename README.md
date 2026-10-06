@@ -8,9 +8,9 @@ v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确�
 
 数据库备份将提供站内操作：直接下载加密文件，或保存到 WebDAV / S3；仅 Worker 变量 `OWNER_EMAIL` 匹配的正常管理员可访问，其他管理员无此权限。只有 WebDAV / S3 目标配置完整后，才能在网页设置定时备份频率与执行时间；仅下载不启用定时备份，不再固定每日 04:00。这项需求和验收已同步，功能按 PLAN T6.1 待实现。
 
-第二阶段本地工程基础完成。第三阶段的邀请注册、认证 HTTP、邮箱验证/找回/本人改邮箱、账号与设备管理、邀请额度及管理员操作已在本地实现，Better Auth/passkey 仍锁定 1.7.7。页面尽可能沿用原型结构，新增邮箱流程沿用同套控件；成功重置后进入无密码表单、无 URL token 的独立完成页，提供登录按钮。[第三阶段验收记录](docs/screenshots/phase3/README.md)列明已验证范围和差异。真实 WebAuthn、套餐限额及认证专项性能仍待验收，第三阶段尚未整体验收。
+第二阶段工程基础完成。第三阶段的邀请注册、认证 HTTP、邮箱验证/找回/本人改邮箱、账号与设备管理、邀请额度及管理员操作已在本地实现，Better Auth/passkey 仍锁定 1.7.7。页面尽可能沿用原型结构，新增邮箱流程沿用同套控件；成功重置后进入无密码表单、无 URL token 的独立完成页，提供登录按钮。[第三阶段验收记录](docs/screenshots/phase3/README.md)列明已验证范围和差异。真实 WebAuthn、套餐限额及认证专项性能仍待验收，第三阶段尚未整体验收。
 
-staging 已按站长授权部署第三阶段代码及 11 个迁移，复用既有 Worker、域名、私有媒体桶和 Secrets。公开页面、访客权限、跨站拒绝、通行密钥 UV 选项、静态 noindex 与凭证日志脱敏探针通过，邮件重定向运行时问题已修复；站长确认验证/找回邮件、新密码和登录实际通过。真实设备、套餐限额及认证专项性能仍待验收，普通请求指标见 PLAN。production 资源映射和独立密钥已准备，但未迁移、上传 Secrets 或上线；真实配置只在本机/平台保存。剩余验收与阶段状态以 [`PLAN.md`](PLAN.md) 为准，前端参考原型保留在 `prototypes/frontend-v1/`。
+staging 已按站长授权部署第三阶段代码及 11 个迁移，复用既有 Worker、域名、私有媒体桶和 Secrets。公开页面、访客权限、跨站拒绝、通行密钥 UV 选项、静态 noindex 与凭证日志脱敏探针通过，邮件重定向运行时问题已修复；站长确认验证/找回邮件、新密码和登录实际通过。真实设备、套餐限额及认证专项性能仍待验收，普通请求指标见 PLAN。production 资源映射和独立密钥已有准备记录；正式迁移、Secrets 上传、部署和上线验收安排在所有主要功能开发完成后的第六阶段，不作为工程基础或第三至第五阶段完成条件。真实配置只在本机/平台保存，剩余验收与阶段状态以 [`PLAN.md`](PLAN.md) 为准，前端参考原型保留在 `prototypes/frontend-v1/`。
 
 ## 文档
 
@@ -42,21 +42,21 @@ staging 已按站长授权部署第三阶段代码及 11 个迁移，复用既�
 
 - [x] 建立根目录 `PLAN.md`，把功能顺序和验收条件整理为可执行待办；工具链已在本机探针中验证。
 - [x] 使用 `cf` CLI 建立 React Router v7 + Workers 正式工程，配置类型检查、构建和 Workers Vitest 测试入口；不使用 Wrangler。
-- [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；staging 第三阶段代码、11 个迁移、五项所需 Secrets 及 HTTPS 冒烟检查通过。production 资源与独立密钥已准备，尚未迁移、上传 Secrets 或部署；production 邮件凭证及后续启用的备份目标凭证仍待提供。
+- [x] 完成 staging 开发资源与 Secrets 配置，并验证 staging / production 的隔离配置、资源映射和构建 / dry-run；staging 的 11 个迁移、五项所需 Secrets 及 HTTPS 冒烟通过。production 正式迁移、Secrets 上传、部署和上线验收按第六阶段执行。
 - [x] 完成 Better Auth 旧规则 POC 与差距报告；29 项测试是行为/差距证据，不等于新方案验收。
 - [x] 站长决定调整需求并采用 Better Auth；需求、接口、验收和计划已同步，变更索引见需求 6.3.4。
 - [x] 落地 D1 迁移/约束与虚构成员、生成媒体/字幕夹具；0008 原生认证表与 0009 成员业务资料/外键已验证，未转换旧凭证会让迁移拒绝并回滚。
 - [x] 完成 Better Auth 原生配置、依赖/Secrets/常量适配与 21 项 workerd/D1 探针；这不表示完整认证流程已接通。
 - [x] 完成 PLAN T2.7：库原生 schema/业务成员与注册预留增量迁移、依赖/Secrets/常量适配、原生行为探针和关于页新文案验收。
 - [x] 迁移前端基础并通过桌面/手机、浅/深色验收；关于页 Better Auth 新文案截图见 [新版验收记录](docs/screenshots/phase2-better-auth/README.md)，旧截图仅作历史参考。
-- [ ] 按页面或流程迁移原型的展示组件、布局、样式和已定稿交互，适配 loader / action 与真实数据；正式工程不依赖原型目录，不沿用演示认证和权限。
+其余原型页面的展示组件、布局、样式和已定稿交互随第三至第五阶段的对应功能迁移，适配 loader / action 与真实数据；正式工程不依赖原型目录，不沿用演示认证和权限。逐页迁移的剩余工作按对应阶段验收。
 
 ### 3. 邀请、账号与管理
 
 - [x] 接入 Better Auth 和邀请注册预留/创建/完成；本地集成测试覆盖默认用户名/密码、邀请码与失败续作、成员门禁、跨站/IP 限流/Turnstile 和精确邮件配额。
 - [x] 完成内部邀请注册核心与 0010 归属/原子提交约束；实际读取原生身份，冲突不消费码，部分账号仅由同一尝试续作，并发不重复建号。HTTP 防护、发信回调和原型式页面现已接入；实际投递及平台实测仍待完成。
 - [x] 实现 Postal HTTPS 发信传输与五项环境配置绑定；模拟服务验证单次请求、HTTP / 业务错误、超时及脱敏。实际投递和业务回调见下一项，不因传输测试通过标为完成。
-- [ ] 接入已购 Postal 发件服务；API 文档/地址和两环境 From / Reply-To 已确认，staging Secret 已配置，production Secret 未配置。核对套餐限额，完成原生签名邮箱验证、邮箱重置链接、成员发信限流、待验证账号访问限制和投递失败处理（见需求文档第 6.0 节）。
+- [ ] 完成已购 Postal 发件服务的 staging 验收；API 文档/地址和 From / Reply-To 已确认，staging Secret、原生签名邮箱验证、邮箱重置链接、成员发信限流、待验证账号门禁及失败处理已接入，验证/找回邮件实际通过，套餐限额仍待核对（需求 6.0）。production 邮件凭证在第六阶段上线前配置。
 - [x] 完成已登录成员的原生改邮箱与本人会话确认；验证新邮箱前保留旧邮箱，不提供匿名改邮箱、不预占待邮箱、不承诺撤销未过期旧重置链接。
 - [x] 接入通行密钥选项/UV 钩子、TOTP/备用码、滚动会话、改密、邮箱找回及故障处置；备用码仅第二因素，旧密码恢复码/管理员重置路径关闭。
 - [ ] 补齐真实 WebAuthn/手机设备、实际邮件、浏览器中的其他成员管理操作及 staging CPU/日志验收；本地结果不能代替这些门槛。
@@ -78,6 +78,7 @@ staging 已按站长授权部署第三阶段代码及 11 个迁移，复用既�
 
 - [ ] 完成仅 `OWNER_EMAIL` 匹配管理员可用的站内备份页、手动创建/重试、加密下载与 WebDAV / S3 保存，以及外部目标配置完整后才可启用的频率/时间设置；共用 D1 → R2 流程，验证回读校验、失败处理、各端保留与隔离手动恢复，确认媒体冷备与历史密钥可用（PLAN T6.1）。
 - [ ] 在 staging 完成端到端验收：未登录 / 越权访问、封禁与续期、并发幂等、日志脱敏、noindex、备份恢复及真实平台限制；实测网页备份执行生命周期与中断重试、定时全流程 15 分钟窗口、Time Travel 隔离能力、限流与 scrypt 行为。
+- [ ] 所有主要功能（认证与管理、片库与播放、进度/片单/讨论、备份与恢复）开发完成并通过相关测试和 staging 验收后，补齐 production 独立配置与 Secrets；获站长明确授权后执行正式迁移、部署及 HTTPS、权限和安全头验收（PLAN T6.2）。
 - [ ] 验证目标规模下的播放体验和预算，补齐本地启动、部署及恢复说明，再发布 v1。
 
 HLS、ASS 渲染、弹幕、同时播放数限制、OAuth 登录等范围外功能不纳入本清单；邮箱验证、邮件发信和成员自助修改注册邮箱已纳入 v1，完整范围以需求文档为准。
@@ -122,7 +123,7 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 | `pnpm build:staging` / `pnpm build:production` | 按环境构建；需要本机 `.env`（见 `.env.example`），缺少资源标识时构建失败 |
 | `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
 
-`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
+`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。开发期间使用本地与 staging；production 构建 / dry-run 仅验证准备状态，正式迁移、Secrets 上传和部署须等主要功能完成后按 PLAN T6.2 执行。
 
 已授权的云端配置复用既有 Worker，D1 名称/ID 与媒体桶名由 `.env.example` 所列环境变量分别映射；旧 staging 数据库因 schema 不兼容而保留，当前工程使用新库，不对旧库套用迁移。staging 沿用原有自定义域名，production 使用本文确定的正式域名；Custom Domain 由 `worker.domains` 管理，workers.dev 与版本预览入口关闭。
 
