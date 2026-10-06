@@ -262,9 +262,46 @@ describe("email and credential constraints", () => {
   });
 
   it("enforces case-insensitive usernames and immutable invitation sources", async () => {
-    await expect(user("river", "nOVA").run()).rejects.toThrow(/UNIQUE constraint/);
+    await expect(user("river", "nOVA").run()).rejects.toThrow(/User replacement is forbidden/);
     await expect(env.DB.prepare("UPDATE users SET invited_by_user_id = ? WHERE id = ?")
       .bind("quinn", "nova").run()).rejects.toThrow(/Invitation source is immutable/);
+  });
+
+  it.each(["INSERT OR REPLACE", "REPLACE"])("rejects %s by ID or username without changing claims", async (verb) => {
+    await env.DB.prepare(`INSERT INTO users
+      (id, username, username_key, email, email_key, password_hash, role, status,
+       invited_by_user_id, invite_quota, created_at)
+      VALUES ('river', 'River', 'river', 'river@example.test', 'river@example.test',
+       'fictional-hash', 'member', 'active', 'nova', 2, ?)`).bind(now).run();
+    await env.DB.prepare("UPDATE users SET pending_email = ?, pending_email_key = ? WHERE id = ?")
+      .bind("pending@example.test", "pending@example.test", "nova").run();
+    const members = await env.DB.prepare("SELECT * FROM users ORDER BY id").all();
+    const claims = await env.DB.prepare("SELECT * FROM email_claims ORDER BY email_key").all();
+    for (const id of ["nova", "new-id"]) {
+      await expect(env.DB.prepare(`${verb} INTO users
+        (id, username, username_key, email, email_key, password_hash, role, status,
+         invited_by_user_id, invite_quota, created_at)
+        VALUES (?, 'Nova', 'nova', 'replacement@example.test', 'replacement@example.test',
+         'fictional-hash', 'member', 'active', 'river', 2, ?)`).bind(id, now).run())
+        .rejects.toThrow(/User replacement is forbidden/);
+    }
+    expect((await env.DB.prepare("SELECT * FROM users ORDER BY id").all()).results).toEqual(members.results);
+    expect((await env.DB.prepare("SELECT * FROM email_claims ORDER BY email_key").all()).results).toEqual(claims.results);
+    await user("fresh", "Fresh", "replacement@example.test").run();
+  });
+
+  it("rolls back earlier writes when a replacement in the batch fails", async () => {
+    await expect(env.DB.batch([
+      user("river", "River"),
+      env.DB.prepare(`INSERT OR REPLACE INTO users
+        (id, username, username_key, email, email_key, password_hash, role, status, invite_quota, created_at)
+        VALUES ('nova', 'Changed', 'changed', 'changed@example.test', 'changed@example.test',
+         'fictional-hash', 'member', 'active', 2, ?)`).bind(now),
+    ])).rejects.toThrow(/User replacement is forbidden/);
+    expect(await count("users")).toBe(2);
+    expect(await count("email_claims")).toBe(2);
+    expect(await env.DB.prepare("SELECT username, invited_by_user_id FROM users WHERE id = 'nova'").first())
+      .toEqual({ username: "Nova", invited_by_user_id: null });
   });
 
   it("allows only one unconsumed verification token across purposes", async () => {

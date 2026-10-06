@@ -107,6 +107,8 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面�
 
 ## 6. 进展与验证记录
 
+- 2026-10-06：修复 T2.5 复核发现的 P1：SQLite `INSERT OR REPLACE` 会绕过 UPDATE 触发器，可改写邀请来源并遗留邮箱占用。增量迁移 `0007_users_insert_guard.sql` 在 INSERT 前拒绝与既有成员 ID 或用户名键冲突的插入；成员变更必须使用 UPDATE。新增两种 REPLACE 语法、ID / 用户名冲突、邮箱占用保留与失败批次回滚回归用例。`pnpm test` 82 项、`pnpm typecheck`、`pnpm build` 通过；本地 `cf` 应用全部 7 个迁移成功。未改写旧迁移。
+
 - 2026-10-05：完成工具链探针（见第 2 节），建立本计划。
 - 2026-10-06：T2.2 / T2.3 骨架完成。`pnpm typecheck` 通过；`pnpm test` 2 个文件 5 项通过（首页、robots.txt、404 的状态码与安全头；集中配置数值；测试环境绑定）；`pnpm build` 通过；以占位 `.env` 执行 `build:staging` / `build:production` 后 `cf deploy --prebuilt --dry-run` 分别列出独立的 Worker、D1、R2 与 Rate Limiting 绑定，缺少 `.env` 时构建明确失败。T2.4 的两次子代理执行均中途失败、未产出结果，POC 改为重新组织执行。
 - 2026-10-06：T2.5 迁移步骤完成。`pnpm install --frozen-lockfile` 成功且未改变依赖或 lockfile；`pnpm db:migrate:local`（`cf d1 migrations apply 00000000-0000-4000-8000-000000000000 --local --persist-to .cloudflare/state`）5 个迁移全部成功，再次运行返回 `[]`。存储时间统一为 UTC 毫秒；邮箱占用集合由触发器同步并以唯一键阻止跨列冲突；季/集使用复合外键。`pnpm typecheck`、`pnpm test`（已有 5 项）、`pnpm build` 均通过；约束用例和媒体夹具尚待后续步骤，不勾选对应项。
