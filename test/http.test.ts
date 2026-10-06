@@ -1,7 +1,10 @@
 import { exports } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 const fetchPath = (path: string) => exports.default.fetch(`http://example.com${path}`);
+
+// The first request compiles the UI module graph in Vite; keep that outside the 5s request checks.
+beforeAll(async () => { await fetchPath("/robots.txt"); }, 30000);
 
 function expectSecurityHeaders(res: Response) {
   expect(res.headers.get("X-Robots-Tag")).toBe("noindex");
@@ -29,6 +32,21 @@ describe("worker responses", () => {
   it("returns a 404 page with the same headers for unknown paths", async () => {
     const res = await fetchPath("/no-such-page");
     expect(res.status).toBe(404);
+    expect(await res.text()).toContain("这片星域还没有被探索过。");
     expectSecurityHeaders(res);
+  });
+
+  it("renders the public about page without member links or prototype identity", async () => {
+    const res = await fetchPath("/about");
+    expect(res.status).toBe(200);
+    expectSecurityHeaders(res);
+    const html = await res.text();
+    expect(html).toContain("mailto:contact@startrekchina.org");
+    expect(html).toContain("注册邮箱");
+    expect(html).toContain("邮箱找回密码");
+    expect(html).toContain('name="theme"');
+    expect(html).not.toMatch(/href="\/(series|movies|library|playlists|invites|account|admin)(?:["#?\/])/);
+    expect(html).not.toMatch(/PROTO|proto\/frontend-v1|站长待填/);
+    expect(html.indexOf("localStorage.getItem('site-theme')")).toBeLessThan(html.indexOf('rel="stylesheet"'));
   });
 });

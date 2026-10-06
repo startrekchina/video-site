@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { reactRouter } from "@react-router/dev/vite";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
 
 // Tests use the committed placeholder secrets so they never depend on a developer's .dev.vars.
@@ -10,6 +11,7 @@ const testMigrations = await readD1Migrations("./migrations");
 
 export default defineConfig({
   plugins: [
+    tailwindcss(),
     reactRouter(),
     cloudflareTest({
       main: "./workers/app.ts",
