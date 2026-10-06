@@ -246,11 +246,12 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 
 #### 6.0.3 发信通道与限流
 
-- 沿用站长已经购买的发件服务，以 HTTPS API 和 `fetch` 接入 Better Auth 的验证/重置发信回调及站点封禁通知。API key 使用 Worker Secret，不使用 SMTP，不重新选型。
+- 沿用站长已经购买的 Postal 发件服务，以 HTTPS API 和 `fetch` 接入 Better Auth 的验证/重置发信回调及站点封禁通知。API key 使用 Worker Secret `EMAIL_API_KEY`，不使用 SMTP，不重新选型。接口依据：[Postal API 说明](https://docs.postalserver.io/developer/api/)、[发信接口](https://apiv1.postalserver.io/controllers/send/message)。
+- 请求实际服务的 `POST /api/v1/send/message`，使用 `Content-Type: application/json` 与 `X-Server-API-Key`；字段映射为 `to`（收件人数组）、`from`、`reply_to`、`subject`、`plain_body` / `html_body`。同时检查 HTTP 状态与 JSON `status`：HTTP 200 不代表业务成功，仅 `status=success` 记为服务已接受；`parameter-error` / `error` 按失败处理。从成功结果只提取必要的 `data.message_id` 作为服务商消息标识，不保存或记录完整回包中的收件人、token 或其他凭证；服务已接受不代表已送达。
 - 每次操作最多一次发信请求，失败或超时不自动重试；超时记录为发送结果未确认。回调捕获并记录脱敏失败，避免注册结果随邮件失败回滚；成员可按配额手动重发。
 - 验证（注册、重发、改邮箱）共用目标邮箱摘要的配额，密码找回单独计数：至少间隔 **60 秒**，滚动 **60 分钟最多 5 次**。首次、失败和超时发送尝试均计入；不存在邮箱的找回请求同样计数和反馈。此发信业务配额由 D1 条件写入保证，Better Auth 的 IP 限流不能代替它。
 - 封禁通知不受站内发信频率上限限制；服务商套餐和 API 限额仍适用。发信失败不回滚封禁，不增加自动排队、主动失败告警或投递 webhook。
-- 沿用现有 From 和已有 Reply-To；全部发件地址使用站长确认的统一发件子域，实际域名与地址仅保存在本机/平台配置。站长已配置退信路径和收信记录，域名与 SPF/DKIM/DMARC 仍由站长维护；接入前需要提供 API 文档、API key 和具体 From / Reply-To，配置声明不代替实际投递验证。真实地址与凭证不写入公开仓库。
+- 沿用现有 From 和已有 Reply-To；全部发件地址使用站长确认的统一发件子域，实际域名与地址仅保存在本机/平台配置。站长已配置退信路径和收信记录，域名与 SPF/DKIM/DMARC 仍由站长维护；API 文档已提供，接入前仍需实际服务的 HTTPS API 基础地址、API key 和具体 From / Reply-To，不能由发件子域推断 API 地址，配置声明不代替实际投递验证。真实地址与凭证不写入公开仓库。
 - 仅邮件正文包含必要的限时链接；日志记录邮箱不可逆摘要、用途、请求 ID、结果及脱敏错误，不记录正文、完整 URL 或 token。必要异步发送纳入 Worker 请求生命周期，不使用未等待的后台 Promise。
 
 #### 6.0.4 修改注册邮箱
