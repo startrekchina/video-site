@@ -73,7 +73,7 @@ export default defineConfig(({ mode = "development" }) => {
         ADMIN_RATE_LIMITER: rateLimit(3, 30),
         EMAIL_RATE_LIMITER: rateLimit(4, 5),
         PLAYBACK_HMAC_KEY: bindings.secret(),
-        TOTP_ENCRYPTION_KEY: bindings.secret(),
+        BETTER_AUTH_SECRET: bindings.secret(),
         TURNSTILE_SECRET_KEY: bindings.secret(),
         EMAIL_API_KEY: bindings.secret(),
         CLOUDFLARE_API_TOKEN: bindings.secret(),

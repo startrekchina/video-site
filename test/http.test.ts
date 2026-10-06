@@ -14,6 +14,12 @@ function expectSecurityHeaders(res: Response) {
 }
 
 describe("worker responses", () => {
+  it("keeps native authentication HTTP routes unmounted until business gates are implemented", async () => {
+    const res = await fetchPath("/api/auth/get-session");
+    expect(res.status).toBe(404);
+    expectSecurityHeaders(res);
+  });
+
   it("renders the home page with security headers", async () => {
     const res = await fetchPath("/");
     expect(res.status).toBe(200);

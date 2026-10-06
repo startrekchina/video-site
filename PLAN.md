@@ -55,9 +55,9 @@
 
 ### T2.3 环境、绑定与 Secrets
 
-- [x] `cloudflare.config.ts` 按旧需求声明逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`TOTP_ENCRYPTION_KEY`、`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`。发件人地址、发件域名和邮件 API 基础地址等发件配置项待站长提供已购服务的 API 文档后在第三阶段加入，不预先猜写。
+- [x] `cloudflare.config.ts` 声明逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`BETTER_AUTH_SECRET`、`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`。T2.7 已移除旧独立 TOTP Secret；认证 IP/路径限流使用库的 D1 表，既有 Rate Limiting bindings 不作为原生认证计数器。发件人地址、发件域名和邮件 API 基础地址等发件配置项待站长提供已购服务的 API 文档后在第三阶段加入，不预先猜写。
 - [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；缺失或混用时构建失败。
-- [x] 旧需求的集中默认配置已落在 `app/lib/settings.server.ts`，旧数值单测通过；Better Auth 新值及 Secrets 的适配见 T2.7，不能把旧测试视为新基线通过。
+- [x] 集中默认配置已落在 `app/lib/settings.server.ts`；T2.7 已适配 30 天滚动会话/1 天更新/5 分钟新鲜度、1 小时邮件链接、二步备用码及原生限流，移除旧绝对期限和失败后才要求 Turnstile 的常量，新基线单测与运行探针通过。
 - [ ] **阻塞（待站长授权）**：用 `cf d1 create`、`cf r2 buckets create` 创建 staging / prod 的 D1 与私有 R2，确定 Rate Limiting namespace，写入线上 Secrets，并决定 staging 的访问域名；Cron 表达式 `0 20 * * *` 在备份任务实现时再加入。
 - 验收：`cf deploy --prebuilt --mode staging --dry-run` 与 `--mode production` 列出各自独立的绑定；仓库内 `git grep` 不出现真实 ID 或密钥。
 
@@ -82,13 +82,15 @@
 - 进展：样式 / 字体、页面外壳、主题三档与 D 键、SSR 防闪烁、手机菜单胶囊展示组件、回到顶部、关于页 / 404 已迁入；访客不传成员导航、不显示胶囊和受保护链接。关于页按当时规则补齐邮箱验证/三条恢复路径并修正邀请连带方向、展示下架联系邮箱；恢复文案已被新方案替代，待 T2.7 更新。成员胶囊的真实数据与权限接入随认证阶段验收。`pnpm typecheck`、`pnpm test` 83 项、`pnpm build` 通过；SSR 首次 Vite 编译约 14–20 秒，测试先预热再按原 5 秒请求阈值验证。集成后的浏览器验收及截图见 [前端基础验收记录](docs/screenshots/phase2/README.md)。
 - 验收：类型检查、构建通过；用浏览器在 1440×1000 与 360×800、浅色与深色下对照原型截图验收关于页和 404，保存截图。
 
-### T2.7 Better Auth 新基线适配（尚未实施）
+### T2.7 Better Auth 新基线适配（进行中）
 
-- [ ] 将正式工程锁定到已评估的 Better Auth/passkey 1.7.7，按需求设置 username/twoFactor/passkey/captcha、会话/邮件期限和原生限流；配置、绑定类型、`.dev.vars.example` 统一采用必需的 `BETTER_AUTH_SECRET`，移除旧独立 TOTP Secret 和过期常量，保留环境隔离与 telemetry 关闭。
-- [ ] 从锁定库 schema 生成并审查增量迁移：user/account/session/verification/twoFactor/passkey/rateLimit、member_profiles 与 registration_attempts，稳定 ID 和业务外键不丢失；验证日期、唯一性、失败回滚及旧自定义凭证/待邮箱占用表退役，不改写 0001–0007。
-- [ ] 最小集成探针复核原生默认密码/用户名、滚动会话/改密换新会话、邮箱 JWT/重置链接生命周期、备用码/二步锁定、captcha/IP 限流与原生响应；UV 钩子、注册未完成/封禁门禁、改邮箱确认必须本人会话等留给第三阶段完整 HTTP 流程验收。旧 29 项测试不替代这些新用例。
+- [x] 将正式工程锁定到已评估的 Better Auth/passkey 1.7.7，按需求设置 username/twoFactor/passkey/captcha、会话/邮件期限和原生限流；配置、绑定类型、`.dev.vars.example` 统一采用必需的 `BETTER_AUTH_SECRET`，移除旧独立 TOTP Secret 和过期常量，保留环境隔离与 telemetry 关闭。
+- [x] 用锁定库 `getMigrations().compileMigrations()` 生成并审查 `0008_better_auth.sql`：user/account/session/verification/twoFactor/passkey/rateLimit，补 credential ID 唯一键和用户/会话期限索引。类型检查、真实 D1 日期读写、唯一键/外键及本地增量迁移通过；没有改写 0001–0007。
+- [ ] 继续迁移 member_profiles 与 registration_attempts、稳定 ID 和业务外键；验证历史资料保留及业务批次失败回滚后退役旧自定义凭证/待邮箱占用表。当前旧表仍保留，新认证用户尚未关联到业务成员，不把建表标为此项完成。
+- [x] 21 项最小集成探针复核原生默认密码/用户名、滚动会话/改密换新会话、邮箱 JWT/重置链接生命周期、备用码/二步锁定、captcha/IP 限流与原生响应；新旧 schema 共存不影响已有工程检查。旧 29 项测试不替代这些新用例。
+- 进展：`app/lib/auth.server.ts` 是正式服务端配置工厂，注册/邮箱直登/资料更新/OTP 等额外 HTTP 路径关闭，trustDevice 被拒；通行密钥已配置 UV 拒绝钩子，真实仪式仍未验证。Worker **尚未挂载** `/api/auth/*`，待第三阶段邀请完成/封禁/设备绑定门禁、改邮箱本人会话确认和脱敏请求日志接入；当前库日志关闭，发信回调仅在测试用本地捕获，真实服务尚未接入。
 - [ ] 更新正式关于页、导航/恢复链接及对应 HTTP 测试，去掉三路径恢复/管理员重置说明，按新文案重新核对桌面/手机、浅/深色并保存截图；旧截图标作历史。
-- 验收：本地增量迁移、类型检查、相关 Workers 测试、构建和关于页浏览器检查通过；schema/配置/README 的实际状态同步。这里只记录已确认后续任务，文档调整不表示代码接入完成。
+- 验收：本地增量迁移、类型检查、相关 Workers 测试、构建和关于页浏览器检查通过；schema/配置/README 的实际状态同步。业务资料迁移和关于页检查未完成，第二阶段尚未结束。
 
 ### 第二阶段完成定义
 
@@ -119,6 +121,8 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | 待 staging 资源 | 第六阶段执行，不以本地结果代替 |
 
 ## 6. 进展与验证记录
+
+- 2026-10-06：推进 T2.7 原生认证基础。正式依赖锁定 1.7.7，新增配置工厂和生成的 0008 迁移；Secrets/常量按新需求适配。21 项 workerd/D1 探针通过，实测 DATE 列保存 ISO 8601 文本并还原为 Date，生产配置 Cookie 为 `__Host-session`，原生 token/滚动会话/改密换新会话、1 小时邮箱 JWT 与重置链接、二步备用码/账号锁定、持久化 IP 限流和 captcha 拒绝分支符合探针预期。全部工程 4 个文件 105 项测试、`pnpm typecheck`、`pnpm build`、本地 0008 增量迁移通过。首次与类型生成/测试/迁移并行构建报字体产物 ENOENT，其他进程结束后同样构建命令通过；后续这些产物生成检查逐项执行。旧用户/业务外键/凭证退役、关于页新文案、真实 WebAuthn 和完整 HTTP 门禁仍未完成，不开放认证 HTTP 路径，不创建云端资源或重启 6120。
 
 - 2026-10-06：按站长提醒将已完成的 `spike/auth-poc-report` 实验源码与报告归档到 `dev`。合并只在 PLAN 产生旧选型说明冲突，保留已确认 Better Auth 的当前计划与进展；POC 仍在独立目录使用独立依赖、迁移和 runner。合并后的正式工程 `pnpm typecheck`、`pnpm test`（83 项）、`pnpm build`，以及 POC `pnpm test`（29 项）、`pnpm typecheck` 全部通过；6120 服务保持运行，归档不表示 T2.7 已完成。
 

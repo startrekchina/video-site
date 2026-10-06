@@ -1,6 +1,6 @@
 # 星际迷航中国视频站·需求文档
 
-- 状态：业务与运维策略已确认；2026-10-06 已决定采用 Better Auth 并调整认证需求，变更索引见 6.3.4。正式开发处于工程基础阶段，既有骨架、D1 迁移/约束/夹具和前端基础通过旧基线本地验证；认证 schema、配置、页面文案和正式接入尚待按新规则迁移。旧 POC 差距不再是采用决策阻塞，也不表示新集成已验收。发件服务及平台实测仍按 6.16 完成，实际进展见 [正式开发计划](../PLAN.md)
+- 状态：业务与运维策略已确认；2026-10-06 已决定采用 Better Auth 并调整认证需求，变更索引见 6.3.4。正式开发处于工程基础阶段，既有骨架、D1 迁移/约束/夹具和前端基础已验证；原生认证配置、认证表和最小探针已落地，旧成员/业务外键/凭证、页面文案和完整 HTTP 接入仍待迁移。旧 POC 差距不再是采用决策阻塞，也不表示完整认证已验收。发件服务及平台实测仍按 6.16 完成，实际进展见 [正式开发计划](../PLAN.md)
 - 适用范围：第一版（v1）。后续版本的内容见“范围外”一节
 - 本次范围基准：`proto/frontend-v1` 分支提交 `f03d9a8` 中的 `prototypes/frontend-v1/`；PR #3 将该原型及相关素材保留为 `main` 中的参考项目。原型用于明确页面、视觉和交互，本文仍是正式开发的唯一需求依据
 - 与原型的关系：邮箱验证、邮件发信及其相关页面是原型中没有的新增需求，属于正式版必须实现、但在 `prototypes/frontend-v1/` 中无对应实现的部分，不能以原型现状反推其可以不做
@@ -308,7 +308,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | 可播放单元 `playable_units` | `id, kind, work_id, season_id, episode_number, tmdb_id, duration_seconds`，集另存双语资料；电影行无季号/集号，以 `work_id` 唯一；集行必须有季和集号，以 `(season_id, episode_number)` 唯一，且季属于同一作品。集记录即“集”对象，不再另建一份集表。 |
 | 媒体 `media_files` | `id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate`；外键关联单元，`object_key` 唯一，逻辑唯一键 `(playable_unit_id, format, variant)`。v1 导入只允许一条 MP4 片源，模型不限制以后增加格式或档位。 |
 | 字幕 `subtitle_tracks` | `id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256`；逻辑唯一键 `(playable_unit_id, track_key)`，`object_key` 唯一。语言和格式不是主键，避免将多条同语言轨道或以后的 ASS 挤成一个对象；v1 仅发布中文/英文 VTT。 |
-| 认证用户 `user` | 按锁定版本的 Better Auth schema 保存 `id, name, email, emailVerified, username, displayUsername, createdAt, updatedAt` 和插件字段。用户名按 6.3 的原生规则校验/规范化，当前邮箱小写化并唯一；密码哈希在 `account` 的 credential 记录中，不复制到业务成员表。日期序列化沿用 adapter，HTTP 输出 ISO 8601；生成迁移后实测 D1 日期读写，不假定等同现有 UTC 毫秒列。 |
+| 认证用户 `user` | 按锁定版本的 Better Auth schema 保存 `id, name, email, emailVerified, username, displayUsername, createdAt, updatedAt` 和插件字段。用户名按 6.3 的原生规则校验/规范化，当前邮箱小写化并唯一；密码哈希在 `account` 的 credential 记录中，不复制到业务成员表。日期序列化沿用 adapter，HTTP 输出 ISO 8601；0008 迁移的 D1 DATE 列实测保存 ISO 8601 文本，adapter 还原 Date，与旧业务表 UTC 毫秒列分别处理。 |
 | 成员业务资料 `member_profiles` | 与 Better Auth 用户 ID 一对一关联，记录 `role, status, registration_state, invited_by_user_id, invite_quota`；角色仅 `member/admin`，邀请关系完成后不可改，不允许自邀请。业务外键统一使用同一个稳定用户 ID，不生成第二套成员身份；库 updateUser 不接受客户端改角色、状态、邀请来源或注册完成标记。旧 `users` 表尚待增量迁移，不表示此映射已落地。 |
 | 验证状态 `verification` | 按 Better Auth schema 保存密码重置和认证挑战等临时记录，接受库的标识/值存储格式与消费方式。注册/改邮箱验证使用签名 JWT，不要求额外的 `email_verification_tokens` 哈希账本；重发不保证撤销旧 JWT。 |
 | 邮件发送记录 `email_deliveries` | `id, user_id?, to_email_key, purpose, provider_message_id?, status, error_code?, created_at`；`purpose` 区分注册验证、重发验证、密码找回、管理员通知、安全提醒。只记录邮箱摘要而非原文；用于限流计数、排查发信失败和避免重复发信，不保存邮件正文或链接原值。 |
@@ -339,7 +339,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 
 ### 6.3 身份认证
 
-- **2026-10-06 已决定采用 Better Auth**，按库原生能力调整认证需求，不再以满足旧自研认证契约作为采用条件。基线为 POC 锁定的 `better-auth@1.7.7` 与 `@better-auth/passkey@1.7.7`；正式工程依赖、schema 和流程尚待接入验证，升级须单独核对行为。
+- **2026-10-06 已决定采用 Better Auth**，按库原生能力调整认证需求，不再以满足旧自研认证契约作为采用条件。基线为 POC 锁定的 `better-auth@1.7.7` 与 `@better-auth/passkey@1.7.7`；正式工程已锁定依赖、生成原生认证表并验证配置探针，业务资料迁移与完整 HTTP 流程尚待完成，升级须单独核对行为。
 - 使用自有 D1 的原生 adapter、username、twoFactor、passkey 和 captcha 插件；本站负责邀请注册、角色、封禁、业务额度及授权。OAuth、邮件 OTP/魔法链接登录、受信任设备免二步、账号删除等额外能力不因库支持而加入 v1。
 - **用户名**沿用 username 插件默认规则：3–30 个字符，ASCII 字母、数字、下划线和点号 `[A-Za-z0-9_.]`，小写化唯一；展示保存 `displayUsername`。不沿用旧 3–12 位或连字符规则，不开放成员改用户名。
 - **密码**沿用库默认 8–128 长度校验，不强制字符组合，允许空白、中文与 emoji；不自行 trim，哈希/校验接受库的 NFKC 规范化。长度计数采用锁定版本字符串语义，前端与服务端一致。
