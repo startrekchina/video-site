@@ -251,7 +251,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 - 每次操作最多一次发信请求，失败或超时不自动重试；超时记录为发送结果未确认。回调捕获并记录脱敏失败，避免注册结果随邮件失败回滚；成员可按配额手动重发。
 - 验证（注册、重发、改邮箱）共用目标邮箱摘要的配额，密码找回单独计数：至少间隔 **60 秒**，滚动 **60 分钟最多 5 次**。首次、失败和超时发送尝试均计入；不存在邮箱的找回请求同样计数和反馈。此发信业务配额由 D1 条件写入保证，Better Auth 的 IP 限流不能代替它。
 - 封禁通知不受站内发信频率上限限制；服务商套餐和 API 限额仍适用。发信失败不回滚封禁，不增加自动排队、主动失败告警或投递 webhook。
-- 沿用现有 From 和已有 Reply-To；全部发件地址使用站长确认的统一发件子域，实际域名与地址仅保存在本机/平台配置。站长已配置退信路径和收信记录，域名与 SPF/DKIM/DMARC 仍由站长维护；API 文档已提供，接入前仍需实际服务的 HTTPS API 基础地址、API key 和具体 From / Reply-To，不能由发件子域推断 API 地址，配置声明不代替实际投递验证。真实地址与凭证不写入公开仓库。
+- 全部发件地址使用站长确认的统一发件子域，实际域名与地址仅保存在本机/平台配置。站长已提供 API 基础地址、配置 staging API key 并授权代理选择发件/回复地址；staging 使用测试发件人、production 使用正式发件人，Reply-To 指向同一收信地址。退信路径与收信记录已由站长配置，域名与 SPF/DKIM/DMARC 仍由站长维护；production Secret 尚未配置，配置声明不代替实际投递验证。真实地址与凭证不写入公开仓库。
 - 仅邮件正文包含必要的限时链接；日志记录邮箱不可逆摘要、用途、请求 ID、结果及脱敏错误，不记录正文、完整 URL 或 token。必要异步发送纳入 Worker 请求生命周期，不使用未等待的后台 Promise。
 
 #### 6.0.4 修改注册邮箱
@@ -310,7 +310,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | 媒体 `media_files` | `id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate`；外键关联单元，`object_key` 唯一，逻辑唯一键 `(playable_unit_id, format, variant)`。v1 导入只允许一条 MP4 片源，模型不限制以后增加格式或档位。 |
 | 字幕 `subtitle_tracks` | `id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256`；逻辑唯一键 `(playable_unit_id, track_key)`，`object_key` 唯一。语言和格式不是主键，避免将多条同语言轨道或以后的 ASS 挤成一个对象；v1 仅发布中文/英文 VTT。 |
 | 认证用户 `user` | 按锁定版本的 Better Auth schema 保存 `id, name, email, emailVerified, username, displayUsername, createdAt, updatedAt` 和插件字段。用户名按 6.3 的原生规则校验/规范化，当前邮箱小写化并唯一；密码哈希在 `account` 的 credential 记录中，不复制到业务成员表。日期序列化沿用 adapter，HTTP 输出 ISO 8601；0008 迁移的 D1 DATE 列实测保存 ISO 8601 文本，adapter 还原 Date，与旧业务表 UTC 毫秒列分别处理。 |
-| 成员业务资料 `member_profiles` | 与 Better Auth 用户 ID 一对一关联，记录 `role, status, registration_state, invited_by_user_id, invite_quota`；角色仅 `member/admin`，邀请关系完成后不可改，不允许自邀请。业务外键统一使用同一个稳定用户 ID，不生成第二套成员身份；库 updateUser 不接受客户端改角色、状态、邀请来源或注册完成标记。旧 `users` 表尚待增量迁移，不表示此映射已落地。 |
+| 成员业务资料 `member_profiles` | 与 Better Auth 用户 ID 一对一关联，记录 `role, status, registration_state, invited_by_user_id, invite_quota`；角色仅 `member/admin`，邀请关系完成后不可改，不允许自邀请。业务外键统一使用同一个稳定用户 ID，不生成第二套成员身份；库 updateUser 不接受客户端改角色、状态、邀请来源或注册完成标记。0009 已建立映射与业务外键；完整 HTTP 门禁尚待第三阶段接入。 |
 | 验证状态 `verification` | 按 Better Auth schema 保存密码重置和认证挑战等临时记录，接受库的标识/值存储格式与消费方式。注册/改邮箱验证使用签名 JWT，不要求额外的 `email_verification_tokens` 哈希账本；重发不保证撤销旧 JWT。 |
 | 邮件发送记录 `email_deliveries` | `id, user_id?, to_email_key, purpose, provider_message_id?, status, error_code?, created_at`；`purpose` 区分注册验证、重发验证、密码找回、管理员通知、安全提醒。只记录邮箱摘要而非原文；用于限流计数、排查发信失败和避免重复发信，不保存邮件正文或链接原值。 |
 | 会话 `session` | 使用 Better Auth 原生 `id, token, userId, createdAt, updatedAt, expiresAt, ipAddress, userAgent`；token 唯一，用户外键存在。原值留在自有 D1，Cookie 由认证 Secret 签名；期限按 6.3.3 滚动更新，不要求 `token_hash/last_active_at/credential_version` 自定义认证列。 |
@@ -328,6 +328,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 
 #### 6.2.2 D1 写入与幂等
 
+- 0009 迁移不自动转换旧密码或设备凭证：旧成员必须先经审查关联到相同 ID、用户名、邮箱与验证状态的原生用户，credential 记录须保留已转换的相同密码哈希，旧待邮箱与自定义临时/设备凭证表须为空。否则 `legacy_auth_requires_review` 拒绝执行并回滚；不能直接把旧哈希或密文视作原生兼容，也不为通过迁移删除未审查的数据。符合前置条件后保留业务资料、角色、封禁、邀请关系和稳定 ID，退役旧自定义认证表。当前工程尚无正式成员，真实成员的旧认证转换不在本迁移中自动进行。
 - 站点业务输入使用参数绑定、版本化迁移、单条条件写入及 D1 `batch()`；不使用跨网络调用的交互式事务。条件更新 0 行不会自动回滚 batch，后续写入必须受同一成功条件约束或由约束拒绝整批。
 - Better Auth 原生 D1 adapter 的多次认证写入不保证整个流程原子提交；不要求用自定义 adapter 改写其事务模型。正式实现必须接受并测试 user/account 部分创建、重置凭证已消费但改密失败等状态，保留可重试或可修复的结果，不能把异常包装成成功。
 - 邀请注册采用三步：**D1 条件预留邀请码 → 调用库创建待验证认证用户 → 在业务原子批次中消费邀请码、建立邀请关联并标记注册完成**。预留默认 15 分钟，在预留期间不能被另一个尝试抢占；完成提交重新检查期限、发出人状态和封禁竞态。完成后才发验证邮件。
@@ -340,7 +341,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 
 ### 6.3 身份认证
 
-- **2026-10-06 已决定采用 Better Auth**，按库原生能力调整认证需求，不再以满足旧自研认证契约作为采用条件。基线为 POC 锁定的 `better-auth@1.7.7` 与 `@better-auth/passkey@1.7.7`；正式工程已锁定依赖、生成原生认证表并验证配置探针，业务资料迁移与完整 HTTP 流程尚待完成，升级须单独核对行为。
+- **2026-10-06 已决定采用 Better Auth**，按库原生能力调整认证需求，不再以满足旧自研认证契约作为采用条件。基线为 POC 锁定的 `better-auth@1.7.7` 与 `@better-auth/passkey@1.7.7`；正式工程已锁定依赖、完成原生认证表与业务资料增量迁移并验证配置探针，完整 HTTP 流程尚待完成，升级须单独核对行为。
 - 使用自有 D1 的原生 adapter、username、twoFactor、passkey 和 captcha 插件；本站负责邀请注册、角色、封禁、业务额度及授权。OAuth、邮件 OTP/魔法链接登录、受信任设备免二步、账号删除等额外能力不因库支持而加入 v1。
 - **用户名**沿用 username 插件默认规则：3–30 个字符，ASCII 字母、数字、下划线和点号 `[A-Za-z0-9_.]`，小写化唯一；展示保存 `displayUsername`。不沿用旧 3–12 位或连字符规则，不开放成员改用户名。
 - **密码**沿用库默认 8–128 长度校验，不强制字符组合，允许空白、中文与 emoji；不自行 trim，哈希/校验接受库的 NFKC 规范化。长度计数采用锁定版本字符串语义，前端与服务端一致。

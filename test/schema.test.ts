@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { settings } from "@/lib/settings.server";
-import { fixtureTime, seedCatalog } from "./fixtures/catalog";
+import { fixtureTime, memberStatements, seedCatalog } from "./fixtures/catalog";
 
 const now = fixtureTime;
 type SqlValue = string | number | null;
@@ -21,11 +21,6 @@ const episode = (id: string, workId = "series", seasonId: string | null = "seaso
     id, kind: "episode", work_id: workId, season_id: seasonId,
     episode_number: number, tmdb_id: 930001, duration_seconds: 4,
   });
-const user = (id: string, username = id, emailKey = `${id}@example.test`) => insert("users", {
-  id, username, username_key: username.toLowerCase(), email: emailKey, email_key: emailKey,
-  email_verified_at: now, password_hash: "fictional-hash-not-for-authentication",
-  role: "member", status: "active", invite_quota: settings.inviteQuota, created_at: now,
-});
 const item = (id: string, workId: string | null, unitId: string | null, position: number) =>
   insert("playlist_items", {
     id, playlist_id: "playlist", work_id: workId, playable_unit_id: unitId, position,
@@ -207,138 +202,61 @@ describe("discussion constraints", () => {
   });
 
   it("preserves authored discussion when a member is banned", async () => {
-    await env.DB.prepare("UPDATE users SET status = ? WHERE id = ?").bind("banned", "nova").run();
+    await env.DB.prepare("UPDATE member_profiles SET status = ? WHERE user_id = ?").bind("banned", "nova").run();
     expect(await count("comments")).toBe(1);
     expect(await count("comment_replies")).toBe(1);
   });
 });
 
-describe("email and credential constraints", () => {
-  it("rejects a pending email occupied by another current email and preserves both members", async () => {
-    await expect(env.DB.prepare("UPDATE users SET pending_email = ?, pending_email_key = ? WHERE id = ?")
-      .bind("quinn@example.test", "quinn@example.test", "nova").run()).rejects.toThrow(/UNIQUE constraint/);
-    expect(await env.DB.prepare("SELECT email_key, pending_email_key FROM users WHERE id = ?")
-      .bind("nova").first()).toEqual({ email_key: "nova@example.test", pending_email_key: null });
-    expect(await count("email_claims")).toBe(2);
+describe("native identity and business membership", () => {
+  it("requires a native identity before creating a business member", async () => {
+    await expect(insert("member_profiles", {
+      user_id: "missing", role: "member", status: "active", registration_state: "completed",
+      invite_quota: 2, created_at: now,
+    }).run()).rejects.toThrow(/FOREIGN KEY constraint/);
   });
 
-  it("rejects new current and pending emails already reserved by a pending change", async () => {
-    await env.DB.prepare("UPDATE users SET pending_email = ?, pending_email_key = ? WHERE id = ?")
-      .bind("new@example.test", "new@example.test", "nova").run();
-    await expect(user("river", "River", "new@example.test").run()).rejects.toThrow(/UNIQUE constraint/);
-    await expect(env.DB.prepare("UPDATE users SET pending_email = ?, pending_email_key = ? WHERE id = ?")
-      .bind("new@example.test", "new@example.test", "quinn").run()).rejects.toThrow(/UNIQUE constraint/);
-    expect(await count("users")).toBe(2);
-    expect(await count("email_claims")).toBe(3);
+  it("keeps the member identity and invitation source immutable", async () => {
+    await expect(env.DB.prepare("UPDATE member_profiles SET invited_by_user_id = ? WHERE user_id = ?")
+      .bind("quinn", "nova").run()).rejects.toThrow(/immutable/);
+    await expect(env.DB.prepare("UPDATE member_profiles SET user_id = ? WHERE user_id = ?")
+      .bind("quinn", "nova").run()).rejects.toThrow(/immutable/);
   });
 
-  it("moves a pending claim to current and releases the old email in one update", async () => {
-    await env.DB.prepare("UPDATE users SET pending_email = ?, pending_email_key = ? WHERE id = ?")
-      .bind("new@example.test", "new@example.test", "nova").run();
-    await env.DB.prepare(`UPDATE users SET email = pending_email, email_key = pending_email_key,
-      pending_email = NULL, pending_email_key = NULL WHERE id = ?`).bind("nova").run();
-    expect(await env.DB.prepare("SELECT email_key, kind FROM email_claims WHERE user_id = ?")
-      .bind("nova").all()).toMatchObject({ results: [{ email_key: "new@example.test", kind: "current" }] });
-    await user("river", "River", "nova@example.test").run();
-    expect(await count("users")).toBe(3);
+  it.each(["INSERT OR REPLACE", "REPLACE"])("rejects %s without overwriting roles or relations", async (verb) => {
+    await expect(env.DB.prepare(verb + " INTO member_profiles (user_id, role, status, registration_state, invite_quota, created_at) VALUES ('nova', 'admin', 'active', 'completed', 100, ?)")
+      .bind(now).run()).rejects.toThrow(/Member replacement is forbidden/);
+    expect(await env.DB.prepare("SELECT role, invite_quota FROM member_profiles WHERE user_id = 'nova'").first())
+      .toEqual({ role: "member", invite_quota: 2 });
   });
 
-  it("keeps claims consistent when changing a current email while a pending one remains", async () => {
-    await env.DB.prepare("UPDATE users SET pending_email = ?, pending_email_key = ? WHERE id = ?")
-      .bind("new@example.test", "new@example.test", "nova").run();
-    await env.DB.prepare("UPDATE users SET email = ?, email_key = ? WHERE id = ?")
-      .bind("replaced@example.test", "replaced@example.test", "nova").run();
-    expect(await env.DB.prepare("SELECT email_key, kind FROM email_claims WHERE user_id = ? ORDER BY kind")
-      .bind("nova").all()).toMatchObject({ results: [
-        { email_key: "replaced@example.test", kind: "current" },
-        { email_key: "new@example.test", kind: "pending" },
-      ] });
-  });
-
-  it("prevents deleting an email claim referenced by a member", async () => {
-    await expect(env.DB.prepare("DELETE FROM email_claims WHERE user_id = ?")
-      .bind("nova").run()).rejects.toThrow(/Email claim is still in use/);
-    expect(await count("email_claims")).toBe(2);
-  });
-
-  it("enforces case-insensitive usernames and immutable invitation sources", async () => {
-    await expect(user("river", "nOVA").run()).rejects.toThrow(/User replacement is forbidden/);
-    await expect(env.DB.prepare("UPDATE users SET invited_by_user_id = ? WHERE id = ?")
-      .bind("quinn", "nova").run()).rejects.toThrow(/Invitation source is immutable/);
-  });
-
-  it.each(["INSERT OR REPLACE", "REPLACE"])("rejects %s by ID or username without changing claims", async (verb) => {
-    await env.DB.prepare(`INSERT INTO users
-      (id, username, username_key, email, email_key, password_hash, role, status,
-       invited_by_user_id, invite_quota, created_at)
-      VALUES ('river', 'River', 'river', 'river@example.test', 'river@example.test',
-       'fictional-hash', 'member', 'active', 'nova', 2, ?)`).bind(now).run();
-    await env.DB.prepare("UPDATE users SET pending_email = ?, pending_email_key = ? WHERE id = ?")
-      .bind("pending@example.test", "pending@example.test", "nova").run();
-    const members = await env.DB.prepare("SELECT * FROM users ORDER BY id").all();
-    const claims = await env.DB.prepare("SELECT * FROM email_claims ORDER BY email_key").all();
-    for (const id of ["nova", "new-id"]) {
-      await expect(env.DB.prepare(`${verb} INTO users
-        (id, username, username_key, email, email_key, password_hash, role, status,
-         invited_by_user_id, invite_quota, created_at)
-        VALUES (?, 'Nova', 'nova', 'replacement@example.test', 'replacement@example.test',
-         'fictional-hash', 'member', 'active', 'river', 2, ?)`).bind(id, now).run())
-        .rejects.toThrow(/User replacement is forbidden/);
-    }
-    expect((await env.DB.prepare("SELECT * FROM users ORDER BY id").all()).results).toEqual(members.results);
-    expect((await env.DB.prepare("SELECT * FROM email_claims ORDER BY email_key").all()).results).toEqual(claims.results);
-    await user("fresh", "Fresh", "replacement@example.test").run();
-  });
-
-  it("rolls back earlier writes when a replacement in the batch fails", async () => {
+  it("rolls back an entire business batch when a later constraint fails", async () => {
     await expect(env.DB.batch([
-      user("river", "River"),
-      env.DB.prepare(`INSERT OR REPLACE INTO users
-        (id, username, username_key, email, email_key, password_hash, role, status, invite_quota, created_at)
-        VALUES ('nova', 'Changed', 'changed', 'changed@example.test', 'changed@example.test',
-         'fictional-hash', 'member', 'active', 2, ?)`).bind(now),
-    ])).rejects.toThrow(/User replacement is forbidden/);
-    expect(await count("users")).toBe(2);
-    expect(await count("email_claims")).toBe(2);
-    expect(await env.DB.prepare("SELECT username, invited_by_user_id FROM users WHERE id = 'nova'").first())
-      .toEqual({ username: "Nova", invited_by_user_id: null });
+      ...memberStatements(env.DB, "river", "River"),
+      env.DB.prepare("UPDATE member_profiles SET invited_by_user_id = 'quinn' WHERE user_id = 'nova'"),
+    ])).rejects.toThrow(/immutable/);
+    expect(await env.DB.prepare('SELECT id FROM "user" WHERE id = ?').bind("river").first()).toBeNull();
+    expect(await count("member_profiles")).toBe(2);
   });
 
-  it("allows only one unconsumed verification token across purposes", async () => {
-    const verification = (id: string, purpose: string) => insert("email_verification_tokens", {
-      id, user_id: "nova", purpose, target_email_key: "nova@example.test", token_hash: id,
-      created_at: now, expires_at: now + settings.emailVerificationTtl * 1000,
+  it("reserves an invitation for only one active registration attempt", async () => {
+    await invitation("reserved").run();
+    const attempt = (id: string) => insert("registration_attempts", {
+      id, invitation_id: "reserved", state: "reserved", created_at: now, updated_at: now, expires_at: now + 900000,
     });
-    await verification("first", "registration").run();
-    await expect(verification("second", "email_change").run()).rejects.toThrow(/UNIQUE constraint/);
-    await env.DB.batch([
-      env.DB.prepare("UPDATE email_verification_tokens SET consumed_at = ? WHERE id = ?").bind(now, "first"),
-      verification("second", "email_change"),
-    ]);
-    expect(await count("email_verification_tokens")).toBe(2);
+    await attempt("first").run();
+    await expect(attempt("second").run()).rejects.toThrow(/UNIQUE constraint/);
+    await env.DB.prepare("UPDATE registration_attempts SET state = 'failed' WHERE id = 'first'").run();
+    await attempt("second").run();
+    expect(await count("registration_attempts")).toBe(2);
   });
 
-  it("allows only one unconsumed reset link across signing sources", async () => {
-    const reset = (id: string, source: string, issuer: string | null) => insert("reset_links", {
-      id, token_hash: id, user_id: "nova", source, issuer_admin_user_id: issuer,
-      created_at: now, expires_at: now + settings.resetLinkTtl * 1000,
-    });
-    await reset("first", "email", null).run();
-    await expect(reset("second", "admin", "quinn").run()).rejects.toThrow(/UNIQUE constraint/);
-    await env.DB.batch([
-      env.DB.prepare("UPDATE reset_links SET consumed_at = ? WHERE id = ?").bind(now, "first"),
-      reset("second", "admin", "quinn"),
-    ]);
-    expect(await count("reset_links")).toBe(2);
-  });
-
-  it("rejects duplicate passkey credential IDs", async () => {
-    const passkey = (id: string, userId: string) => env.DB.prepare(`INSERT INTO passkeys
-      (id, user_id, credential_id, public_key, counter, device_type, backed_up, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, userId, "fictional-credential", new Uint8Array([1, 2]),
-      0, "multi_device", 1, now);
-    await passkey("first", "nova").run();
-    await expect(passkey("second", "quinn").run()).rejects.toThrow(/UNIQUE constraint/);
+  it("rejects a completed registration without a native user", async () => {
+    await invitation("reserved").run();
+    await expect(insert("registration_attempts", {
+      id: "attempt", invitation_id: "reserved", state: "completed",
+      created_at: now, updated_at: now, expires_at: now + 900000,
+    }).run()).rejects.toThrow(/CHECK constraint/);
   });
 });
 
@@ -398,55 +316,19 @@ describe("foreign keys", () => {
     ["episode season", () => episode("orphan", "series", "missing")],
     ["media unit", () => media("orphan", "missing")],
     ["subtitle unit", () => subtitle("orphan", "orphan", "orphan", "missing")],
-    ["user inviter", () => insert("users", {
-      id: "orphan", username: "Orphan", username_key: "orphan", email: "orphan@example.test",
-      email_key: "orphan@example.test", password_hash: "fictional-hash", role: "member",
-      status: "active", invite_quota: settings.inviteQuota, invited_by_user_id: "missing", created_at: now,
+    ["member inviter", () => insert("member_profiles", {
+      user_id: "orphan", role: "member", status: "active", registration_state: "pending",
+      invited_by_user_id: "missing", invite_quota: 2, created_at: now,
     })],
-    ["verification member", () => insert("email_verification_tokens", {
-      id: "orphan", user_id: "missing", purpose: "registration", target_email_key: "fictional-key",
-      token_hash: "fictional-hash", created_at: now, expires_at: now + 1000,
+    ["registration invitation", () => insert("registration_attempts", {
+      id: "orphan", invitation_id: "missing", state: "reserved", created_at: now, updated_at: now, expires_at: now + 900000,
     })],
     ["delivery member", () => insert("email_deliveries", {
       id: "orphan", user_id: "missing", to_email_key: "fictional-digest", purpose: "password_reset",
       status: "unknown", created_at: now,
     })],
-    ["session member", () => insert("sessions", {
-      id: "orphan", token_hash: "fictional-hash", user_id: "missing", credential_version: 0,
-      created_at: now, last_active_at: now, expires_at: now + 1000,
-    })],
     ["invitation issuer", () => invitation("orphan", null, "missing")],
     ["invitation consumer", () => invitation("orphan", "missing")],
-    ["recovery member", () => insert("recovery_codes", {
-      code_hash: "fictional-hash", user_id: "missing", generation: 0, created_at: now,
-    })],
-    ["reset member", () => insert("reset_links", {
-      id: "orphan", token_hash: "fictional-hash", user_id: "missing", source: "email",
-      created_at: now, expires_at: now + 1000,
-    })],
-    ["reset issuer", () => insert("reset_links", {
-      id: "orphan", token_hash: "fictional-hash", user_id: "nova", source: "admin",
-      issuer_admin_user_id: "missing", created_at: now, expires_at: now + 1000,
-    })],
-    ["TOTP member", () => env.DB.prepare(`INSERT INTO totp_credentials
-      (user_id, encrypted_secret, nonce, key_version, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .bind("missing", new Uint8Array([1]), new Uint8Array([2]), 1, now)],
-    ["passkey member", () => env.DB.prepare(`INSERT INTO passkeys
-      (id, user_id, credential_id, public_key, counter, device_type, backed_up, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind("orphan", "missing", "fictional-credential",
-      new Uint8Array([1]), 0, "multi_device", 1, now)],
-    ["challenge member", () => insert("auth_challenges", {
-      id: "orphan", token_hash: "fictional-hash", kind: "totp", operation: "login",
-      user_id: "missing", created_at: now, expires_at: now + 1000,
-    })],
-    ["challenge session", () => insert("auth_challenges", {
-      id: "orphan", token_hash: "fictional-hash", kind: "totp", operation: "login",
-      session_id: "missing", created_at: now, expires_at: now + 1000,
-    })],
-    ["challenge target", () => insert("auth_challenges", {
-      id: "orphan", token_hash: "fictional-hash", kind: "totp", operation: "ban",
-      target_user_id: "missing", created_at: now, expires_at: now + 1000,
-    })],
     ["progress member", () => insert("watch_progress", {
       user_id: "missing", playable_unit_id: "movie-unit", position_seconds: 0, completed: 0, updated_at: now,
     })],

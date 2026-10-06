@@ -50,6 +50,10 @@ describe("worker responses", () => {
     expect(html).toContain("mailto:contact@startrekchina.org");
     expect(html).toContain("注册邮箱");
     expect(html).toContain("邮箱找回密码");
+    expect(html).toContain("1 小时内有效");
+    expect(html).toContain("正确密码加一个未用备用码");
+    expect(html).toContain("不承诺网页自助或管理员一键恢复");
+    expect(html).not.toMatch(/href="\/recover"|注册时拿到的任意一个恢复码|24 小时内有效|连续认证失败时/);
     expect(html).toContain('name="theme"');
     expect(html).not.toMatch(/href="\/(series|movies|library|playlists|invites|account|admin)(?:["#?\/])/);
     expect(html).not.toMatch(/PROTO|proto\/frontend-v1|站长待填/);
