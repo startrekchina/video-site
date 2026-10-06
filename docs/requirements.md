@@ -1,6 +1,6 @@
 # 星际迷航中国视频站·需求文档
 
-- 状态：2026-10-06 已决定采用 Better Auth 并调整认证需求，变更索引见 6.3.4；同日将站长专用的网页数据库备份（下载、WebDAV、S3）纳入 v1（6.9.4）。第二阶段本地工程基础与成员资料迁移已完成，当前推进第三阶段邀请、账号与管理；完整认证 HTTP、实际发信和备份功能尚未完成。旧 POC 仅作历史差距证据，平台实测仍按 6.16 完成，实际进展见 [正式开发计划](../PLAN.md)
+- 状态：2026-10-06 已决定采用 Better Auth 并调整认证需求，变更索引见 6.3.4；同日将站长专用的网页数据库备份（下载、WebDAV、S3）纳入 v1（6.9.4）。第二阶段本地工程基础与成员资料迁移已完成，第三阶段认证 HTTP、账号、邀请与管理已在本地实现；真实设备、实际邮件投递及 staging 验收仍待完成，备份按后续阶段实施。旧 POC 仅作历史差距证据，平台实测仍按 6.16 完成，实际进展见 [正式开发计划](../PLAN.md)
 - 适用范围：第一版（v1）。后续版本的内容见“范围外”一节
 - 本次范围基准：`proto/frontend-v1` 分支提交 `f03d9a8` 中的 `prototypes/frontend-v1/`；PR #3 将该原型及相关素材保留为 `main` 中的参考项目。原型用于明确页面、视觉和交互，本文仍是正式开发的唯一需求依据
 - 与原型的关系：邮箱验证、邮件发信及其相关页面是原型中没有的新增需求，属于正式版必须实现、但在 `prototypes/frontend-v1/` 中无对应实现的部分，不能以原型现状反推其可以不做
@@ -312,7 +312,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | 媒体 `media_files` | `id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate`；外键关联单元，`object_key` 唯一，逻辑唯一键 `(playable_unit_id, format, variant)`。v1 导入只允许一条 MP4 片源，模型不限制以后增加格式或档位。 |
 | 字幕 `subtitle_tracks` | `id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256`；逻辑唯一键 `(playable_unit_id, track_key)`，`object_key` 唯一。语言和格式不是主键，避免将多条同语言轨道或以后的 ASS 挤成一个对象；v1 仅发布中文/英文 VTT。 |
 | 认证用户 `user` | 按锁定版本的 Better Auth schema 保存 `id, name, email, emailVerified, username, displayUsername, createdAt, updatedAt` 和插件字段。用户名按 6.3 的原生规则校验/规范化，当前邮箱小写化并唯一；密码哈希在 `account` 的 credential 记录中，不复制到业务成员表。日期序列化沿用 adapter，HTTP 输出 ISO 8601；0008 迁移的 D1 DATE 列实测保存 ISO 8601 文本，adapter 还原 Date，与旧业务表 UTC 毫秒列分别处理。 |
-| 成员业务资料 `member_profiles` | 与 Better Auth 用户 ID 一对一关联，记录 `role, status, registration_state, invited_by_user_id, invite_quota`；角色仅 `member/admin`，邀请关系完成后不可改，不允许自邀请。业务外键统一使用同一个稳定用户 ID，不生成第二套成员身份；库 updateUser 不接受客户端改角色、状态、邀请来源或注册完成标记。0009 已建立映射与业务外键；完整 HTTP 门禁尚待第三阶段接入。 |
+| 成员业务资料 `member_profiles` | 与 Better Auth 用户 ID 一对一关联，记录 `role, status, registration_state, invited_by_user_id, invite_quota`；角色仅 `member/admin`，邀请关系完成后不可改，不允许自邀请。业务外键统一使用同一个稳定用户 ID，不生成第二套成员身份；库 updateUser 不接受客户端改角色、状态、邀请来源或注册完成标记。0009 已建立映射与业务外键；第三阶段 HTTP 与各受保护 loader 已接入独立成员门禁。 |
 | 验证状态 `verification` | 按 Better Auth schema 保存密码重置和认证挑战等临时记录，接受库的标识/值存储格式与消费方式。注册/改邮箱验证使用签名 JWT，不要求额外的 `email_verification_tokens` 哈希账本；重发不保证撤销旧 JWT。 |
 | 邮件发送记录 `email_deliveries` | `id, user_id?, to_email_key, purpose, provider_message_id?, status, error_code?, created_at`；`purpose` 区分注册验证、重发验证、密码找回、管理员通知、安全提醒。只记录邮箱摘要而非原文；用于限流计数、排查发信失败和避免重复发信，不保存邮件正文或链接原值。 |
 | 会话 `session` | 使用 Better Auth 原生 `id, token, userId, createdAt, updatedAt, expiresAt, ipAddress, userAgent`；token 唯一，用户外键存在。原值留在自有 D1，Cookie 由认证 Secret 签名；期限按 6.3.3 滚动更新，不要求 `token_hash/last_active_at/credential_version` 自定义认证列。 |
@@ -345,7 +345,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 
 ### 6.3 身份认证
 
-- **2026-10-06 已决定采用 Better Auth**，按库原生能力调整认证需求，不再以满足旧自研认证契约作为采用条件。基线为 POC 锁定的 `better-auth@1.7.7` 与 `@better-auth/passkey@1.7.7`；正式工程已锁定依赖、完成原生认证表与业务资料增量迁移并验证配置探针，完整 HTTP 流程尚待完成，升级须单独核对行为。
+- **2026-10-06 已决定采用 Better Auth**，按库原生能力调整认证需求，不再以满足旧自研认证契约作为采用条件。基线为 POC 锁定的 `better-auth@1.7.7` 与 `@better-auth/passkey@1.7.7`；正式工程已锁定依赖、完成原生认证表与业务资料增量迁移并验证配置探针，必要 HTTP 流程已接通并经本地集成测试，真实设备及平台验收仍待完成；升级须单独核对行为。
 - 使用自有 D1 的原生 adapter、username、twoFactor、passkey 和 captcha 插件；本站负责邀请注册、角色、封禁、业务额度及授权。OAuth、邮件 OTP/魔法链接登录、受信任设备免二步、账号删除等额外能力不因库支持而加入 v1。
 - **用户名**沿用 username 插件默认规则：3–30 个字符，ASCII 字母、数字、下划线和点号 `[A-Za-z0-9_.]`，小写化唯一；展示保存 `displayUsername`。不沿用旧 3–12 位或连字符规则，不开放成员改用户名。
 - **密码**沿用库默认 8–128 长度校验，不强制字符组合，允许空白、中文与 emoji；不自行 trim，哈希/校验接受库的 NFKC 规范化。长度计数采用锁定版本字符串语义，前端与服务端一致。
@@ -358,7 +358,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 - 沿用库的账号级二步失败锁定（锁定版本 10 次失败后锁定 15 分钟）和挑战消费；重新发起密码阶段不解除账号锁。TOTP 6 位、30 秒、±1 步容差；不要求自建 `lastAcceptedStep` 时间步账本，同一有效码在不同挑战中可能被再次接受，不能把挑战一次消费写成跨挑战防重放。
 - TOTP 绑定经当前密码确认并以有效验证码启用；取得绑定 URI、重新生成备用码、关闭二步等采用库对应的密码确认规则，不增加逐操作 TOTP 证明。v1 不使用 `trustDevice=true`，服务端拒绝此选项；不启用邮件/短信 OTP。
 - 通行密钥注册/登录使用库与其 WebAuthn 实现校验 challenge、用途、成员、origin、RP ID、签名、期限及计数器。本站固定本环境 origin/RP；不信任客户端用户 ID，credential ID 唯一。同步密钥的合法零计数器不视为封禁理由。
-- 通行密钥登录不再附加 TOTP。为保留验证器用户验证这一安全边界，配置请求 UV，并在库 `afterVerification` 钩子拒绝 `userVerified=false`；1.7.7 仅设置 `userVerification` 不能证明服务端强制 UV，此门禁及真实设备验收尚待完成。不自研 WebAuthn 或替换库挑战流程。
+- 通行密钥登录不再附加 TOTP。为保留验证器用户验证这一安全边界，配置请求 UV，并在库 `afterVerification` 钩子拒绝 `userVerified=false`；1.7.7 仅设置 `userVerification` 不能证明服务端强制 UV，选项和服务端门禁已接入必要 HTTP，真实设备验收仍待完成。不自研 WebAuthn 或替换库挑战流程。
 - 账号敏感操作沿用库的当前密码确认或新鲜会话校验；站点配置 `freshAge=300`（5 分钟）。新鲜度按会话创建时间，单独在旧会话调用 verifyTOTP 不使其变成新鲜会话。需要时正常重新登录，不签发绑定 operation/target 的自定义一次性证明。
 - 查看/撤销会话限本人，本站 UI 使用会话 ID，服务端查出本人 token 再调用库撤销接口；库原生端点本身返回的 token 是凭证，不能进日志或其他成员数据。
 
@@ -382,6 +382,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 - 配置 `session.expiresIn=30 天`、`updateAge=1 天`，采用原生滚动会话；会话被库读取并达到刷新阈值时续到读取时刻后的 30 天。取消绝对 180 天上限及仅 HTML/页面 loader 续期限制。
 - 页面、业务 API、播放鉴权等调用库读取会话均可能触发刷新；已过期会话不能续回。Cookie 的期限和更新时点由库管理，达到阈值可重发 Cookie，不逐请求换标识。
 - 关闭 `cookieCache`，不使用 secondaryStorage、JWT 无状态会话或鉴权结果缓存。每个受保护入口同时读主库成员状态，封禁与会话撤销影响下一请求；媒体流截止仍按 6.6。
+- 本站 0011 D1 触发器在 credential 密码更新的同一语句中删除全部旧会话；密码写入失败则旧密码和旧会话均保留。此保证不扩展为整个原生认证流程的事务。
 - 正常改密码调用库 `changePassword` 并传 `revokeOtherSessions=true`。接受库删除旧会话后创建全新当前会话，换标识并重置创建/到期时间；不保留旧绝对期限。改密的多次写入不承诺同一 D1 原子批次。
 - 退出、撤销和邮箱密码重置使用库会话删除语义。封禁必须立即阻止新会话建立及业务访问；会话清理即使失败，成员状态门禁也不得放行（6.5）。
 
@@ -411,7 +412,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 #### 6.4.1 原生流程的失败边界
 
 - 沿用库的重置/挑战/备用码存储与消费，不建立三路径恢复事务。故障可能发生在凭证消费后、密码或会话写入前；错误不表示自动回滚，旧密码是否仍可用以实际库结果为准。
-- 新密码提交失败时保留清楚的重试提示，链接已消费则重新申请邮件；改密已成功但撤销会话未完成时返回失败并允许服务端重试清理，不再次报告“密码未变”。故障注入覆盖这些分支，具体处置通过集成测试后才勾选完成。
+- 新密码提交失败时保留清楚的重试提示，链接已消费则重新申请邮件；本站触发器保证密码更新时旧会话已经撤销；原生后续清理或新会话签发仍可能失败。此时不能报告“密码未变”，应重新登录；链接已消费且状态不明时重新申请邮件。故障注入覆盖这些分支，具体处置通过集成测试后才勾选完成。
 - 重置表单 GET 不消费凭证；邮箱验证 GET 可改状态（6.0.1），两类链接行为不能混写。所有链接/表单 no-store、no-referrer、不加载泄露凭证的第三方资源，日志脱敏。
 
 ### 6.5 邀请与权限
@@ -460,7 +461,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | `POST /api/auth/sign-in/username` | 访客 | `username, password` 及 `x-captcha-response`；按原生客户端处理下一二步挑战或登录结果，设置库 Cookie。v1 不开放绕过策略的其他密码登录入口。 |
 | `/api/auth/passkey/*` | 登录或成员绑定/删除流程 | 使用库生成选项、验证及设备管理端点；注册完成/邮箱/封禁/归属、origin/RP 和 UV 门禁见 6.3.1，不手写 assertion 验证。 |
 | `POST /auth/register`（邀请注册包装入口） | 有效邀请码的访客 | `username, email, password, invitationCode` 及人机验证，采用 6.2.2 的预留/创建/完成。返回待验证状态，不返回成员会话或备用码；异常可留下无成员权限的待处理记录，不烧码。直接 sign-up 入口禁用或受同一门禁。 |
-| `GET /api/auth/verify-email?token=...`、`POST /api/auth/send-verification-email` | 注册验证公开；改邮箱验证须本人会话 | 注册验证可 GET 完成、重复确认且不自动登录；重发提交 email/callbackURL 和 captcha。改邮箱验证绑定库 token 内旧/新邮箱并额外要求本人会话；所有回跳受本站限制。 |
+| `GET /api/auth/verify-email?token=...`、`POST /api/auth/send-verification-email` | 注册验证公开；改邮箱验证须本人会话 | 注册验证可 GET 完成、重复确认且不自动登录；重发提交 email/callbackURL 和 captcha。改邮箱验证绑定库 token 内旧/新邮箱并要求本人会话；会话缺失时将 token 留在 HttpOnly Cookie，跳转无凭证参数的登录页，再由 `/account/email-confirm` 续作，避免第三方登录控件接触 JWT。所有回跳受本站限制。 |
 | `POST /api/auth/change-email` | 正常成员，库敏感会话校验 | `newEmail, callbackURL`；按 6.0.4 发信，验证前保留旧邮箱，不增加匿名改邮箱、永久待邮箱占用或逐操作 TOTP 证明。 |
 | `POST /api/auth/request-password-reset`、`GET /api/auth/reset-password/:token`、`POST /api/auth/reset-password` | 找回公开；重置须有效凭证 | 申请提交 `email, redirectTo` 及 captcha，统一反馈；GET 不消费并跳转本站表单，POST 提交 `token, newPassword` 一次消费。成功撤销会话但保留设备和备用码，失败按 6.4.1 重试，不承诺多步原子性。 |
 | `POST /api/auth/two-factor/verify-totp`、`/two-factor/verify-backup-code` | 已通过密码的待二步流程；库对应已登录操作 | 由库挑战 Cookie 绑定，提交 code/备用码；不接受 trustDevice，备用码不能重设密码。挑战期限、次数、账号锁与限流按 6.3。 |
@@ -476,9 +477,9 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | `GET/POST /units/:playableUnitId/comments`、`GET/POST /units/:playableUnitId/comments/:commentId/replies` | 正常成员，讨论限当前单元 | GET 按 6.12 的排序与分页返回正文、作者、时间、回复数量、赞数量和本人反馈，不返回踩数量；POST 接收 `bodyMarkdown, replyToUserId?, csrfToken`，作者由会话确定。校验单元存在、评论属于该单元、回复目标与对话一致及正文安全，成功返回新内容。已删除评论、回复及其赞踩不出现在读取结果中，也不计入数量、排序或分页；直接读取或向已删除目标回复、赞踩返回脱敏 `404`。不提供成员自助编辑/删除、举报或审核接口。 |
 | `PUT/DELETE /units/:playableUnitId/comments/:commentId/vote`、`PUT/DELETE /units/:playableUnitId/replies/:replyId/vote` | 正常成员，仅修改自己的反馈 | PUT 接收 `value`（`1` / `-1`）和 CSRF；DELETE 取消反馈。服务端校验目标归属单元，按成员/目标唯一约束写入，返回赞数量和本人最终反馈，不返回踩数量。已删除目标返回脱敏 `404`，不重新创建反馈记录。 |
 | `DELETE /units/:playableUnitId/comments/:commentId`、`DELETE /units/:playableUnitId/replies/:replyId` | 正常管理员，目标属于该单元 | 接收 CSRF，按 6.12.4 原子删除：顶层评论连同全部回复及其赞踩一起移除，单条回复连同其赞踩移除；成功仅返回删除成功结果，不返回被删正文或已删除记录。目标不存在时返回脱敏 `404`。未认证、已封禁或普通成员的删除请求被拒绝，不提供成员自助删除接口。 |
-| `GET/POST /me/invitations`、`POST /me/invitations/:id/revoke` | 正常成员，仅自己发出的码；管理员不限额度 | 发码接收 `operationId, expiresAt?` 和 CSRF；返回本次原码、ID、状态/期限及剩余额度，列表返回状态和已使用成员的必要站内标识。不能作废已用码；重复作废自己的未用码幂等成功。 |
-| `GET /admin/users`、成员/邀请链 loader | 正常管理员 | 分页返回角色、状态、额度及邀请关系，不包含密码哈希、TOTP/备用码密文或会话凭证。 |
-| `POST /admin/users/:id/ban`、`/quota`、`/role`、`/unban` | 正常管理员，已绑定 TOTP 且会话新鲜 | 接收 `cascade`、`inviteQuota`、`role` 或单个解封目标，带业务 CSRF；5 分钟内新建会话可执行多次操作，不绑定 operation/target、不一次消费。旧会话重新正常登录。无 `/reset-link`；自封禁/自降权/末位管理员与邀请链边界仍在业务原子批次中保护，解封不恢复会话/邀请码、不额外发信。 |
+| `GET /invites/data`、`POST /invites/create`、`POST /invites/:id/revoke` | 正常成员，仅自己发出的码；管理员不限额度 | 发码接收 `operationId, expiresAt?` 和 CSRF；返回本次原码、ID、状态/期限及剩余额度，列表返回状态和已使用成员的必要站内标识。不能作废已用码；重复作废自己的未用码幂等成功。 |
+| `GET /admin/members/data`、`/stats`、`/invitations`、`/roots`、`/:id/invited`、`/:id/ban-preview` | 正常管理员 | 分页返回角色、状态、额度及邀请关系；全站统计独立计数，搜索用户名上限 30 字符。成员/邀请码/各层邀请链每页 20 条，连带预览返回总数及前 20 个站内标识，实际提交重检范围。无邀请码原码/哈希、密码哈希、TOTP/备用码密文或会话凭证。 |
+| `POST /admin/members/:id/ban`、`/quota`、`/role`、`/unban` | 正常管理员，已绑定 TOTP 且会话新鲜 | 接收 `cascade`、`total`、`role` 或单个解封目标，带业务 CSRF；5 分钟内新建会话可执行多次操作，不绑定 operation/target、不一次消费。旧会话重新正常登录。无 `/reset-link`；自封禁/自降权/末位管理员与邀请链边界仍在业务原子批次中保护，解封不恢复会话/邀请码、不额外发信。 |
 | 备份页面 / `GET /admin/backups` | 仅站长 | 返回本环境备份时间、状态、可用目标和脱敏失败信息；不返回原始 SQL、对象键、上游下载地址或外部存储凭证。 |
 | `POST /admin/backups`、`POST /admin/backups/:id/retry`、`GET /admin/backups/:id/download` | 仅站长 | 创建接收目标 `download / webdav / s3`，创建/重试均带业务 CSRF；目标配置由服务端读取。下载仅允许本环境已完成并校验的加密文件，由 Worker 鉴权后流式返回，不能重定向到 R2 或 D1 导出地址（6.9.4）。 |
 | `PUT /admin/backups/schedule` | 仅站长，启用时须有配置完整的 WebDAV / S3 目标 | 接收启用状态、目标类型、备份频率、北京时间执行时间和业务 CSRF；服务端验证目标配置，不接受以直接下载或私有 R2 暂存启用定时备份。返回本环境调度状态。 |
@@ -624,7 +625,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | Worker Secrets | `BETTER_AUTH_SECRET`：库 Cookie/JWT 签名以及 TOTP/备用码认证加密，必需且每环境独立；`PLAYBACK_HMAC_KEY`：播放签名；`TURNSTILE_SECRET_KEY`：人机验证；`EMAIL_API_KEY`：Postal HTTPS API，传输层已声明，staging 已配置；`CLOUDFLARE_API_TOKEN`：备份导出最小权限；`BACKUP_ENCRYPTION_KEY`：备份加密；`WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD`：启用 WebDAV 时的 HTTPS 目标及凭证。已取消独立 `TOTP_ENCRYPTION_KEY` 与可选 `AUTH_SECRET` 设计；当前声明认证/播放/Turnstile/备份加密/邮件五项，备份导出凭证随模块加入必需声明，外部目标凭证仅对启用目标要求完整，不以占位值部署。production Secrets 尚未上传。 |
 | S3 备份 Secrets | `S3_BACKUP_ENDPOINT, S3_BACKUP_REGION, S3_BACKUP_BUCKET, S3_BACKUP_ACCESS_KEY_ID, S3_BACKUP_SECRET_ACCESS_KEY`：预配置的 HTTPS S3 兼容目标及其独立最小权限凭证；与媒体访问隔离，不向浏览器下发。随备份模块按启用的目标声明，未配置的目标在网页中不可选，不为未启用目标强制填写假凭证。 |
 | 仅站长本机 | `TMDB_API_KEY`、目标环境资源映射和离线导入所需的最小权限 D1/R2 凭证；不把导入管理能力做成浏览器接口，不给 Worker 播放路径额外的上传管理 token。 |
-| 集中默认配置 | 站点业务默认：邀请额度 2、邀请码 30 天、预留 15 分钟、看完 90%、进度 15 秒、备份 30 天、评论 1000 字/每页 10 条/回复每批 10 条、播放 token 30 分钟、签发与管理各 30 次/分钟、发信间隔 60 秒/每用途每小时 5 次。认证配置统一维护 6.3 的原生参数及显式选择：滚动会话 30 天/updateAge 1 天/freshAge 5 分钟、验证与重置链接各 1 小时、二步挑战 5 分钟、备用码 10 个、TOTP 6 位/30 秒/±1 步、原生尝试/锁定/IP 限流。settings 与原生配置已调整并通过最小运行探针，完整 HTTP 和平台验收仍待完成。 |
+| 集中默认配置 | 站点业务默认：邀请额度 2、邀请码 30 天、预留 15 分钟、看完 90%、进度 15 秒、备份 30 天、评论 1000 字/每页 10 条/回复每批 10 条、播放 token 30 分钟、签发与管理各 30 次/分钟、发信间隔 60 秒/每用途每小时 5 次。认证配置统一维护 6.3 的原生参数及显式选择：滚动会话 30 天/updateAge 1 天/freshAge 5 分钟、验证与重置链接各 1 小时、二步挑战 5 分钟、备用码 10 个、TOTP 6 位/30 秒/±1 步、原生尝试/锁定/IP 限流。settings 与原生配置已调整并通过运行探针和第三阶段 HTTP 集成测试，平台验收仍待完成。 |
 
 **密钥轮换（已确认）**：**手动轮换，不设定期自动轮换**。每个环境的密钥**相互独立**，同一密钥不复用于不同环境。保管方式为三处：线上 Worker Secrets、站长的密码管理器、以及**离线副本**。旧密钥必须**保留到引用它的全部备份都被删除或重加密之后**才能弃用，**包括受保护而超期保留的最后一份副本**；**缺密钥的备份不算可恢复副本**。
 
@@ -734,7 +735,7 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 
 ### 6.13 开发前需细化的规则
 
-业务与运维规则于 2026-10-05 确认；认证方案于 2026-10-06 调整为 Better Auth 原生流程与本站必要授权门禁。正文是当前规则，本表只作索引；工程基础已开始，认证尚未正式接入。
+业务与运维规则于 2026-10-05 确认；认证方案于 2026-10-06 调整为 Better Auth 原生流程与本站必要授权门禁。正文是当前规则，本表只作索引；工程基础与第三阶段认证 HTTP 已在本地落地，真实邮件、设备及平台验收仍待完成。
 
 | 事项 | 规则位置 |
 | --- | --- |
@@ -797,6 +798,7 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 - `prototypes/frontend-v1/` 保留为同仓库中独立、可运行的参考项目，具备自己的依赖和启动入口；正式工程另建，与原型并列，不在原型目录中继续发展正式应用。`.worktree/` 只是临时分支检出目录，不作为参考代码的最终位置；合入参考材料时不携带 `node_modules`、构建产物、原始素材或本地凭证。
 - 原型 README 记录参考提交、启动和构建方法、页面与路由、已定稿交互及加载/空数据/失败/成功状态，并区分演示内容与正式规则。代表性的桌面和手机截图、验证结果及已知问题随参考版本保留；评估通过不等于全部功能或正式后端已经验收。
 - 正式前端以沿用为默认路径：经代码审查确认符合本文后，将已有的纯展示组件、页面布局、样式、设计 token、响应式规则和已定稿的客户端交互复制或提取到正式工程。不要求从零重写全部页面；仅对运行环境、数据契约、安全边界或已知缺陷所需的部分进行适配或替换。依赖模拟数据的组件先分离数据来源，以正式 loader 数据、props 和 action 接入真实能力。
+- 页面设计尽可能遵循对应原型的结构、分区列表、统计、表格、标签页与操作对话框，保留现有 token 和视觉层级。需求变化只调整必要字段与流程，迁移差异及原因记入逐页验收记录。
 - 不迁移 PROTO 控制台、模拟身份切换、固定密码/验证码、假 token、假权限校验、内存业务账本和人为等待时间作为正式能力。认证、授权、会话、业务数据持久化和媒体签发由正式服务端落实；可保留真正的客户端 UI 状态，例如弹层、主题和未发送草稿。自生成测试片段及虚构成员仅用于测试，不能充当正式片库或成员记录。
 - 迁移是单向的：代码进入正式工程后在正式目录维护。正式应用的源码、构建和运行不得通过 import、软链接、路径别名或共享包依赖 `prototypes/`；公共静态素材可按本文从 `public/assets/` 使用。原型保持参考版本，不必随正式产品的每次变更同步。
 - 每批迁移按页面或流程审查 mock 是否清除、数据与权限契约是否正确、所需依赖是否支持目标运行环境；验证正式工程类型检查、构建、相关测试及桌面/手机视觉与交互。切集串用进度、继续观看漏项、自动播放仅切页、片单队列不一致等已知缺陷必须修正并纳入验收，不因代码来自已评估原型而豁免。

@@ -1,11 +1,13 @@
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { captcha, twoFactor, username } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { settings } from "./settings.server.ts";
 
 /** HTTP routing requires the third-stage business gates. The optional user ID is server-owned. */
-export function createAuth(env: Env, registrationUserId?: string) {
+type Integration = { plugin: BetterAuthPlugin; beforeSession: (userId: string) => Promise<unknown>;
+  sendMail: (data: { user: { id: string; email: string }; url: string }) => Promise<void> };
+export function createAuth(env: Env, registrationUserId?: string, integration?: Integration) {
   const secret = env.BETTER_AUTH_SECRET;
   if (!secret || secret.length < 32) throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
   if (secret === env.PLAYBACK_HMAC_KEY || secret === env.BACKUP_ENCRYPTION_KEY) {
@@ -18,6 +20,9 @@ export function createAuth(env: Env, registrationUserId?: string) {
   }
   if (origin.hostname !== env.WEBAUTHN_RP_ID) throw new Error("WebAuthn RP ID must match APP_ORIGIN");
   if (!env.TURNSTILE_SECRET_KEY) throw new Error("TURNSTILE_SECRET_KEY is required");
+  // The official dummy service returns example.com without action metadata; keep deployed/test gates strict.
+  const dummyCaptcha = env.APP_ENV === "development" && env.TURNSTILE_SITE_KEY === "1x00000000000000000000AA"
+    && env.TURNSTILE_SECRET_KEY === "1x0000000000000000000000000000000AA";
 
   return betterAuth({
     appName: "星际迷航中国",
@@ -35,12 +40,14 @@ export function createAuth(env: Env, registrationUserId?: string) {
       requireEmailVerification: true,
       resetPasswordTokenExpiresIn: settings.resetLinkTtl,
       revokeSessionsOnPasswordReset: true,
+      sendResetPassword: integration?.sendMail,
     },
     emailVerification: {
       sendOnSignUp: false,
       sendOnSignIn: false,
       autoSignInAfterVerification: false,
       expiresIn: settings.emailVerificationTtl,
+      sendVerificationEmail: integration?.sendMail,
     },
     user: { changeEmail: { enabled: true, updateEmailWithoutVerification: false } },
     session: { ...settings.session, cookieCache: { enabled: false } },
@@ -56,9 +63,10 @@ export function createAuth(env: Env, registrationUserId?: string) {
       "/sign-up/email", "/sign-in/email", "/update-user", "/delete-user", "/delete-user/callback",
       "/two-factor/send-otp", "/two-factor/verify-otp",
     ],
-    databaseHooks: registrationUserId ? {
-      user: { create: { before: async (user) => ({ data: { ...user, id: registrationUserId } }) } },
-    } : undefined,
+    databaseHooks: {
+      user: registrationUserId ? { create: { before: async (user) => ({ data: { ...user, id: registrationUserId } }) } } : undefined,
+      session: integration ? { create: { before: async (session) => { await integration.beforeSession(session.userId); return { data: session }; } } } : undefined,
+    },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         if (ctx.body?.trustDevice) throw new APIError("BAD_REQUEST", { code: "TRUST_DEVICE_DISABLED", message: "Trusted devices are disabled" });
@@ -93,10 +101,11 @@ export function createAuth(env: Env, registrationUserId?: string) {
       captcha({
         provider: "cloudflare-turnstile",
         secretKey: env.TURNSTILE_SECRET_KEY,
-        endpoints: ["/sign-up/email", "/sign-in/username", "/request-password-reset", "/send-verification-email"],
-        allowedHostnames: [origin.hostname],
-        expectedAction: "auth",
+        endpoints: ["/sign-up/email", "/register", "/sign-in/username", "/request-password-reset", "/send-verification-email"],
+        allowedHostnames: dummyCaptcha ? [origin.hostname, "example.com"] : [origin.hostname],
+        expectedAction: dummyCaptcha ? undefined : "auth",
       }),
+      ...(integration ? [integration.plugin] : []),
     ],
   });
 }

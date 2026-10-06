@@ -45,7 +45,7 @@ export function SiteShell({ children, memberNavigation }: { children: ReactNode;
   useHotkey("d", toggleTheme);
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
   return (
-    <div className="group/layout relative isolate content-frame">
+    <div className="group/layout relative isolate content-frame has-data-[slot=auth-frame]:flex has-data-[slot=auth-frame]:min-h-svh has-data-[slot=auth-frame]:flex-col">
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[60] focus:rounded focus:bg-background focus:p-3">跳到正文</a>
       <header className="sticky top-0 z-50 max-w-screen overflow-x-clip bg-background px-2 text-foreground">
         <div className="screen-line-top screen-line-bottom mx-auto flex h-(--header-height) items-center gap-2 border-x pr-2 pl-4 after:z-1 sm:gap-4 md:max-w-(--content-width)">
@@ -62,11 +62,11 @@ export function SiteShell({ children, memberNavigation }: { children: ReactNode;
           </div>
         </div>
       </header>
-      <main id="main-content" className="max-w-screen overflow-x-clip px-2">{children}</main>
+      <main id="main-content" className="max-w-screen overflow-x-clip px-2 group-has-data-[slot=auth-frame]/layout:flex group-has-data-[slot=auth-frame]/layout:flex-1 group-has-data-[slot=auth-frame]/layout:flex-col">{children}</main>
       <footer className="max-w-screen overflow-x-clip px-2">
         <div className="mx-auto border-x md:max-w-(--content-width)">
-          <div className="screen-line-top screen-line-bottom before:-top-px before:z-1"><div className="stripe-divider h-12" /></div>
-          <div className="h-4" />
+          <div className="screen-line-top screen-line-bottom before:-top-px before:z-1 group-has-data-[slot=auth-frame]/layout:hidden"><div className="stripe-divider h-12" /></div>
+          <div className="h-4 group-has-data-[slot=auth-frame]/layout:hidden" />
           <div className="screen-line-top screen-line-bottom flex items-center gap-3 px-4 py-3 text-muted-foreground">
             <Link to="/" className="mr-auto transition-colors hover:text-foreground" aria-label="首页"><SiteMark compact /></Link>
             <ThemeSwitcher />

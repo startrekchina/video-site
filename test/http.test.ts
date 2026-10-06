@@ -1,10 +1,11 @@
 import { exports } from "cloudflare:workers";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { member, login } from "./fixtures/auth";
 
 const fetchPath = (path: string) => exports.default.fetch(`http://example.com${path}`);
 
 // The first request compiles the UI module graph in Vite; keep that outside the 5s request checks.
-beforeAll(async () => { await fetchPath("/robots.txt"); }, 30000);
+beforeAll(async () => { await fetchPath("/robots.txt"); }, 60000);
 
 function expectSecurityHeaders(res: Response) {
   expect(res.headers.get("X-Robots-Tag")).toBe("noindex");
@@ -14,11 +15,42 @@ function expectSecurityHeaders(res: Response) {
 }
 
 describe("worker responses", () => {
-  it("keeps native authentication HTTP routes unmounted until business gates are implemented", async () => {
+  it("renders a real member account without credentials and returns HTML 403 for a non-admin", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+    try {
+      await member(); const cookie = await login();
+      const account = await exports.default.fetch("http://localhost:6120/account", { headers: { Cookie: cookie } });
+      expect(account.status).toBe(200); expectSecurityHeaders(account);
+      const html = await account.text(); expect(html).toContain("管理登录方式、二步验证和登录会话。"); expect(html).toContain("Nova");
+      expect(html).not.toMatch(/"password"|"token"|"secret"|backupCodes\":/);
+      const forbidden = await exports.default.fetch("http://localhost:6120/admin", { headers: { Cookie: cookie } });
+      expect(forbidden.status).toBe(403); expectSecurityHeaders(forbidden); expect(await forbidden.text()).toContain("访问受限");
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("exposes the guarded native session endpoint", async () => {
     const res = await fetchPath("/api/auth/get-session");
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toBeNull();
     expectSecurityHeaders(res);
   });
+
+  it("keeps guest forms public while independently protecting member pages and JSON", async () => {
+    for (const path of ["/login", "/register", "/forgot-password", "/reset-password", "/verify-email", "/verify-pending"]) {
+      const response = await fetchPath(path); expect(response.status).toBe(200); expectSecurityHeaders(response);
+      const html = await response.text(); expect(html).not.toMatch(/PROTO|演示密码|任意 6 位|恢复码重设/);
+    }
+    for (const path of ["/account", "/invites", "/admin"]) {
+      const response = await exports.default.fetch("http://example.com" + path, { redirect: "manual" });
+      expect(response.status).toBe(302); expect(response.headers.get("Location")).toBe("/login?next=" + encodeURIComponent(path)); expectSecurityHeaders(response);
+    }
+    for (const path of ["/account/sessions", "/invites/data", "/admin/members/data", "/admin/members/stats", "/admin/members/invitations", "/admin/members/roots"]) {
+      const response = await fetchPath(path); expect(response.status).toBe(401); expectSecurityHeaders(response);
+      expect(await response.json()).toMatchObject({ error: { code: "AUTH_REQUIRED" }, requestId: response.headers.get("X-Request-Id") });
+    }
+    for (const path of ["/reset-password?token=fictional-link", "/verify-email?error=fictional"]) {
+      const html = await (await fetchPath(path)).text(); expect(html).not.toContain("challenges.cloudflare.com");
+    }
+  }, 20000);
 
   it("renders the home page with security headers", async () => {
     const res = await fetchPath("/");
