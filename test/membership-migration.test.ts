@@ -4,14 +4,16 @@ import { beforeAll, beforeEach, expect, it } from "vitest";
 import { hashPassword } from "better-auth/crypto";
 import { fixtureTime as now } from "./fixtures/catalog";
 
-const migration = env.TEST_MIGRATIONS.slice(-1);
+const migrationIndex = env.TEST_MIGRATIONS.findIndex(item => item.name === "0009_member_profiles.sql");
+if (migrationIndex < 0) throw new Error("Membership migration is missing");
+const migration = env.TEST_MIGRATIONS.slice(migrationIndex, migrationIndex + 1);
 const businesses = ["invitations", "email_deliveries", "watch_progress", "favorites", "playlists", "playlist_items", "comments", "comment_replies", "discussion_votes"];
 let passwordHash: string;
 beforeAll(async () => { passwordHash = await hashPassword("Fictional 1701"); });
 
 beforeEach(async () => {
   await reset();
-  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS.slice(0, -1));
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS.slice(0, migrationIndex));
   const legacy = (id: string, inviter: string | null, role: string, status: string) => env.DB.prepare(`INSERT INTO users
     (id, username, username_key, email, email_key, email_verified_at, password_hash,
      role, status, invited_by_user_id, invite_quota, created_at)

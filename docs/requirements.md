@@ -318,7 +318,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | 会话 `session` | 使用 Better Auth 原生 `id, token, userId, createdAt, updatedAt, expiresAt, ipAddress, userAgent`；token 唯一，用户外键存在。原值留在自有 D1，Cookie 由认证 Secret 签名；期限按 6.3.3 滚动更新，不要求 `token_hash/last_active_at/credential_version` 自定义认证列。 |
 | 邀请码 `invitations` | `id, code_hash, issuer_user_id, used_by_user_id, created_at, expires_at, revoked_at, used_at`；码哈希唯一，消费人唯一。`issuer_user_id` 允许为空，只用于本机准备的 bootstrap 码，空 issuer 不代表任何成员。过期由服务端时间计算并按字段派生“有效、已用、作废、过期”，不需要为每个到期码跑定时任务。额度的 `total` / `occupied` 定义见 6.5.2。 |
 | 认证账号与插件表 `account / twoFactor / passkey / rateLimit` | `account` 保存 credential 密码哈希；`twoFactor` 保存库加密的 TOTP 密钥、二步备用码及锁定状态；`passkey` 保存公钥、计数器与设备属性，`credentialID` 增补唯一约束；`rateLimit` 用于库持久化 IP/路径计数。沿用库原生加密和 schema，不另建密码恢复码或管理员 `reset_links` 表。 |
-| 注册预留 `registration_attempts` | 服务端生成的尝试 ID，绑定邀请码、认证用户和期限，记录预留/完成/失败。仅同一有效预留可完成邀请码消费和成员业务资料激活；未完成认证用户不得访问成员功能。业务关联与并发约束见 6.2.2。 |
+| 注册预留 `registration_attempts` | 服务端随机尝试令牌的 SHA-256 作为 `id`，绑定邀请码、预先生成的 `expected_user_id`、用户名/邮箱规范化后的 `identity_key` 摘要、已创建认证用户和期限，记录预留/完成/失败。不保存密码或原始尝试令牌；ID、邀请码及归属字段不可改写/REPLACE。仅同一有效预留可完成邀请码消费和成员业务资料激活；未完成认证用户不得访问成员功能。业务关联与并发约束见 6.2.2。 |
 | 观看进度 `watch_progress` | 主键 `(user_id, playable_unit_id)`；`position_seconds, completed, updated_at, revision`；`revision` 已启用（6.7.1），上报携带 `expectedRevision` 条件写入，冲突返回 `409 / REVISION_CONFLICT`。总时长来自已导入媒体，不相信客户端提交的时长；自动完成与手动“未看”的交互按 6.7.1。 |
 | 收藏 `favorites` | 主键 `(user_id, work_id)`，仅收藏作品；重复添加和删除已不存在的收藏都返回同一最终状态。 |
 | 片单 `playlists` / 条目 `playlist_items` | 片单记录 `id, owner_user_id, title, visibility, revision, created_at, updated_at`，`visibility` 为 `private` / `members`；条目记录稳定 `id, playlist_id, work_id?, playable_unit_id?, position`。两种目标必须且只能选一个，各自有外键；`(playlist_id, position)` 唯一，并对同一目标设**唯一约束**（`playlist_id` + 目标类型 + 目标 ID），使同一目标在一个片单内只能有一条（6.7.1.1）。公开只扩大站内读取权限，不改变所有者的写权限。 |
@@ -335,6 +335,8 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 - Better Auth 原生 D1 adapter 的多次认证写入不保证整个流程原子提交；不要求用自定义 adapter 改写其事务模型。正式实现必须接受并测试 user/account 部分创建、重置凭证已消费但改密失败等状态，保留可重试或可修复的结果，不能把异常包装成成功。
 - 邀请注册采用三步：**D1 条件预留邀请码 → 调用库创建待验证认证用户 → 在业务原子批次中消费邀请码、建立邀请关联并标记注册完成**。预留默认 15 分钟，在预留期间不能被另一个尝试抢占；完成提交重新检查期限、发出人状态和封禁竞态。完成后才发验证邮件。
 - 预留和部分认证记录可持久存在；失败不烧掉邀请码、不转为已用码的永久占用，发码阶段的原占用仍按 6.5.2 计算。重试以服务端尝试 ID 和同一归属继续，不能凭客户端 userId 认领他人的账号；已存在用户名/邮箱冲突不消费码。过期/失败预留在后续请求或本机运维中安全释放，部分认证账号保持无成员权限，清理不得删除已完成成员及其业务数据。不引入跨产品事务、异步队列或新的自动清理服务。
+- 当前注册服务在调用库前持久化目标用户 ID，使用原生 `user.create.before` 钩子指定该 ID；只按该 ID 读取真实用户，不把用户名/邮箱相同或库的模拟成功响应视为归属证明。同一尝试令牌持有者可在邀请码仍可用、且没有其他有效预留时续作或续订过期预留；已有 credential 必须按库验证密码，缺失时仅给该尝试自己的未完成用户补建原生 credential，不覆盖已有密码，每用户最多一条 credential。HTTP 接入时令牌只通过 HttpOnly Cookie 传递，不进 URL、业务响应或日志。
+- `0010_registration_ownership.sql` 的触发器让成员资料插入、邀请码消费和尝试完成在同一 SQL 原子边界内提交，重新校验期限、发出人正常状态、邀请关联和原生 credential；任何一步失败都回滚业务激活。原生用户/credential 仍可保留为无成员权限的部分记录，重试不创建第二个账号；直接注册参数不能指定角色、邮箱验证状态或目标用户 ID。注册服务已通过内部 D1 验证，HTTP 防护和发信回调未接入前不开放注册入口。
 - 所有成员 loader/action、媒体、认证会话建立与认证设备绑定门禁均检查注册完成、邮箱已验证及正常状态。直接调用库 signUp 不能绕过邀请流程；不需要的注册、邮箱密码直登、账号删除、任意资料更新和 OTP 路径关闭或受同一服务端门禁约束。
 - 原生邮箱 JWT 验证、改邮箱、密码重置和备用码消费按库行为执行，不承诺与邀请、设备处理或所有旧凭证撤销同批完成。密码重置撤销会话失败时保持可观察失败并重试撤销；所有新请求仍读主库，不能依赖缓存延迟。
 - 发码、作废、额度调整、封禁、业务成员激活、片单重排等本站业务继续使用 D1 原子边界。发码以发出人/操作类型内唯一 `operationId` 防重扣，响应丢失不重复生成；不提供事后查询邀请码原值的接口。
