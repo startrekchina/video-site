@@ -52,6 +52,7 @@
 ## Cloudflare CLI
 
 - 本项目统一使用 Cloudflare 的 `cf` CLI 创建项目、本地开发、部署和管理 Cloudflare 资源，不再使用 Wrangler，也不使用 `npx wrangler` 作为替代。
+- 2026-10-06 站长仅授权本次第三阶段 staging 部署使用官方 Cloudflare API，处理 `cf` beta.12 固定 strict 检查阻止配置同步和上传的问题；此项不是长期 API 兜底授权，production 与后续部署仍遵循上述规则。
 - 执行前先查 `cf --help` 或 `cf cli search <想做的事>`，确认当前版本的命令、参数和目标环境；不能将 Wrangler 的命令或配置方式直接套用到 `cf`。
 - 若正式工程引入已有 Wrangler 配置，应按 `cf migrate` 的当前帮助迁移到 `cf` 工具链，而不是继续沿用 Wrangler。`cf` 缺失、不支持所需能力或命令失败时，记录具体原因并告知站长，不自行回退到 Wrangler。
 

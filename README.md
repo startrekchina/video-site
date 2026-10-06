@@ -10,7 +10,7 @@ v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确�
 
 第二阶段本地工程基础完成。第三阶段的邀请注册、认证 HTTP、邮箱验证/找回/本人改邮箱、账号与设备管理、邀请额度及管理员操作已在本地实现，Better Auth/passkey 仍锁定 1.7.7。页面尽可能沿用原型的结构、统计、列表、表格、标签页和对话框，新增邮箱流程沿用同套控件；[第三阶段验收记录](docs/screenshots/phase3/README.md)列明已验证范围和差异。真实 WebAuthn、实际邮件投递及 staging CPU/日志实测仍待完成，第三阶段尚未整体验收。
 
-staging 已复用既有 Worker、域名和私有媒体桶，云端仍为 8 个迁移的上一版工程基础，EMAIL_API_KEY 与备份 Token 已配置。本地已应用 0011；第三阶段最新代码尚未部署。production 资源映射和独立密钥已准备，但未迁移、上传 Secrets 或上线；真实配置只在本机/平台保存。剩余验收与阶段状态以 [`PLAN.md`](PLAN.md) 为准，前端参考原型保留在 `prototypes/frontend-v1/`。
+staging 已按站长授权部署第三阶段代码及 11 个迁移，复用既有 Worker、域名、私有媒体桶和 Secrets。已通过公开页面、访客权限、跨站拒绝、通行密钥 UV 选项、静态 noindex 与虚构凭证日志脱敏探针；实际注册暴露的邮件重定向运行时问题已修复部署，收信、真实设备与认证 CPU 验收仍未完成。production 资源映射和独立密钥已准备，但未迁移、上传 Secrets 或上线；真实配置只在本机/平台保存。剩余验收与阶段状态以 [`PLAN.md`](PLAN.md) 为准，前端参考原型保留在 `prototypes/frontend-v1/`。
 
 ## 文档
 
@@ -42,7 +42,7 @@ staging 已复用既有 Worker、域名和私有媒体桶，云端仍为 8 个�
 
 - [x] 建立根目录 `PLAN.md`，把功能顺序和验收条件整理为可执行待办；工具链已在本机探针中验证。
 - [x] 使用 `cf` CLI 建立 React Router v7 + Workers 正式工程，配置类型检查、构建和 Workers Vitest 测试入口；不使用 Wrangler。
-- [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；staging 上一版工程基础、8 个迁移、四项 Secrets 及 HTTPS 冒烟检查通过，邮件 Secret 已配置。production 资源与独立密钥已准备，尚未迁移、上传 Secrets 或部署；production 邮件凭证及后续启用的备份目标凭证仍待提供。
+- [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；staging 第三阶段代码、11 个迁移、五项所需 Secrets 及 HTTPS 冒烟检查通过。production 资源与独立密钥已准备，尚未迁移、上传 Secrets 或部署；production 邮件凭证及后续启用的备份目标凭证仍待提供。
 - [x] 完成 Better Auth 旧规则 POC 与差距报告；29 项测试是行为/差距证据，不等于新方案验收。
 - [x] 站长决定调整需求并采用 Better Auth；需求、接口、验收和计划已同步，变更索引见需求 6.3.4。
 - [x] 落地 D1 迁移/约束与虚构成员、生成媒体/字幕夹具；0008 原生认证表与 0009 成员业务资料/外键已验证，未转换旧凭证会让迁移拒绝并回滚。
@@ -133,6 +133,12 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，只含原有四项密钥，未包含站长另行配置的 EMAIL_API_KEY；production 不能仅凭该文件通过正式部署检查。授权部署时可用 `pnpm exec cf deploy --prebuilt --mode staging --secrets-file .dev.vars.staging.secrets.json` 上传文件中的密钥；既有 EMAIL_API_KEY 由站长在对应 Worker 配置，不复制 staging 的值到 production。密钥还须由站长保存到密码管理器和离线副本，保管/轮换见需求 6.9.1。
 
 线上启用应用日志和 query 脱敏，关闭含请求 URL 的 invocation logs；原生 traces 的凭证路径脱敏验证前保持关闭。配置核对和页面冒烟检查不替代第六阶段的真实日志内容、安全与性能验收。
+
+staging 另测发现 Cloudflare 会给应用日志附加请求 URL/路径，即使 invocation logs 已关闭。重置链接凭证位于原生路径中，因此 `/api/auth/reset-password/` 不产生应用日志，避免平台再次附加原文；Better Auth 原始日志保持关闭，其他请求仍记录白名单路由族、状态与请求标识。query token 由平台 `redact_query_string` 剔除。
+
+实际 Workers 的邮件 fetch 使用 `redirect: "error"` 会在发出请求前抛错，改为 `manual` 并拒绝所有非 2xx（包含 3xx）。一次请求、不跟随重定向、不自动补发及 10 秒上限保持不变；匿名探针只证明 Postal 可达，实际投递以收信和验证结果为准。
+
+2026-10-06 第三阶段 staging 部署遇到 cf beta.12 的固定严格检查：配置差异以及“最近由 API 更新”均会拒绝上传，CLI 没有覆盖参数。站长明确授权本次 staging 使用官方 API；保存旧配置快照后激活已配置的邮件 Secret 版本、同步邮件/RP ID、清除旧 Cron，再按[官方静态资源上传流程](https://developers.cloudflare.com/workers/static-assets/direct-upload/)上传同一份已验证 Build Output。代码与资源最终已在线；静态 `_headers` 元数据及关键绑定复核通过。临时部署脚本和私密快照只在忽略目录，不改变后续使用 cf 的规则。实际邮件测试使用站长指定地址，真实地址和注册链接不写入公开文档。
 
 测试数据工厂 `test/fixtures/catalog.ts` 只创建虚构成员、作品、季和集。需要媒体夹具时，安装 PATH 上可用的 ffmpeg 后运行 `node scripts/gen-test-media.mjs`：生成 4 秒 H.264 + AAC、faststart 的 MP4 到被忽略的 `test/fixtures/media/`，可重复生成。自行编写的中英文 VTT 在 `test/fixtures/subtitles/` 中随代码提交；约束测试不依赖生成的 MP4。
 

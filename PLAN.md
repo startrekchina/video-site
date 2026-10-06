@@ -61,7 +61,7 @@
 - [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；缺失或混用时构建失败。
 - [x] 集中默认配置已落在 `app/lib/settings.server.ts`；T2.7 已适配 30 天滚动会话/1 天更新/5 分钟新鲜度、1 小时邮件链接、二步备用码及原生限流，移除旧绝对期限和失败后才要求 Turnstile 的常量，新基线单测与运行探针通过。
 - [ ] 完成 staging / prod 云端配置与 Secrets；定时入口在备份任务实现时再加入，业务频率/时间由站长在网页设置，只有配置完整的 WebDAV / S3 目标才能启用（需求 6.9.2）。
-  - 2026-10-06 已获站长授权，staging 复用既有 Worker、自定义域名和私有媒体桶；旧 D1 schema 与当前迁移不兼容，保留旧库并创建隔离新库，8 个迁移已应用。认证/播放/Turnstile/备份加密四项 Secrets 已写入，上一版工程基础已部署并通过 HTTPS 冒烟检查；第三阶段改动尚未部署，旧 Worker 版本仍可追溯，旧 Secrets 未删除。
+  - 2026-10-06 已获站长授权，staging 复用既有 Worker、自定义域名和私有媒体桶；旧 D1 schema 与当前迁移不兼容，保留旧库并创建隔离新库。第三阶段 11 个迁移及代码/资源现已部署，认证/播放/Turnstile/备份加密/邮件五项所需 Secrets 保留，旧版本可追溯；实际设备、邮件和认证 CPU 仍待验收。
   - production 已核对既有 Worker、空 D1、独立私有媒体桶；独立 Turnstile 已创建，资源映射和四项新 Secrets 保存在本机忽略文件，最新配置构建 / dry-run 通过。尚未给 production 应用迁移、上传 Secrets 或替换代码。staging 邮件 Secret 已配置；production 邮件凭证及后续启用的备份目标凭证仍待提供。此项不勾选，不再记为全部待授权。
 - 验收：`cf deploy --prebuilt --mode staging --dry-run` 与 `--mode production` 列出各自独立的绑定；仓库内 `git grep` 不出现真实 ID 或密钥。
 
@@ -106,11 +106,11 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
 
 ### T3.1 邀请注册与认证入口（本地实现完成，外部验收待完成）
 
-- [x] 完成 Postal HTTPS 发信传输与独立环境配置；12 项模拟测试覆盖字段、HTTP 200 业务错误、HTTP 失败、超时、单次请求、配置拒绝及脱敏。认证回调已接入；10 秒超时、不自动跟随重定向、不补发，服务接受请求不等于送达。
+- [x] 完成 Postal HTTPS 发信传输与独立环境配置；13 项模拟测试覆盖字段、HTTP 200 业务错误、HTTP 失败、重定向拒绝、超时、单次请求、配置拒绝及脱敏。认证回调已接入；10 秒超时、不自动跟随重定向、不补发，服务接受请求不等于送达。
 - [x] 完成内部邀请注册服务：邀请码条件预留、随机尝试令牌摘要与预先绑定用户 ID、原生用户创建、业务原子完成及失败续作。0010 增量迁移保护归属不被修改/REPLACE、credential 每用户唯一，并以触发器原子激活成员/消费码/完成尝试；16 项 workerd/D1 用例覆盖模拟成功响应、冲突、账号部分创建、过期续订、发出人封禁、作废、并发和后段提交回滚。HTTP 已按下一项接入；验证邮件仅在业务注册完成后尝试发送。
 - [x] 挂载必要认证 HTTP，逐入口校验注册完成/邮箱/成员状态、Origin / Fetch Metadata、Turnstile 和原生 D1 IP 限流；注册尝试归属用 HttpOnly Cookie。邮件用途精确配额、并发计数、失败/未确认记录及请求日志脱敏通过本地 HTTP 测试。
 - [x] 迁移原型 AuthFrame、FieldGroup、登录方式分隔和注册步骤，接入真实客户端；新增邮箱验证/找回页面沿用同套控件。邀请码提交时由服务器校验，不复用演示预校验或透露邀请人资料。
-- [ ] 验证实际 Postal 投递与套餐限额、staging 认证 CPU/限制及 URL 日志脱敏。需要站长授权的测试收信地址；本地模拟和 dry-run 不代替此项。
+- [ ] 验证实际 Postal 投递与套餐限额、staging 认证 CPU/限制及 URL 日志脱敏。站长已指定测试收信地址；虚构凭证路径/query 日志探针已通过，邮件运行时问题已修复部署，实际收信及认证 CPU 仍待验收。本地模拟和 dry-run 不代替此项。
 
 ### T3.2 账号与设备管理（本地实现完成，设备验收待完成）
 
@@ -149,12 +149,20 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
 | --- | --- | --- |
 | React Router v7 与 `@cloudflare/vite-plugin` 2.0 beta 的产物目录不一致 | 已用同步插件绕过，构建 / 预览 / dry-run 已验证 | 需求定 v7，暂不升级。若站长同意升级 v8（官方支持组合），需同步修改需求 6.1 与 README 技术栈 |
 | `cf` 与 Vite 插件 2.0 均为 beta | 风险 | 锁定精确版本；升级单独提交并重跑全部验证 |
-| staging / prod 云端资源与 Secrets | staging 上一版工程基础已部署；最新两环境构建 / dry-run 通过 | 旧 staging D1 保留，第三阶段未部署；production 未上线。staging 邮件 Secret 已配置，production 邮件及后续备份目标凭证待提供；真实配置只在本机忽略文件与平台保存 |
-| Better Auth 接入 | 第三阶段本地实现及集成测试完成；外部验收待完成 | HTTP、邀请/权限/UV/改邮箱门禁及失败续作已接通，页面已按原型复核。真实验证器、实际邮件及 staging 成本/日志待测，不以本地测试代替 |
-| 已购发件服务的 API 文档与配置 | 文档、实际地址与 staging EMAIL_API_KEY 已提供，回调与业务配额已接入 | production 无 Secrets，不复制 staging 密钥。实际投递需要站长授权的测试收信地址；模拟成功不证明真实送达 |
+| staging / prod 云端资源与 Secrets | staging 第三阶段已部署；production 构建 / dry-run 通过 | 旧 staging D1 保留；production 未上线。staging 邮件 Secret 已配置，production 邮件及后续备份目标凭证待提供；真实配置只在本机忽略文件与平台保存 |
+| Better Auth 接入 | 第三阶段本地实现及集成测试完成；外部验收待完成 | HTTP、邀请/权限/UV/改邮箱门禁及失败续作已接通，页面已按原型复核。凭证日志探针已通过；真实验证器、实际邮件和 staging 成本仍待测，不以本地测试代替 |
+| 已购发件服务的 API 文档与配置 | 文档、实际地址、staging EMAIL_API_KEY 及授权测试收信地址已提供，回调与业务配额已接入 | production 无 Secrets，不复制 staging 密钥。邮件运行时问题已修复部署，实际收信待确认；模拟成功不证明真实送达 |
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | staging 资源可用，相关模块与云端验收待完成 | 认证成本/日志按第三阶段，备份按第六阶段执行，不以本地结果代替 |
 
 ## 6. 进展与验证记录
+
+- 2026-10-06：站长在 staging 完成真实注册，但首次及两次手动重发均记为 `unknown / EMAIL_DELIVERY_UNCONFIRMED`。匿名空 POST 探针定位到实际 Workers 对 `redirect: "error"` 的即时 TypeError，请求尚未发出；本地 workerd/模拟未暴露此差异。只改为 `manual` 后同一探针在约 0.5 秒收到 Postal HTTP 200 / error / AccessDenied，证明网络可达；现有非 2xx 拒绝保持不跟随 3xx、单次请求和不补发。完整 158 项回归、类型检查、三环境构建及两环境 cf dry-run 通过；修复已部署，正常主模块替换临时探针，公开页面/门禁/安全头和诊断路径 404 复核通过（1180 项静态资源，启动时间 42 ms）。账号和原有配额记录保留，站长已收到一次手动重发验收说明，实际收信仍待确认。临时探针没有 API key、收件人或邮件正文，云端已移除。
+
+- 2026-10-06：虚构凭证路径/查询探针发现 staging 的 query token 已脱敏，但应用日志自带的平台元数据仍包含原生重置链接的路径 token；invocation logs 关闭不能单独解决。Worker 对 `/api/auth/reset-password/` 停止输出应用日志，Better Auth 原始日志此前已关闭；其他请求保留白名单日志。HTTP 回归和重新部署后，cf telemetry 的 13 条新样本中原生凭证路径事件为 0、普通重置表单事件为 1，全部平台元数据均不含该探针的唯一虚构 token；普通日志仍存在，查询参数已剔除。无效探针不授予实际权限；真实登录、邮件与设备流程仍需后续复核。
+
+- 2026-10-06：获站长本次 staging 官方 API 例外授权后，保存旧配置并激活其先前新增 EMAIL_API_KEY 的未部署版本，同步 RP ID/邮件变量、保留所有既有 Secret 引用并清除旧 Cron。cf 仍因“最近由 API 更新”拒绝上传，最终按官方 API 的 manifest/资源桶/Worker multipart 流程上传已验证 staging Build Output（1180 项静态资源，最终启动时间 40 ms）。静态头用 `_headers` 元数据复核；首次部署传播期间个别资源头缺失，再次检查四个 JS 资源均 noindex。公开登录/注册/关于/robots 200、未知路径 404、受保护页面 302、业务 JSON 401、session 200/null、UV 选项 required、跨站 POST 403；响应安全头通过。直连 TLS 被本机网络重置，改用已启用的系统代理后验证通过，未降低 TLS 校验或修改代理配置。cf telemetry 读取 35 条应用日志样本，只有路由族/请求标识/状态/错误码，没有 URL/query/凭证；invocation logs/traces 保持关闭，认证 CPU 及实际凭证路径仍待测试。staging 初始邀请码已生成并仅在忽略文件保存；站长接手设置凭证、人机验证及收信，实际邮件尚未发送或确认。production 未变，Git 未推送，6120 保持运行。
+
+- 2026-10-06：staging 11 个迁移已完成；代码上传被 cf beta.12 固定 `strict: true` 阻止，提示旧 Cron / 域名与新增 RP ID、邮件变量冲突。已核对 cf 帮助、版本和安装源码：该版没有覆盖参数或普通 Worker 设置更新命令，npm 最新版本仍为 beta.12。新版本尚未上传，旧代码保持在线；按 AGENTS 的 cf 约束，已请求站长决定是否仅本次 staging 允许官方 API 配置同步，不自行改工具源码或回退 Wrangler。收件测试与平台验收依赖代码部署。
 
 - 2026-10-06：站长授权将第三阶段部署到 staging，并指定测试收信地址（仅本机保存）。本地实现已提交 `2caf826` 并快进合入本地 dev；远程预检确认 8 个迁移、旧/新身份和邀请码均为空。首次远程迁移 0009 成功，0010 报 `incomplete input: SQLITE_ERROR` 并完整回滚；定位到 D1 对触发器内裸 CASE 的解析问题，新增仅处理临时 SQL 副本的 cf runner 包装，保留原文件与原迁移名。4 项工具测试通过（含合法邀请完成、过期邀请原子拒绝），staging 0010–0011 随后成功。未改写已应用迁移、不回退 Wrangler。代码部署及实际邮件验收继续推进。
 

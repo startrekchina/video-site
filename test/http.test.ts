@@ -15,6 +15,14 @@ function expectSecurityHeaders(res: Response) {
 }
 
 describe("worker responses", () => {
+  it("does not emit reset-link logs that Cloudflare would enrich with the path credential", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const response = await exports.default.fetch("http://localhost:6120/api/auth/reset-password/fictional-private-token?callbackURL=http%3A%2F%2Flocalhost%3A6120%2Freset-password", { redirect: "manual" });
+      expect(response.status).toBe(302); expectSecurityHeaders(response); expect(log).not.toHaveBeenCalled();
+      await fetchPath("/api/auth/get-session"); expect(log).toHaveBeenCalledOnce();
+    } finally { log.mockRestore(); }
+  });
   it("renders a real member account without credentials and returns HTML 403 for a non-admin", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
     try {

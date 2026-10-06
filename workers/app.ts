@@ -53,7 +53,8 @@ export default {
     headers.set("Cache-Control", "private, no-store");
     headers.set("X-Request-Id", requestId);
     // Route families only: never log paths, queries, cookies or library errors.
-    console.info(JSON.stringify({ requestId, route: auth ? "auth" : account ? "account/sessions" : invites ? "invites" : admin ? "admin/members" : "page", status: response.status, code }));
+    // Cloudflare attaches the original request path to each application log, even with invocation logs disabled.
+    if (!path.startsWith("/api/auth/reset-password/")) console.info(JSON.stringify({ requestId, route: auth ? "auth" : account ? "account/sessions" : invites ? "invites" : admin ? "admin/members" : "page", status: response.status, code }));
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   },
 } satisfies ExportedHandler<Env>;
