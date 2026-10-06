@@ -8,7 +8,7 @@ v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确�
 
 数据库备份将提供站内操作：直接下载加密文件，或保存到 WebDAV / S3；仅 Worker 变量 `OWNER_EMAIL` 匹配的正常管理员可访问，其他管理员无此权限。只有 WebDAV / S3 目标配置完整后，才能在网页设置定时备份频率与执行时间；仅下载不启用定时备份，不再固定每日 04:00。这项需求和验收已同步，功能按 PLAN T6.1 待实现。
 
-第二阶段工程基础和第三阶段邀请、账号与管理验收完成。邀请注册、认证 HTTP、邮箱验证/找回/本人改邮箱、账号与设备管理、邀请额度及管理员操作已实现，Better Auth/passkey 仍锁定 1.7.7。页面尽可能沿用原型结构，新增邮箱流程沿用同套控件；成功重置后进入无密码表单、无 URL token 的独立完成页，提供登录按钮。[第三阶段验收记录](docs/screenshots/phase3/README.md)列明已验证范围和差异。邮件套餐、管理页面、原生 scrypt 平台小样本已验收；站长确认真实 TOTP、备用码、手机会话撤销及通行密钥登录均有效。下一阶段为片库与播放闭环，PLAN T4.1–T4.4 已细化，尚未开工。
+第二阶段工程基础和第三阶段邀请、账号与管理验收完成。邀请注册、认证 HTTP、邮箱验证/找回/本人改邮箱、账号与设备管理、邀请额度及管理员操作已实现，Better Auth/passkey 仍锁定 1.7.7。页面尽可能沿用原型结构，新增邮箱流程沿用同套控件；成功重置后进入无密码表单、无 URL token 的独立完成页，提供登录按钮。[第三阶段验收记录](docs/screenshots/phase3/README.md)列明已验证范围和差异。邮件套餐、管理页面、原生 scrypt 平台小样本已验收；站长确认真实 TOTP、备用码、手机会话撤销及通行密钥登录均有效。第四阶段从 802b 的 T4.1 本地预检开始；cf beta.12 普通上传上限 300 MB 且无 multipart 命令，完整导入保持阻塞，详情见 PLAN。
 
 staging 已按站长授权部署第三阶段代码及 11 个迁移，复用既有 Worker、域名、私有媒体桶和 Secrets。公开页面、访客权限、跨站拒绝、通行密钥 UV 选项、静态 noindex 与凭证日志脱敏探针通过，邮件重定向运行时问题已修复；站长确认验证/找回邮件、新密码和登录实际通过。原生 scrypt 的 8 次 HTTP 检查全部符合预期，最多 2 路并发，对应 6 条平台样本 CPU P99 约 83.6 ms、V8 isolate memory P99 约 19.0 MiB、执行错误 0；临时探针已移除并复核正常入口，此样本不代表完整容量。production 资源映射和独立密钥已有准备记录；正式迁移、Secrets 上传、部署和上线验收安排在所有主要功能开发完成后的第六阶段，不作为工程基础或第三至第五阶段完成条件。真实配置只在本机/平台保存，剩余验收与阶段状态以 [`PLAN.md`](PLAN.md) 为准，前端参考原型保留在 `prototypes/frontend-v1/`。
 
@@ -64,7 +64,7 @@ staging 已按站长授权部署第三阶段代码及 11 个迁移，复用既�
 - [x] 站长确认 staging HTTPS 上通行密钥登录手工验收成功，D1 已核对绑定存在；UV 选项/钩子另有自动检查，第三阶段验收完成。
 - [x] 完成邀请码管理、成员与邀请链查询、额度调整、角色变更、封禁与解除单个成员封禁（不连带、需绑定 TOTP 和新鲜会话），以及首管由本机运维提升；验证管理员权限、自封禁/自降权保护和确认后的连带范围。
 
-### 4. 片库与播放闭环（待开工，详见 PLAN T4.1–T4.4）
+### 4. 片库与播放闭环（T4.1 本地预检完成，完整导入阻塞）
 
 - [ ] 完成离线导入 CLI：manifest / TMDB 双语资料、MP4 格式与 faststart 预检、字幕转 VTT、R2 / D1 挂接及幂等重试。
 - [ ] 将访客入口、成员首页、片库网格与时间轴、作品和选集页面接入正式数据，验证站长配置的三个推荐起点、版权联系、搜索、资料回退、海报和单集剧照状态。
@@ -118,7 +118,8 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 | `pnpm db:migrate:local` | `cf d1 migrations apply`：将 `migrations/` 应用到本地占位 D1，持久化到被忽略的 `.cloudflare/state`，可重复运行 |
 | `pnpm db:migrate:staging` / `pnpm db:migrate:production` | 授权后应用远程增量迁移；通过 cf 的临时 SQL 副本规避 D1 触发器解析问题，不改写已应用迁移 |
 | `pnpm typecheck` | 由 `cloudflare.config.ts` 生成绑定类型、生成路由类型，再运行 `tsc` |
-| `pnpm test:tools` | 本机 bootstrap、首管提升与远程迁移传输兼容测试，不触及云端 |
+| `pnpm test:tools` | 本机 bootstrap、首管提升、导入预检与远程迁移传输兼容测试，不触及云端 |
+| `node scripts/import-media.mjs preflight --environment staging --mapping <本机 JSON>` | 本地媒体与 TMDB 预检；[输入契约与限制](docs/import-media.md)，完整上传/断点/D1 挂接尚未实现 |
 | `pnpm admin:bootstrap` | 明确选择环境的初始邀请码/首管提升命令，默认只预检，见下文 |
 | `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟；每条用例重置绑定并应用 `migrations/`，Secrets 取 `.dev.vars.example` 的占位值 |
 | `pnpm build` | development 模式构建到 `.cloudflare/output/v0` |
