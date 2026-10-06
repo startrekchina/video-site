@@ -113,8 +113,9 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 | 命令 | 作用 |
 | --- | --- |
 | `pnpm db:migrate:local` | `cf d1 migrations apply`：将 `migrations/` 应用到本地占位 D1，持久化到被忽略的 `.cloudflare/state`，可重复运行 |
+| `pnpm db:migrate:staging` / `pnpm db:migrate:production` | 授权后应用远程增量迁移；通过 cf 的临时 SQL 副本规避 D1 触发器解析问题，不改写已应用迁移 |
 | `pnpm typecheck` | 由 `cloudflare.config.ts` 生成绑定类型、生成路由类型，再运行 `tsc` |
-| `pnpm test:tools` | 本机 bootstrap 与首管提升查询约束测试，不触及云端 |
+| `pnpm test:tools` | 本机 bootstrap、首管提升与远程迁移传输兼容测试，不触及云端 |
 | `pnpm admin:bootstrap` | 明确选择环境的初始邀请码/首管提升命令，默认只预检，见下文 |
 | `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟；每条用例重置绑定并应用 `migrations/`，Secrets 取 `.dev.vars.example` 的占位值 |
 | `pnpm build` | development 模式构建到 `.cloudflare/output/v0` |
@@ -124,6 +125,8 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 `cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
 
 已授权的云端配置复用既有 Worker，D1 名称/ID 与媒体桶名由 `.env.example` 所列环境变量分别映射；旧 staging 数据库因 schema 不兼容而保留，当前工程使用新库，不对旧库套用迁移。staging 沿用原有自定义域名，production 使用本文确定的正式域名；Custom Domain 由 `worker.domains` 管理，workers.dev 与版本预览入口关闭。
+
+远程迁移使用 `pnpm db:migrate:staging` / `pnpm db:migrate:production`。staging 实测 D1 `/query` 将 0010 触发器内裸 `CASE…END` 错认作触发器结束，整份 0010 回滚；[Cloudflare 问题记录](https://github.com/cloudflare/workers-sdk/issues/4727)描述同类行为。脚本仅在临时副本给该表达式加等价括号，再交给 `cf d1 migrations apply --dir`，由 CLI 正常记录原文件名并执行增量判断；原始文件和本地已应用迁移不改写，临时文件执行后清除。SQLite 验证合法邀请原子完成、过期邀请完整拒绝。不要直接重复失败的原始远程命令，也不使用 Wrangler 兜底。
 
 `bindings.secret()` 在实际部署时要求值齐全。当前声明认证、播放、Turnstile、备份加密与 EMAIL_API_KEY 五项；备份 API Token 和启用的 WebDAV / S3 目标凭证随对应模块再声明，禁止用样例值满足线上检查。服务端站长变量 OWNER_EMAIL 也随备份模块加入，当前尚未声明或校验。邮件配置使用 .env.example 中的 STAGING_EMAIL_* / PRODUCTION_EMAIL_*；API 基础地址必须为 HTTPS origin，发件人域名须匹配 EMAIL_SENDER_DOMAIN。传输只发送纯文本正文、最多等待 10 秒、不跟随重定向或自动重发；业务配额、失败记录和认证回调已接入；验证用途共享邮箱摘要配额，找回单独计数，失败/未确认也计入。真实投递与上游套餐限额仍待核对。
 

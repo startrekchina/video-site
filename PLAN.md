@@ -33,6 +33,7 @@
 - **v7 与 Build Output 目录不一致**：Vite 插件 2.0 把客户端产物强制输出到 `.cloudflare/output/v0/workers/default/assets`，React Router v7 仍从 `build/client` 读写 manifest。用一个小 Vite 插件在构建时双向同步，待 [remix-run/react-router#15480](https://github.com/remix-run/react-router/pull/15480) 进入 v7 后删除。官方插件声明正式支持的是 React Router v8；是否升级 v8 属于需求变更，须站长决定（见第 5 节未决事项）。
 - **`cf build` 不向 React Router 转发 `--mode`**：staging / prod 构建改用 `react-router build --mode <mode>`，部署用 `cf deploy --prebuilt --mode <mode>`（mode 须与构建一致）。本地开发直接 `cf dev`（mode 为 `development`）。
 - **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；staging / prod 的真实 ID 由被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
+- **远程 D1 触发器解析**：staging 的 `/query` 将 0010 内裸 `CASE…END` 错认作触发器结束；该迁移完整回滚，0009 已成功。[同类问题](https://github.com/cloudflare/workers-sdk/issues/4727)用等价括号规避。`pnpm db:migrate:staging` / `db:migrate:production` 只规范临时副本，再交给 cf 的增量迁移 runner，原始迁移不改写；SQLite 正反用例及 staging 0010/0011 实测通过。
 - **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `staging` / `production`）返回完整配置；Worker 名、D1、R2、Rate Limiting namespace 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 staging / prod。
 - **Secrets**：以 `bindings.secret()` 声明，本地开发缺失时警告，**实际部署会拒绝缺少声明的 Secret**。当前声明认证、播放、Turnstile、备份加密与邮件五项；备份 API Token 与启用的 WebDAV / S3 目标凭证在对应模块接入时再声明，不上传占位凭证。线上可用部署时 `--secrets-file` 写入，密钥文件必须被 Git 忽略；既有四项密钥交接文件不包含站长另行配置的 EMAIL_API_KEY，不能据此宣称 production 已齐备。
 - **云端复用与日志**：按站长授权复用既有 staging Worker 与访问域名，D1 名称/ID 和 R2 桶名分别从本机 `.env` 注入，不能按数据库名推断媒体桶。Custom Domain 通过 `worker.domains` 管理；关闭 workers.dev / preview URLs。启用应用日志、query 脱敏并关闭 invocation logs；原生 traces 含路径，凭证路径脱敏验证前保持关闭。
@@ -154,6 +155,8 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | staging 资源可用，相关模块与云端验收待完成 | 认证成本/日志按第三阶段，备份按第六阶段执行，不以本地结果代替 |
 
 ## 6. 进展与验证记录
+
+- 2026-10-06：站长授权将第三阶段部署到 staging，并指定测试收信地址（仅本机保存）。本地实现已提交 `2caf826` 并快进合入本地 dev；远程预检确认 8 个迁移、旧/新身份和邀请码均为空。首次远程迁移 0009 成功，0010 报 `incomplete input: SQLITE_ERROR` 并完整回滚；定位到 D1 对触发器内裸 CASE 的解析问题，新增仅处理临时 SQL 副本的 cf runner 包装，保留原文件与原迁移名。4 项工具测试通过（含合法邀请完成、过期邀请原子拒绝），staging 0010–0011 随后成功。未改写已应用迁移、不回退 Wrangler。代码部署及实际邮件验收继续推进。
 
 - 2026-10-06：完成第三阶段本地认证 HTTP、账号、邀请与管理，并按站长要求重新对照前端原型迁移卡片、分组、统计、表格、标签页及对话框。新增 0011 原子撤销会话/作废邀请码触发器，本地已应用；注册归属、跨站/Origin/CSRF、邮件配额和单次发信、二步/UV/会话门禁、本人改邮箱续作及管理员并发保护有真实 workerd/D1 检查。类型检查、全量 156 项与工具 2 项测试、development/staging/production 构建和两环境 cf dry-run 通过；未上传云端版本。本机首管工具在 cf 缺少本地 D1 query 的情况下采用临时独立迁移表执行受保护语句，不修改正式迁移。浏览器扩展弹窗阻塞后使用内置浏览器完成正常登录/退出、可用账号页面、邀请生成/复制、管理标签和搜索、注册步骤重置、桌面/手机浅深色验收；截图和必要差异见 [验收记录](docs/screenshots/phase3/README.md)。冷编译与并行哈希导致的测试超时通过限制并发 2、SSR 预热 60 秒处理，普通请求时限未放宽。额外验收成员创建因可能发送验证邮件被自动审批拒绝，采用隔离测试，其他成员管理弹窗及多层关系浏览器验收仍待完成；实际邮件、真实 WebAuthn 与 staging CPU/日志门槛保持未勾选。原型模拟身份/账本/假验证不进入正式工程。当前任务工作树的 0.0.0.0:6120 服务保持运行。
 
