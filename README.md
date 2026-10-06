@@ -38,7 +38,7 @@ v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确�
 - [ ] 使用 `cf` CLI 建立 React Router v7 + Workers 正式工程，配置类型检查、构建和 Workers Vitest 测试入口；不使用 Wrangler。
 - [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；本地开发使用 `6120` 端口并复用已有实例。
 - [ ] 完成 Better Auth 最小 POC（scrypt、D1 注册与恢复事务、Cookie、通行密钥、TOTP），通过后采用；失败报告站长决定。
-- [ ] 落地 D1 迁移、唯一键和外键约束，准备虚构成员、自行生成的视频与字幕测试夹具。
+- [x] 落地 D1 迁移、唯一键和外键约束，准备虚构成员、自行生成的视频与字幕测试夹具。
 - [ ] 按页面或流程迁移原型的展示组件、布局、样式和已定稿交互，适配 loader / action 与真实数据；正式工程不依赖原型目录，不沿用演示认证和权限。
 
 ### 3. 邀请、账号与管理
@@ -100,6 +100,8 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 | `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
 
 `cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
+
+测试数据工厂 `test/fixtures/catalog.ts` 只创建虚构成员、作品、季和集。需要媒体夹具时，安装 PATH 上可用的 ffmpeg 后运行 `node scripts/gen-test-media.mjs`：生成 4 秒 H.264 + AAC、faststart 的 MP4 到被忽略的 `test/fixtures/media/`，可重复生成。自行编写的中英文 VTT 在 `test/fixtures/subtitles/` 中随代码提交；约束测试不依赖生成的 MP4。
 
 ## 许可证
 

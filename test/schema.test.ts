@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { settings } from "@/lib/settings.server";
+import { fixtureTime, seedCatalog } from "./fixtures/catalog";
 
-const now = Date.UTC(2026, 0, 1);
+const now = fixtureTime;
 type SqlValue = string | number | null;
 
 function insert(table: string, fields: Record<string, SqlValue>) {
@@ -54,13 +55,8 @@ async function count(table: string) {
 }
 
 beforeEach(async () => {
+  await seedCatalog(env.DB);
   await env.DB.batch([
-    insert("works", { id: "movie", kind: "movie", tmdb_id: 910001, title_en: "Signal Test" }),
-    insert("works", { id: "series", kind: "series", tmdb_id: 920001, title_en: "Fictional Survey" }),
-    insert("works", { id: "other-series", kind: "series", tmdb_id: 920002 }),
-    insert("seasons", { id: "season", work_id: "series", season_number: 1, tmdb_id: 940001 }),
-    insert("seasons", { id: "other-season", work_id: "other-series", season_number: 1, tmdb_id: 940002 }),
-    movie("movie-unit"), episode("episode-unit"), user("nova", "Nova"), user("quinn", "Quinn"),
     insert("playlists", {
       id: "playlist", owner_user_id: "nova", title: "Fictional Flight", visibility: "private",
       created_at: now, updated_at: now,

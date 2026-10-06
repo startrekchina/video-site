@@ -71,7 +71,7 @@
 
 - [x] 按需求 6.2.1 与 6.2 的约束编写初始迁移（按领域拆为 `0001_catalog.sql` 至 `0005_discussions.sql`）：作品、季、可播放单元、媒体、字幕、成员与“已占用邮箱”唯一键集合、邮箱验证凭证、发信记录、会话、邀请码、恢复码、重置链接、TOTP、通行密钥、认证挑战、限流计数、观看进度、收藏、片单与条目、评论、回复、赞踩；外键、`CHECK`、部分唯一索引和需求列出的查询索引一并建立。认证库内部表待 T2.4 结论后以增量迁移调整。
 - [x] Workers Vitest 覆盖需求 7.1“数据关系”行：电影唯一 / 季集唯一 / 同作品外键、片单目标互斥与同目标唯一、赞踩目标互斥与唯一、跨列邮箱占用冲突、媒体与字幕对象键唯一、孤立记录被拒。另覆盖单一未消费验证 / 重置凭证、bootstrap 码、邀请码消费人唯一、批次回滚、讨论直接删除级联与封禁保留讨论。
-- [ ] 测试夹具只用虚构成员和自生成媒体：ffmpeg 生成数秒的 H.264 + AAC faststart MP4 与中英 VTT（不入库，测试前生成或使用已知字节夹具），夹具 SQL / 工厂函数生成虚构作品、季、集与成员。
+- [x] 测试夹具只用虚构成员和自生成媒体：`test/fixtures/catalog.ts` 工厂函数生成虚构作品、季、集与成员；`scripts/gen-test-media.mjs` 用 ffmpeg 生成数秒的 H.264 + AAC faststart MP4（输出目录被忽略，不入库），自行编写的中英 VTT 随代码提交到 `test/fixtures/subtitles/`。
 - 验收：`cf d1 migrations apply <占位ID> --local` 在本地状态应用成功；`pnpm test` 中约束用例全部通过。
 
 ### T2.6 前端基础迁移
@@ -111,3 +111,4 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面�
 - 2026-10-06：T2.2 / T2.3 骨架完成。`pnpm typecheck` 通过；`pnpm test` 2 个文件 5 项通过（首页、robots.txt、404 的状态码与安全头；集中配置数值；测试环境绑定）；`pnpm build` 通过；以占位 `.env` 执行 `build:staging` / `build:production` 后 `cf deploy --prebuilt --dry-run` 分别列出独立的 Worker、D1、R2 与 Rate Limiting 绑定，缺少 `.env` 时构建明确失败。T2.4 的两次子代理执行均中途失败、未产出结果，POC 改为重新组织执行。
 - 2026-10-06：T2.5 迁移步骤完成。`pnpm install --frozen-lockfile` 成功且未改变依赖或 lockfile；`pnpm db:migrate:local`（`cf d1 migrations apply 00000000-0000-4000-8000-000000000000 --local --persist-to .cloudflare/state`）5 个迁移全部成功，再次运行返回 `[]`。存储时间统一为 UTC 毫秒；邮箱占用集合由触发器同步并以唯一键阻止跨列冲突；季/集使用复合外键。`pnpm typecheck`、`pnpm test`（已有 5 项）、`pnpm build` 均通过；约束用例和媒体夹具尚待后续步骤，不勾选对应项。
 - 2026-10-06：T2.5 约束测试步骤完成。初次测试发现新版 Workers Vitest 未自动隔离文件内用例，setup 改为每条用例 `reset()` 后 `applyD1Migrations()`；重新执行通过。直接删除被引用邮箱占用记录在本地 D1 产生 deferred 外键回滚日志，以增量迁移 `0006_email_claim_guard.sql` 提前拒绝删除，未改写已应用迁移；本地应用成功，完整测试无该异常。`pnpm typecheck`、`pnpm test`（3 个文件 79 项，其中 schema 74 项）、`pnpm build` 均通过。媒体夹具尚未完成，不勾选。
+- 2026-10-06：T2.5 夹具步骤完成，三项待办全部通过本地验收。schema 用例复用虚构数据工厂；`node scripts/gen-test-media.mjs` 连续两次成功。`ffprobe -v error -show_entries stream=codec_name,codec_type -show_entries format=duration -of json test/fixtures/media/signal-test.mp4` 确认 `h264` / `aac`、4 秒；Node 检查顶层 MP4 box 顺序为 `ftyp, moov, free, mdat`（faststart），大小 152,508 字节；`git check-ignore test/fixtures/media/signal-test.mp4` 命中。两份 VTT 经 `ffprobe` 识别为 `webvtt`。最终 `pnpm typecheck`、`pnpm test`（3 个文件 79 项，其中 schema 74 项）、`pnpm build` 全通过；`pnpm db:migrate:local` 返回 `[]`。未新增依赖、未创建云端资源、未启动或关闭 6120 服务。T2.4 认证库结论与 staging 平台验证仍保留原有门槛，本地测试不代替它们。
