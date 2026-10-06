@@ -156,6 +156,8 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有
 
 ## 6. 进展与验证记录
 
+- 2026-10-06：找回邮件记录 accepted；脱敏遥测确认 request-password-reset、reset-password、sign-in/username 的 POST 均为 HTTP 200。只读 D1 确认 credential 更新时间晚于创建时间，1 个有效会话在密码更新后建立；不读取哈希、token 或用户资料。服务端恢复链路通过，仍等待站长确认客户端实际收信/重置/登录体验。正常版本样本扩展到 44 次请求、0 个执行错误：CPU P50 12.006 ms / P99 197.124 ms，墙钟 P99 1012.447 ms，V8 isolate memory P50 26,613,712 bytes / P99 29,975,306 bytes；范围为该批页面和接口，未完成认证并发压力或真实设备验收，第三阶段保持未整体验收。
+
 - 2026-10-06：内置浏览器恢复文档后再次读取状态仍在 15 秒内超时并重置内核；本地 HTTP `/about` 为 200，6120 的原进程仍监听 0.0.0.0。已有本地截图与隔离测试有效，剩余真实凭证/设备及额外管理页面浏览器验收未记为通过；密码重置已交接站长，等待结果，不读取或代设新密码。
 
 - 2026-10-06：站长确认修复后验证邮件已收到并完成验证；只读 D1 核对 1 个用户、1 个已验证邮箱，最新验证重发记录为 accepted，无错误码。验证投递已通过，找回邮件和新密码/重新登录已交由站长验收，凭证不由代理创建或读取。cf 的 SQL Workers Logs CPU/耗时列全部为 0 且 measured_rows=0，不能把未采集值当作零开销；本次 staging API 例外内按[官方指标接口](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/)查询正常部署后的时间窗，29 次 invocation、0 个执行错误、CPU P50 12.006 ms / P99 167.481 ms（schema 确认单位为微秒，换算毫秒）。该样本包含页面/接口，不能替代密码专项、内存或并发测量；invocation logs/traces 保持关闭，未为测性能重新暴露凭证路径。修复提交 `05d8759` 已快进合入本地 dev，Git 未推送，production 未变。
