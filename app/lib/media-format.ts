@@ -144,4 +144,3 @@ export function mp4Metadata(bytes: Uint8Array, byteLength: number) {
   check(videoCount === 1 && audioCount > 0, "MP4 requires one H.264 video and AAC audio");
   return { durationSeconds, bitrate: Math.max(1, Math.round(byteLength * 8 / durationSeconds)), videoCodec: "h264", audioCodec: "aac" };
 }
-
