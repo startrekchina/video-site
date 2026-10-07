@@ -2,7 +2,7 @@
 
 本文件定义 v1 正式开发的执行顺序、约束和待办；需求以 [`docs/requirements.md`](docs/requirements.md)（下称“需求”）为唯一依据，协作与 Git 规则见 [`AGENTS.md`](AGENTS.md)。两者与本文件冲突时，先停下确认并修正文档，再实现。
 
-- 建立时间：2026-10-05。当前阶段：**第二阶段 工程基础**。
+- 建立时间：2026-10-05。当前阶段：**第三阶段 邀请、账号与管理**；第二阶段本地工程基础完成，production 配置与平台实测仍按既有待办保留。
 - 勾选规则：只有实现完成、相关构建与测试通过、并经复核的事项才勾选；部分完成写在“进展”里，不勾选。依赖站长提供材料或决策的事项标“阻塞”，不自行绕过。
 - 每完成一个可验证的任务或出现新阻塞，同步更新本文件的待办、进展、验证记录和未决事项；影响阶段状态时同步更新 `README.md`。
 
@@ -12,7 +12,7 @@
 2. **工具链**：Cloudflare 资源与本地开发统一用 `cf` CLI，不用 Wrangler、不用 `npx wrangler` 兜底；`cf` 缺能力时记录原因并告知站长。
 3. **安全**：仓库公开。真实账号 ID、资源 ID、API token、Secrets、WebDAV 信息和 R2 内部路径不入库；本地用被忽略的 `.dev.vars` / `.env`，线上用 Worker Secrets。浏览器构建不得引用 Secrets、绑定或对象键。
 4. **原型迁移**：正式工程在 `app/` 等根目录结构中独立维护，不通过 import、软链接、路径别名或共享包依赖 `prototypes/`；按页面或流程把经审查的展示组件、样式和已定稿交互复制过来，不沿用模拟身份、假认证/权限、内存账本和人为等待（需求 6.15）。
-5. **验证门槛**：Better Auth POC、已购发件服务接入和平台实测（需求 6.16）未完成前，不宣称对应功能已验收；本地模拟通过不代表线上复制延迟、限流全局精度或导出耗时已验证。
+5. **认证基线与验证**：已决定采用 Better Auth，认证要求按需求 6.0、6.2.2、6.3–6.5；不再等待采用/替代决定。旧 POC 差距用于识别原生边界，新基线迁移、正式集成、发件服务和平台实测（需求 6.16）通过后才验收。
 6. **对外操作**：推送、创建 PR、合并远程 PR、创建/修改云端资源、设置线上 Secrets 和部署都要站长明确要求。本地提交、任务分支合入本地 `dev` 可自动进行。
 7. **开发服务器**：监听 `0.0.0.0:6120`；启动前检查端口，被占用时复用现有实例，不另起端口、不直接杀进程。
 
@@ -34,11 +34,12 @@
 - **`cf build` 不向 React Router 转发 `--mode`**：staging / prod 构建改用 `react-router build --mode <mode>`，部署用 `cf deploy --prebuilt --mode <mode>`（mode 须与构建一致）。本地开发直接 `cf dev`（mode 为 `development`）。
 - **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；staging / prod 的真实 ID 由被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
 - **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `staging` / `production`）返回完整配置；Worker 名、D1、R2、Rate Limiting namespace 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 staging / prod。
-- **Secrets**：以 `bindings.secret()` 声明，本地开发与测试从被忽略的 `.dev.vars` 读取并提供 `.dev.vars.example` 占位样例；缺失时 `cf` 仅警告，服务端读取处须自行拒绝空值。线上 Secrets 由站长授权后用 `cf workers secrets update` 或部署时 `--secrets-file` 写入。
+- **Secrets**：以 `bindings.secret()` 声明，本地开发缺失时警告，**实际部署会拒绝缺少声明的 Secret**。当前只声明已准备的认证、播放、Turnstile 和备份加密四项；邮件 API、备份 API Token 与 WebDAV 五项在对应模块接入真实配置时再声明，不上传占位凭证。线上可用部署时 `--secrets-file` 写入，密钥文件必须被 Git 忽略。
+- **云端复用与日志**：按站长授权复用既有 staging Worker 与访问域名，D1 名称/ID 和 R2 桶名分别从本机 `.env` 注入，不能按数据库名推断媒体桶。Custom Domain 通过 `worker.domains` 管理；关闭 workers.dev / preview URLs。启用应用日志、query 脱敏并关闭 invocation logs；原生 traces 含路径，凭证路径脱敏验证前保持关闭。
 
 ## 3. 第二阶段：工程基础
 
-目标：形成可以承载后续所有功能的正式工程——能本地开发、类型检查、构建、按环境 dry-run 部署和运行 Workers 集成测试；数据库结构和约束一次落地并有测试；认证库是否可用有结论；前端基础样式与站点外壳从原型迁入。
+目标：形成可以承载后续所有功能的正式工程——能本地开发、类型检查、构建、按环境 dry-run 部署和运行 Workers 集成测试；数据库结构和约束落地并有测试，既有认证表按采用决定增量迁移；认证库接入边界有结论；前端基础样式与站点外壳从原型迁入。
 
 ### T2.1 建立并确认 `PLAN.md`
 
@@ -55,23 +56,25 @@
 
 ### T2.3 环境、绑定与 Secrets
 
-- [x] `cloudflare.config.ts` 声明需求 6.9.1 的逻辑绑定：`ASSETS`、`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`TOTP_ENCRYPTION_KEY`、`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`。发件人地址、发件域名和邮件 API 基础地址等发件配置项待站长提供已购服务的 API 文档后在第三阶段加入，不预先猜写。
+- [x] `cloudflare.config.ts` 声明逻辑绑定：`ASSETS`、`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`BETTER_AUTH_SECRET`、`TURNSTILE_SECRET_KEY`、`BACKUP_ENCRYPTION_KEY`。T2.7 已移除旧独立 TOTP Secret；认证 IP/路径限流使用库的 D1 表，既有 Rate Limiting bindings 不作为原生认证计数器。`EMAIL_API_KEY` 及发件人地址、发件域名、邮件 API 基础地址在第三阶段接入已购服务时加入；`CLOUDFLARE_API_TOKEN` 与 `WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD` 在备份模块接入时加入，样例中的预留值不作为部署凭证。
 - [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；任一部署模式均要求两套 D1 ID 齐全，忽略首尾空白和字母大小写后重复即拒绝配置，缺失或混用时构建失败。
-- [x] 集中默认配置（需求 6.9.1 “集中默认配置”整行，含全部限流数值、会话期限、TOTP 参数、额度、分页和 token 时长）落在一个服务端模块（`app/lib/settings.server.ts`）并有单测核对数值。
-- [ ] **阻塞（待站长授权）**：用 `cf d1 create`、`cf r2 buckets create` 创建 staging / prod 的 D1 与私有 R2，确定 Rate Limiting namespace，写入线上 Secrets，并决定 staging 的访问域名；Cron 表达式 `0 20 * * *` 在备份任务实现时再加入。
+- [x] 集中默认配置已落在 `app/lib/settings.server.ts`；T2.7 已适配 30 天滚动会话/1 天更新/5 分钟新鲜度、1 小时邮件链接、二步备用码及原生限流，移除旧绝对期限和失败后才要求 Turnstile 的常量，新基线单测与运行探针通过。
+- [ ] 完成 staging / prod 云端配置与 Secrets；Cron 表达式 `0 20 * * *` 在备份任务实现时再加入。
+  - 2026-10-06 已获站长授权，staging 复用既有 Worker、自定义域名和私有媒体桶；旧 D1 schema 与当前迁移不兼容，保留旧库并创建隔离新库，8 个迁移已应用。认证/播放/Turnstile/备份加密四项 Secrets 已写入，当前正式工程已部署并通过 HTTPS 冒烟检查；旧 Worker 版本仍可追溯，旧 Secrets 未删除。
+  - production 已核对既有 Worker、空 D1、独立私有媒体桶；独立 Turnstile 已创建，资源映射和四项新 Secrets 保存在本机忽略文件，最新配置构建 / dry-run 通过。尚未给 production 应用迁移、上传 Secrets 或替换代码。两环境的邮件/备份外部凭证仍待提供；此项不勾选，不再记为全部待授权。
 - 验收：`cf deploy --prebuilt --mode staging --dry-run` 与 `--mode production` 列出各自独立的绑定；仓库内 `git grep` 不出现真实 ID 或密钥。
 
-### T2.4 Better Auth 最小 POC（需求 6.3.1、6.16）
+### T2.4 Better Auth 评估与采用决定（需求 6.3.4、6.16）
 
-- [x] 在独立分支完成 Better Auth 1.7.7 最小 POC，对需求 6.3.1 的 scrypt、注册 / 恢复原子性、Cookie / 会话、通行密钥、TOTP、恢复码与管理员证明逐项核对，明确区分 workerd 实测与发布源码审查。29 项测试和类型检查通过；测试包含复现库缺陷的断言，绿色不代表兼容性通过。
-- [x] 输出逐项通过 / 差距报告：分支 `spike/auth-poc-report`，提交 `4fc3bc4`，文件 `spikes/better-auth/REPORT.md`。可用 `git show spike/auth-poc-report:spikes/better-auth/REPORT.md` 阅读；POC 保持独立，不接入正式工程。
-- [ ] **阻塞（待站长决定）**：采用或替代认证方案。**全部满足才采用；有差距则报告站长决定，不绕过门槛自研，也不让库默认行为覆盖需求规则。** 真实 WebAuthn 仪式及 staging 平台成本尚未验证，不能标为通过。
-- 验收：POC 的 Workers Vitest 用例与报告；结论写入本文件第 5 节。
+- [x] 在独立分支完成 Better Auth 1.7.7 最小 POC，对调整前需求的 scrypt、注册 / 恢复原子性、Cookie / 会话、通行密钥、TOTP、恢复码与管理员证明逐项核对，明确区分 workerd 实测与发布源码审查。29 项测试和类型检查通过；测试包含复现库缺陷的断言，绿色不代表兼容性通过。
+- [x] 输出逐项通过/差距报告：实验提交 `4fc3bc4`，采用决定说明更新于 `e7d5635`，源码和报告归档在独立目录 [`spikes/better-auth/`](spikes/better-auth/REPORT.md)。按任务交付流程合入 `dev`；正式构建、依赖、迁移和测试入口不引用该目录，旧实验规则不作为当前认证实现。
+- [x] 2026-10-06 站长决定调整需求并采用 Better Auth。当前规则和旧→新变更写入需求 6.3.4，不实现旧自管认证契约，也不再等待方案决定；POC 29 项是历史差距证据，真实 WebAuthn、新基线集成和 staging 成本仍未验证。
+- 验收：旧 POC 的 Workers Vitest 用例/报告及已确认采用决定；报告标注旧规则评估与当前结论。新集成按 T2.7 和第三阶段另验。
 
 ### T2.5 D1 迁移、约束与测试夹具
 
-- [x] 按需求 6.2.1 与 6.2 的约束编写初始迁移（按领域拆为 `0001_catalog.sql` 至 `0005_discussions.sql`）：作品、季、可播放单元、媒体、字幕、成员与“已占用邮箱”唯一键集合、邮箱验证凭证、发信记录、会话、邀请码、恢复码、重置链接、TOTP、通行密钥、认证挑战、限流计数、观看进度、收藏、片单与条目、评论、回复、赞踩；外键、`CHECK`、部分唯一索引和需求列出的查询索引一并建立。认证库内部表待 T2.4 结论后以增量迁移调整。
-- [x] Workers Vitest 覆盖需求 7.1“数据关系”行：电影唯一 / 季集唯一 / 同作品外键、片单目标互斥与同目标唯一、赞踩目标互斥与唯一、跨列邮箱占用冲突、媒体与字幕对象键唯一、孤立记录被拒。另覆盖单一未消费验证 / 重置凭证、bootstrap 码、邀请码消费人唯一、批次回滚、讨论直接删除级联与封禁保留讨论。
+- [x] 按调整前需求编写初始迁移（按领域拆为 `0001_catalog.sql` 至 `0005_discussions.sql`）：作品、季、可播放单元、媒体、字幕、成员与“已占用邮箱”唯一键集合、邮箱验证凭证、发信记录、会话、邀请码、恢复码、重置链接、TOTP、通行密钥、认证挑战、限流计数、观看进度、收藏、片单与条目、评论、回复、赞踩；外键、`CHECK`、部分唯一索引和需求列出的查询索引一并建立。该旧认证 schema 的退役与 Better Auth schema/业务资料/注册预留增量迁移见 T2.7；原已应用迁移不改写。
+- [x] Workers Vitest 覆盖旧基线的数据关系：电影唯一 / 季集唯一 / 同作品外键、片单目标互斥与同目标唯一、赞踩目标互斥与唯一、跨列邮箱占用冲突、媒体与字幕对象键唯一、孤立记录被拒。另覆盖单一未消费验证 / 重置凭证、bootstrap 码、邀请码消费人唯一、批次回滚、讨论直接删除级联与封禁保留讨论。
 - [x] 测试夹具只用虚构成员和自生成媒体：`test/fixtures/catalog.ts` 工厂函数生成虚构作品、季、集与成员；`scripts/gen-test-media.mjs` 用 ffmpeg 生成数秒的 H.264 + AAC faststart MP4（输出目录被忽略，不入库），自行编写的中英 VTT 随代码提交到 `test/fixtures/subtitles/`。
 - 验收：`cf d1 migrations apply <占位ID> --local` 在本地状态应用成功；`pnpm test` 中约束用例全部通过。
 
@@ -79,18 +82,39 @@
 
 - [x] 从原型迁入设计 token、全局样式（Tailwind v4）、字体（Noto Sans SC、Geist Mono、Antonio）、`components/ui` 基础组件、主题（跟随系统 / 浅色 / 深色）与站点外壳（顶栏、页脚、内容列宽切换、手机底部胶囊），以及 404 页和关于页（含 `contact@startrekchina.org` 版权下架联系方式）。
 - [x] 外壳只依赖 props / loader 数据，不引入原型的模拟身份、PROTO 控制台和内存数据；受保护入口在访客态不出现。
-- 进展：样式 / 字体、页面外壳、主题三档与 D 键、SSR 防闪烁、手机菜单胶囊展示组件、回到顶部、关于页 / 404 已迁入；访客不传成员导航、不显示胶囊和受保护链接。关于页补齐邮箱验证 / 三条恢复路径、修正邀请连带方向并展示下架联系邮箱。成员胶囊的真实数据与权限接入随认证阶段验收。`pnpm typecheck`、`pnpm test` 83 项、`pnpm build` 通过；SSR 首次 Vite 编译约 14–20 秒，测试先预热再按原 5 秒请求阈值验证。集成后的浏览器验收及截图见 [前端基础验收记录](docs/screenshots/phase2/README.md)。
+- 进展：样式 / 字体、页面外壳、主题三档与 D 键、SSR 防闪烁、手机菜单胶囊展示组件、回到顶部、关于页 / 404 已迁入；访客不传成员导航、不显示胶囊和受保护链接。关于页按当时规则补齐邮箱验证/三条恢复路径并修正邀请连带方向、展示下架联系邮箱；恢复文案已被新方案替代，待 T2.7 更新。成员胶囊的真实数据与权限接入随认证阶段验收。`pnpm typecheck`、`pnpm test` 83 项、`pnpm build` 通过；SSR 首次 Vite 编译约 14–20 秒，测试先预热再按原 5 秒请求阈值验证。集成后的浏览器验收及截图见 [前端基础验收记录](docs/screenshots/phase2/README.md)。
 - 验收：类型检查、构建通过；用浏览器在 1440×1000 与 360×800、浅色与深色下对照原型截图验收关于页和 404，保存截图。
+
+### T2.7 Better Auth 新基线适配（已完成）
+
+- [x] 将正式工程锁定到已评估的 Better Auth/passkey 1.7.7，按需求设置 username/twoFactor/passkey/captcha、会话/邮件期限和原生限流；配置、绑定类型、`.dev.vars.example` 统一采用必需的 `BETTER_AUTH_SECRET`，移除旧独立 TOTP Secret 和过期常量，保留环境隔离与 telemetry 关闭。
+- [x] 用锁定库 `getMigrations().compileMigrations()` 生成并审查 `0008_better_auth.sql`：user/account/session/verification/twoFactor/passkey/rateLimit，补 credential ID 唯一键和用户/会话期限索引。类型检查、真实 D1 日期读写、唯一键/外键及本地增量迁移通过；没有改写 0001–0007。
+- [x] 0009 建立 member_profiles / registration_attempts，业务外键统一关联稳定原生用户 ID；真实 D1 验证 9 类历史业务资料、角色/封禁/邀请关系与原生凭证保留，以及迁移拒绝与业务批次回滚。只退役满足前置审查条件的旧认证表；未转换身份、待邮箱或非空旧凭证表会拒绝整次迁移，不自动重编码旧密码/设备数据。
+- [x] 21 项最小集成探针复核原生默认密码/用户名、滚动会话/改密换新会话、邮箱 JWT/重置链接生命周期、备用码/二步锁定、captcha/IP 限流与原生响应；新旧 schema 共存不影响已有工程检查。旧 29 项测试不替代这些新用例。
+- 进展：`app/lib/auth.server.ts` 是正式服务端配置工厂，注册/邮箱直登/资料更新/OTP 等额外 HTTP 路径关闭，trustDevice 被拒；通行密钥已配置 UV 拒绝钩子，真实仪式仍未验证。Worker **尚未挂载** `/api/auth/*`，待第三阶段邀请完成/封禁/设备绑定门禁、改邮箱本人会话确认和脱敏请求日志接入；当前库日志关闭，发信回调仅在测试用本地捕获，真实服务尚未接入。
+- [x] 更新正式关于页和 HTTP 测试，移除恢复码重设密码与管理员重置说明，补齐邮箱找回、二步备用码、通行密钥与不可恢复边界；1440×1000 / 360×800、浅/深色和恢复说明共 8 张截图已复核，见 [新基线验收](docs/screenshots/phase2-better-auth/README.md)。
+- 验收：本地 cf 0009 增量迁移、类型检查、100 项 Workers 测试、构建和关于页浏览器检查通过；第二阶段本地基础完成，不表示正式 HTTP 认证、真实设备或 production 已验收。
 
 ### 第二阶段完成定义
 
-T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面结论且站长已决定采用或替代方案；README 写明本地启动、测试、构建、迁移和 dry-run 部署命令。
+T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6、T2.7 勾选；T2.4 有书面结论且采用决定已记录；README 写明本地启动、测试、构建、迁移和 dry-run 部署命令。
 
-## 4. 后续阶段（顺序与验收入口）
+## 4. 第三阶段及后续（顺序与验收入口）
 
 每个阶段开工前把对应条目细化为本文件中的可验收任务，验收以需求第 7 节和 7.1 为准。
 
-1. **第三阶段 邀请、账号与管理**：注册（邀请码原子消费、邮箱必填、待验证账号）、登录 / 退出与服务端访问控制、CSRF、D1 精确限流与 Turnstile；已购发件服务接入（**阻塞：需站长提供 API 文档与本机配置**）、邮箱验证与找回、改邮箱；通行密钥、TOTP、会话管理、改密、恢复码与三条恢复路径；邀请码管理、成员与邀请链、额度、角色、封禁 / 解封与管理员 TOTP 再验证。
+### T3.1 邀请注册与认证入口（当前任务）
+
+- [ ] 先完成注册流程依赖的 Postal HTTPS 发信传输层与独立环境配置，以模拟服务验证字段、业务错误、超时、单次请求及脱敏；暂不公开任何发信或认证 HTTP 入口。
+- [ ] 实现邀请码条件预留、服务端尝试归属、原生用户创建、业务原子完成与失败续作；完成后才允许发验证邮件，覆盖冲突、过期、发出人封禁及并发消费。
+- [ ] 接入每个认证入口的注册完成/邮箱验证/成员状态门禁、Origin / Fetch Metadata / Turnstile / IP 限流、邮箱配额与失败记录，完成脱敏日志后再挂载必要 `/api/auth/*`。
+- [ ] 迁入邀请注册、验证与登录页面展示组件，真实 loader/action 和客户端消费沿用原生响应；浏览器与 HTTP 端到端验收后勾选。
+
+1. **第三阶段 邀请、账号与管理**：按以下顺序细化并验收，不实现旧三路径密码恢复或管理员逐操作证明。
+   - 邀请注册预留/库创建/业务完成及失败续作，邮箱必填/未验证门禁，库默认用户名密码；禁止直接 sign-up、客户端改角色/状态及额外登录入口绕过。
+   - 原生 username 登录/退出、二步 TOTP/备用码与账号锁、禁用 trustDevice/OTP、Cookie/滚动会话/改密；通行密钥 UV 钩子与真实仪式；每个 loader/action/媒体的即时鉴权。
+   - 已购 Postal 发信 API（**文档与实际配置已提供，staging Secret 已核对；production Secret 未配置**）、签名邮箱验证、邮箱密码重置及部分失败处置、本人会话内改邮箱确认；业务邮件配额、原生 IP 限流/Turnstile/跨站防护。
+   - 邀请码、成员/邀请链、额度、角色、首管本机提升、封禁/单个解封、管理员绑定 TOTP + 5 分钟新鲜会话；业务原子批次与并发保护。
 2. **第四阶段 片库与播放闭环**：离线导入 CLI（manifest / TMDB、MP4 与 faststart 预检、VTT、R2 / D1 幂等挂接）；访客入口、成员首页、片库、作品与选集接入真实数据；ArtPlayer、播放 token、续期、R2 Range 与字幕授权，两小时连续播放验证。
 3. **第五阶段 观看进度、片单与讨论**：进度上报与 `expectedRevision`、继续观看与下一集；收藏、片单与队列展开；评论、回复、赞踩与管理员删除。
 4. **第六阶段 运维与上线验收**：每日备份（导出、R2、加密 WebDAV、回读校验、保留清理）与手动恢复演练；staging 端到端验收与平台实测（15 分钟 Cron 窗口、Time Travel 隔离、限流、scrypt、日志脱敏）；预算核对与部署、恢复文档，发布 v1。
@@ -101,14 +125,25 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面�
 | --- | --- | --- |
 | React Router v7 与 `@cloudflare/vite-plugin` 2.0 beta 的产物目录不一致 | 已用同步插件绕过，构建 / 预览 / dry-run 已验证 | 需求定 v7，暂不升级。若站长同意升级 v8（官方支持组合），需同步修改需求 6.1 与 README 技术栈 |
 | `cf` 与 Vite 插件 2.0 均为 beta | 风险 | 锁定精确版本；升级单独提交并重跑全部验证 |
-| staging / prod 云端资源、Secrets、staging 域名 | 阻塞，待站长授权 | 骨架先以 dry-run 验证；授权后创建并记录（不入库真实 ID） |
-| Better Auth 是否满足需求规则 | POC 未通过采用门槛，报告已完成，待站长决定 | D1 注册 / 恢复不原子、session bearer 明文、续期超出绝对上限、TOTP 可重放且无独立密钥 / AAD、恢复码可逆；建议 B：允许按既定规则替代认证实现，复用成熟 WebAuthn 库。A 为保留库并替换多数核心流程；C 为降低规则，不建议。未获决定前不实施替代方案 |
-| 已购发件服务的 API 文档与配置 | 阻塞，第三阶段前需要 | 站长提供后接入，测试用本地模拟服务 |
+| staging / prod 云端资源与 Secrets | staging 已部署；production 构建 / dry-run 通过 | 复用站长现有资源，旧 staging D1 保留；production 未上线。邮件/备份外部凭证仍待提供；真实资源标识和密钥只在本机忽略文件与平台保存 |
+| Better Auth 接入 | 已决定采用并调整需求；实现/新验收待完成 | 原生会话、加密、二步备用码和邮箱找回已定。T2.7 迁移旧 schema/配置/文案，第三阶段实现邀请/权限/UV/改邮箱门禁与失败续作；不因旧规则差距重新等待选型。真实验证器与 staging 成本待测 |
+| 已购发件服务的 API 文档与配置 | Postal API 地址已提供，发件/回复地址获授权选定；staging EMAIL_API_KEY 已核对，材料阻塞解除 | 真实配置仅在本机/平台保存；production 无 Secrets，不复制 staging 密钥。按需求 6.0.3 接入模拟服务与业务配额，实际投递尚未验证 |
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | 待 staging 资源 | 第六阶段执行，不以本地结果代替 |
 
 ## 6. 进展与验证记录
 
-- 2026-10-06：T2.4 形成书面差距结论，独立分支 `spike/auth-poc-report` 提交 `4fc3bc4`。workerd 测试 6 个文件 29 项及类型检查通过，实测注册 / 恢复部分提交、明文会话、滚动续期、并发 TOTP 重放和可逆恢复码；报告列出全部 A1–A7 / B1–B10 证据、未运行项目与 A/B/C 选项。待站长决定，未合入 POC、未实现正式认证。
+- 2026-10-06：完成 T2.7 的 0009 业务资料/注册预留增量迁移与关于页新文案。72 项 schema/迁移专项、全量 100 项测试、类型检查、构建及本地 cf 增量迁移通过；旧待邮箱/自定义凭证契约用例已退役，保留原生认证 21 项探针。Chrome 复核 8 张桌面/手机浅深色截图，无横向溢出或捕获的客户端错误；首次 Vite 优化的旧模块 504 在预热刷新后消失，未改主题代码。6120 原服务已停止，重新在当前任务工作树启动 0.0.0.0:6120 并保持运行。站长提供实际 Postal API 地址、授权选定发件/回复地址并确认 Secret，cf 核对 staging EMAIL_API_KEY/CLOUDFLARE_API_TOKEN 存在，production Secret 列表为空。第三阶段按 T3.1 推进；认证 HTTP 与实际发信尚未开放。
+- 2026-10-06：站长提供 Postal API 文档；已核对 HTTPS JSON 发信路径、`X-Server-API-Key`、收件人与 From / Reply-To / 正文字段，以及 HTTP 200 仍可能返回业务错误的行为，同步需求与 README。成功回包只提取消息标识，不记录收件人与 token；保留既有单次请求、不自动补发与脱敏规则。实际 API 基础地址、API key 和两环境完整发件/回复地址仍待提供；本次只核对文档与差异，未实现发信回调或发送真实邮件。
+- 2026-10-06：站长确认全部发件地址使用统一发件子域，退信路径与收信记录已配置；已同步需求，并在本机忽略文件保存实际域名。尚未取得邮件 API 文档、API key 与具体 From / Reply-To，未进行服务接入、DNS 核验或实际投递验证。
+- 2026-10-06：按站长授权接管既有 staging Worker，复用自定义域名及私有媒体桶；旧 staging D1 属于另一套 schema，未改动旧库，创建新 D1 并应用 0001–0008。两环境独立 Turnstile 和认证/播放/备份加密密钥已准备，staging 四项 Secrets 随版本上传。首次实际部署因未接入服务的五项必需 Secret 声明失败，未切换旧版本；移除这些提前声明后部署成功，未写入假凭证。远程核对域名、私有桶、关闭 workers.dev/preview URLs、query 脱敏、关闭 invocation logs/traces、DB/媒体绑定和 2001–2004 namespace；8 个迁移记录和 `foreign_key_check`（0 个违规）通过。首页/关于页/robots.txt 返回 200、未知路径和未挂载认证返回 404，安全头及 3 个客户端资源通过。类型检查、105 项测试、两环境最终构建 / dry-run 与客户端隐私扫描通过。production 未应用迁移或部署，旧 staging 库和旧 Secrets 保留。6120 服务仍可访问，不重启。业务资料迁移、关于页文案、完整认证与平台性能/日志内容验收仍待完成。
+
+- 2026-10-06：推进 T2.7 原生认证基础。正式依赖锁定 1.7.7，新增配置工厂和生成的 0008 迁移；Secrets/常量按新需求适配。21 项 workerd/D1 探针通过，实测 DATE 列保存 ISO 8601 文本并还原为 Date，生产配置 Cookie 为 `__Host-session`，原生 token/滚动会话/改密换新会话、1 小时邮箱 JWT 与重置链接、二步备用码/账号锁定、持久化 IP 限流和 captcha 拒绝分支符合探针预期。全部工程 4 个文件 105 项测试、`pnpm typecheck`、`pnpm build`、本地 0008 增量迁移通过。首次与类型生成/测试/迁移并行构建报字体产物 ENOENT，其他进程结束后同样构建命令通过；后续这些产物生成检查逐项执行。旧用户/业务外键/凭证退役、关于页新文案、真实 WebAuthn 和完整 HTTP 门禁仍未完成，不开放认证 HTTP 路径，不创建云端资源或重启 6120。
+
+- 2026-10-06：按站长提醒将已完成的 `spike/auth-poc-report` 实验源码与报告归档到 `dev`。合并只在 PLAN 产生旧选型说明冲突，保留已确认 Better Auth 的当前计划与进展；POC 仍在独立目录使用独立依赖、迁移和 runner。合并后的正式工程 `pnpm typecheck`、`pnpm test`（83 项）、`pnpm build`，以及 POC `pnpm test`（29 项）、`pnpm typecheck` 全部通过；6120 服务保持运行，归档不表示 T2.7 已完成。
+
+- 2026-10-06：站长明确要求全部按 Better Auth 适配并同步文档。需求/用户故事/接口/schema 草案/Secrets/恢复运维/测试期望、AGENTS、README、原型边界和历史截图说明已同步；T2.4 采用决定完成，T2.7 新增未完成迁移与验证任务。当前代码仍按旧基线，83 项工程测试和 29 项 POC 测试只记为历史验证，不代表新认证通过。本次为文档任务，核对 Markdown 链接、表格、规则与差异；不修改运行代码或重启 6120 服务。
+
+- 2026-10-06：T2.4 形成书面差距结论，独立分支 `spike/auth-poc-report` 提交 `4fc3bc4`。workerd 测试 6 个文件 29 项及类型检查通过，实测注册/恢复部分提交、明文会话、滚动续期、并发 TOTP 重放和可逆恢复码，列出 A1–A7/B1–B10 证据。报告随后标注为旧规则评估并写入已确认采用决定；POC 仍独立，未实现正式认证。
 - 2026-10-06：T2.5 修复及 T2.6 前端基础合入本地 `dev`。集成工作树重新执行 `pnpm typecheck`、`pnpm test`（83 项）、`pnpm build`、`pnpm db:migrate:local`（7 个迁移）通过。正式 `pnpm dev` 常驻监听 `0.0.0.0:6120`，局域网访问 `/about` 返回 200。浏览器完成关于页 / 404 的 1440×1000、360×800、浅 / 深色八视图验收；验证三档主题、系统切换、刷新持久化、D 键与输入时忽略、1152 / 768 px 列宽、回到顶部及访客导航，无横向溢出或捕获的客户端异常。截图和边界见 `docs/screenshots/phase2/README.md`。
 - 2026-10-06：确认 D1 任务分支无独有提交、工作树无未提交 / 未跟踪文件及运行进程后，移除 `.worktree/d1-schema` 和已合入的两条 D1 任务分支。原 `.worktree/frontend-foundation`、`.worktree/auth-poc` 及 `.worktree/development-roadmap` 带有先前未提交内容，保留；原型工作树保留参考用途。`spike/auth-poc-report` 及其工作树保留供认证决策复核，集成工作树继续运行服务。
 - 2026-10-07：修复 #13 的 D1 环境隔离审查意见：staging / production 配置均要求两套数据库 ID，规范化后重复即拒绝。新增 6 项实际配置加载回归测试，修复前重复 ID 的 4 项用例均失败，修复后全部通过；6 项 Workers 测试、类型检查和构建通过。

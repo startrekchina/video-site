@@ -6,9 +6,9 @@ const DAY = 24 * HOUR;
 export const settings = {
   inviteQuota: 2,
   invitationTtl: 30 * DAY,
-  recoveryCodeCount: 10,
-  resetLinkTtl: 24 * HOUR,
-  emailVerificationTtl: 24 * HOUR,
+  backupCodeCount: 10,
+  resetLinkTtl: HOUR,
+  emailVerificationTtl: HOUR,
   completionThreshold: 0.9,
   progressReportInterval: 15,
   backupRetention: 30 * DAY,
@@ -20,9 +20,9 @@ export const settings = {
   playbackTokenRenewRetryDelays: [5, 15, 30],
 
   session: {
-    absoluteLifetime: 180 * DAY,
-    idleTimeout: 30 * DAY,
-    lastActiveWriteInterval: 24 * HOUR,
+    expiresIn: 30 * DAY,
+    updateAge: DAY,
+    freshAge: 5 * MINUTE,
   },
 
   totp: {
@@ -30,16 +30,13 @@ export const settings = {
     step: 30,
     window: 1,
     challengeTtl: 5 * MINUTE,
-    challengeMaxAttempts: 10,
+    challengeMaxAttempts: 5,
   },
 
   rateLimits: {
-    authPerOperation: { perMinute: 10, per15Minutes: 30 },
-    turnstileAfterFailures: 5,
-    turnstileClearAfter: 15 * MINUTE,
+    auth: { window: 10, max: 100 },
     playbackTokenPerMember: { perMinute: 30 },
     adminHighImpactPerAdmin: { perMinute: 30 },
-    verificationTokenConsume: { perMinute: 10, per15Minutes: 30 },
     memberEmail: { minInterval: 60, perHour: 5 },
   },
 } as const;
