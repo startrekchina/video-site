@@ -6,7 +6,7 @@
 
 | 项目 | 实际结果 |
 | --- | --- |
-| 资料占位 | catalog 默认只预检，显式 execute 经 cf 原子初始化；稳定 ID upsert 保留媒体时长及业务关联，未知时长为 null。真实 TMDB 只读取得 27 部作品、52 季、974 个单元，未初始化正式 staging 片库 |
+| 资料占位 | catalog 默认只预检，显式 execute 经 cf 原子初始化；稳定 ID upsert 保留媒体时长及业务关联，未知时长为 null。真实 TMDB 取得 27 部作品、52 季、974 个单元，已由 cf 1053 条原子批次初始化 staging 片库 |
 | R2 扫描 | 本地 0012 迁移、5 分钟 scheduled 入口、121 分钟/30,089,683 字节生成视频及中英文字幕关联、重复扫描通过。7 项 workerd/D1/R2 场景覆盖真实媒体、损坏/版本变化/危险 VTT、提交回滚及重试、互斥、分页、20 个失败对象后仍继续，以及迁移保留媒体/进度/讨论 |
 | cf D1 云端批次 | 既有 staging 新建纯虚构探针表，失败批次后 0 行、1053 条批次执行成功；探针表已清理。未改正式成员或片库业务表，没有凭此声称云端占位/扫描完成 |
 | 片库与访问控制 | 独立成员门禁、公开 DTO、中英文子串搜索、季集顺序、图片/英文回退、真实 MP4 推荐起点和本人只读进度通过。全站 /search 同时搜索两类作品，HTML 与 loader 的访客请求均拒绝 |
@@ -41,9 +41,25 @@ Kimi 会话 video-site-import-802b，组名“视频站导入工具核对”。�
 | 电影无海报/片源/时长，英文简介回退 | [截图](movie-empty-desktop-light.png) |
 | 访客登舰指南，375 px 浅色 | [截图](guest-mobile375-light.png) |
 
-## 未完成的验收
+## 发布与未完成的验收
 
-- cf beta.12 的 deploy 与 versions create 因 Worker 上次由脚本 API 更新而拒绝上传，要求移除未公开的内置 strict；registry/global 当前同为 beta.12，没有直接 API 或 Wrangler 兜底。只读复核最新 staging 版本未改变，已请求仅本次 T4 API 例外，等待站长答复。
-- staging 正式 0012 迁移、完整占位、少量生成媒体验证与定时扫描尚未完成。构建/dry-run、临时 D1 表探针和本地 R2 不替代这些门槛。
+- cf beta.12 的 deploy 与 versions create 被内置 strict 拒绝。站长已明确允许本次 T4 staging API 例外，1190 个静态资源与所有服务端 JavaScript 拆分模块上传成功，fetch/scheduled 生效、启动 55 ms；现有 Secret 保留且未读取其值。
+- staging 正式 0012、完整占位、少量生成媒体上传和每 5 分钟 Cron 配置已完成，12 个迁移及外键检查通过。首轮实际 Cron 关联 3 个 MP4/2 条 VTT并拒绝非法 VTT；修复后自动关联第三条 VTT。两次完整 catalog 初始化保留 ID、引用和实际时长，生成文件长度/SHA-256/ETag 验证通过。
 - 真实手机键盘/触控/播放、至少两小时 staging 连续播放和自然续期、平台成本/日志仍未验收。准备的 121 分钟文件和提前续期测试不是通过证据。
 - production 与 Git 远端未修改。802b 的 cf dev 继续监听 0.0.0.0:6120，保持运行；启动命令 pnpm dev，端口已占用时复用实例。浏览器入口为 [本机页面](http://localhost:6120/)。
+
+## staging 平台进展（2026-10-07）
+
+- 官方 API 例外仅用于本次 staging 部署/平台验证；D1 迁移、两次真实 TMDB 初始化、少量生成媒体上传和 Cron 配置都通过 cf。新 Worker 启动 55 ms，DB/R2 绑定及全部既有 Secret 保留，未读取 Secret 值；query 脱敏开启，invocation logs/traces 与 workers.dev 关闭。
+- HTTP：访客首页/关于 200，片库/播放页 302，未登录媒体请求 401；私密缓存、安全头和内部配置不暴露通过。成员浏览器实际取回 152,508 字节/SHA-256 一致，单 Range/后缀 206、416/400、HEAD 零 body/完整长度通过；4 秒短片完整解码。
+- Kimi 验证真实片库英文搜索、时间轴、手机全站中文搜索、切季、生成长片拖动到 3628.93 秒、中途字幕和 F 原生全屏。375 px 页面未溢出，实机仍待站长答复。
+- 实际 Cron 首轮用时 6593 ms，关联 5 个对象、拒绝 1 个非法字幕；再次拒绝后修复，下一轮用时 1552 ms、关联 1 个、跳过 5 个。未输出对象键。生成媒体/字幕合计约 30.4 MB，staging 不保存正式片源库副本。
+- 初始日志 76 条，未见 query token、私密 header、已知密钥或内部资源配置值。拖动/换页面取消旧流产生两条平台 Network connection lost 记录，GraphQL 中对应 clientDisconnected，执行 errors 为 0；这类取消与播放器错误分开记录。
+- 北京时间 14:41 从零开始 staging 连续播放 121 分钟生成视频，监测样本、源切换和真实签发状态。没有修改系统/JS 时钟或原始续期计时器；达到两小时并完成自然续期复核前保持未验收。
+
+| staging 页面 | 截图 |
+| --- | --- |
+| 英文搜索/时间轴 | [海报墙](staging-search-desktop.png)、[时间轴](staging-search-timeline.png) |
+| 第二季资料占位，375 px | [截图](staging-title-mobile.png) |
+| 全站中文搜索，375 px | [截图](staging-global-search-mobile.png) |
+| 自生成长片开始连续播放 | [截图](staging-watch-start.png) |
