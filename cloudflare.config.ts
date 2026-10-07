@@ -94,6 +94,7 @@ export default defineConfig(({ mode = "development" }) => {
         EMAIL_SENDER_DOMAIN: bindings.text(e.emailSenderDomain),
         EMAIL_FROM: bindings.text(e.emailFrom),
         EMAIL_REPLY_TO: bindings.text(e.emailReplyTo),
+        ASSETS: bindings.assets(),
         DB: bindings.d1({ name: e.resource, id: e.d1Id }),
         MEDIA_BUCKET: bindings.r2({ name: e.mediaBucket }),
         // Auxiliary only: quotas are decided by exact D1 counters (requirements 6.3.2).
