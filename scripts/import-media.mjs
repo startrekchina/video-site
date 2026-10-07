@@ -1,6 +1,9 @@
+import { validateVtt } from "../app/lib/media-format.ts";
+export { validateVtt } from "../app/lib/media-format.ts";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { open, readFile, realpath, stat } from "node:fs/promises";
+import { open, readFile, realpath, stat, mkdtemp, writeFile, unlink, rmdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs, parseEnv, promisify } from "node:util";
@@ -9,7 +12,7 @@ import { setTimeout as delay } from "node:timers/promises";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const runFile = promisify(execFile);
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
-export const UPLOAD_BLOCKER = "cf 1.0.0-beta.12 的 R2 put 上限为 300 MB，且没有 multipart 命令。完整导入尚未实现；本工具仅预检，不上传、不写 D1。";
+export const UPLOAD_BLOCKER = "媒体由站长独立上传；使用 catalog 初始化资料，由服务器定时扫描关联 R2。import 上传子命令不再使用。";
 
 function check(condition, message) {
   if (!condition) throw Object.assign(new Error(message), { name: "ImportInputError" });
@@ -104,69 +107,6 @@ export async function inspectMp4(path) {
   } finally { await file.close(); }
 }
 
-function cueTime(value) {
-  const match = /^(?:(\d{2,}):)?([0-5]\d):([0-5]\d)\.(\d{3})$/u.exec(value);
-  const time = match ? ((Number(match[1] ?? 0) * 60 + Number(match[2])) * 60 + Number(match[3])) * 1000 + Number(match[4]) : NaN;
-  return Number.isSafeInteger(time) ? time : NaN;
-}
-
-function cueText(text, start, end, label) {
-  check(!/&(?!(amp|lt|gt|lrm|rlm|nbsp|#[0-9]+|#[xX][0-9a-fA-F]+);)/u.test(text), `${label}：字幕实体无效。`);
-  for (const [, reference] of text.matchAll(/&#([xX][0-9a-fA-F]+|[0-9]+);/gu)) {
-    const point = /^[xX]/u.test(reference) ? parseInt(reference.slice(1), 16) : Number(reference);
-    check(Number.isSafeInteger(point) && point >= 32 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff) && !(point >= 0x7f && point <= 0x9f) && !(point >= 0xfdd0 && point <= 0xfdef) && point % 0x10000 < 0xfffe, `${label}：字幕实体不是安全字符。`);
-  }
-  const stack = [];
-  let previous = start;
-  for (const token of text.matchAll(/<[^>]*>|</gu)) {
-    const tag = token[0].slice(1, -1), time = cueTime(tag);
-    if (Number.isFinite(time)) {
-      check(time > previous && time < end, `${label}：cue 内时间戳无效。`);
-      previous = time;
-    } else if (tag.startsWith("/")) check(stack.pop() === tag.slice(1), `${label}：字幕标签嵌套错误。`);
-    else {
-      const match = /^(b|i|u|c|ruby|rt|v|lang)(?:\.[\w-]+)*(?:[ \t]+([^<>]+))?$/u.exec(tag);
-      check(match && (match[1] === "v" ? Boolean(match[2]?.trim()) : match[1] === "lang" ? /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{2,8})*$/u.test(match[2] ?? "") : match[2] === undefined), `${label}：字幕含不安全标签。`);
-      check(match[1] !== "rt" || stack.at(-1) === "ruby", `${label}：rt 必须属于 ruby。`);
-      stack.push(match[1]);
-    }
-  }
-  check(stack.length === 0 || (stack.length === 1 && stack[0] === "v" && /^<v[ .\t]/u.test(text)), `${label}：字幕标签未闭合。`);
-}
-
-export function validateVtt(bytes, label = "字幕") {
-  const text = decode(bytes, label).replace(/\r\n?/gu, "\n");
-  check(!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(text), `${label}：含非法控制字符。`);
-  const lines = text.split("\n");
-  check(/^WEBVTT(?:[ \t][^<>]*)?$/u.test(lines[0]) && !lines[0].includes("-->") && lines[1] === "", `${label}：缺少 WEBVTT 头或空行。`);
-  let cueCount = 0;
-  for (const block of lines.slice(2).join("\n").trim().split(/\n[ \t]*\n/gu).filter(Boolean)) {
-    const cue = block.split("\n");
-    if (/^NOTE(?:[ \t]|$)/u.test(cue[0])) continue;
-    // ponytail: reject STYLE/REGION until their rendering and privacy behavior is reviewed.
-    check(!/^(STYLE|REGION)$/u.test(cue[0]), `${label}：尚不支持 STYLE/REGION。`);
-    if (!cue[0].includes("-->")) check(!/[<>&]/u.test(cue.shift()), `${label}：cue 标识符无效。`);
-    const match = /^(\S+)[ \t]+-->[ \t]+(\S+)(.*)$/u.exec(cue.shift() ?? "");
-    check(match, `${label}：cue 时间语法无效。`);
-    const start = cueTime(match[1]), end = cueTime(match[2]);
-    check(Number.isFinite(start) && Number.isFinite(end) && start <= end, `${label}：cue 时间越界或开始晚于结束。`);
-    const seen = new Set();
-    for (const setting of match[3].trim().split(/\s+/u).filter(Boolean)) {
-      const [name, value, extra] = setting.split(":");
-      const percent = value && /^(\d+(?:\.\d+)?)%(?:,(line-left|center|line-right|auto))?$/u.exec(value);
-      const line = value && /^(auto|-?\d+|\d+(?:\.\d+)?%)(?:,(start|center|end))?$/u.exec(value);
-      const valid = name === "align" ? /^(start|center|end|left|right)$/u.test(value) : name === "vertical" ? /^(rl|lr)$/u.test(value) : ["size", "position"].includes(name) ? percent && Number(percent[1]) <= 100 && (name !== "size" || !percent[2]) : name === "line" && line && (!line[1].endsWith("%") || Number(line[1].slice(0, -1)) <= 100);
-      check(valid && !extra && !seen.has(name), `${label}：cue 设置无效或重复。`);
-      seen.add(name);
-    }
-    const payload = cue.join("\n");
-    check(!payload.includes("-->"), `${label}：cue 文本无效。`);
-    cueText(payload, start, end, label);
-    cueCount++;
-  }
-  return { bytes: Buffer.from(text.endsWith("\n") ? text : `${text}\n`), cueCount };
-}
-
 async function subtitle(input, base, logicalId, warnings) {
   fields(input, ["language", "displayName", "trackKey", "sourcePath"], `${logicalId} 字幕`);
   check(typeof input.language === "string" && /^(zh|en)(?:-[A-Za-z0-9]{2,8})*$/u.test(input.language) && input.language.length <= 35, `${logicalId}：字幕只接受中文或英文。`);
@@ -188,6 +128,7 @@ async function subtitle(input, base, logicalId, warnings) {
     warnings.push(`${logicalId}/${input.trackKey}：ASS 转 VTT 丢失字体、定位等样式。`);
   }
   const validated = validateVtt(bytes, label);
+  validated.bytes = Buffer.from(validated.bytes);
   return { language: input.language, displayName: input.displayName, trackKey: input.trackKey, ...validated, byteLength: validated.bytes.length, checksumSha256: sha256(validated.bytes) };
 }
 
@@ -273,7 +214,7 @@ async function metadata(request, path, identity, movie = false) {
   return { english, localized };
 }
 
-export async function preflight({ environment, mappingPath, env = process.env, repository = root, tmdbMockUrl, timeoutMs = 15_000, retryDelays = [1000, 2000] }) {
+export async function preflight({ environment, mappingPath, env = process.env, repository = root, tmdbMockUrl, allUnits = false, timeoutMs = 15_000, retryDelays = [1000, 2000] }) {
   check(["staging", "prod"].includes(environment), "必须明确选择 staging 或 prod。" );
   const input = await jsonFile(mappingPath, "媒体映射");
   fields(input, ["environment", "resources", "media"], "媒体映射");
@@ -315,7 +256,10 @@ export async function preflight({ environment, mappingPath, env = process.env, r
     check(date == null || date === "" || typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(date), `${entry.id} 首映日期无效。`);
     works.push({ ...entry, ...localized, year: date ? Number(date.slice(0, 4)) : null });
     workDetails.set(entry.id, english);
-    if (entry.kind === "movie") unitDetails.set(entry.id, { tmdbId: entry.tmdbId, ...localized });
+    if (entry.kind === "movie") {
+      check(english.runtime == null || typeof english.runtime === "number" && Number.isFinite(english.runtime) && english.runtime >= 0, "TMDB 电影时长无效。");
+      unitDetails.set(entry.id, { workId: entry.id, tmdbId: entry.tmdbId, durationSeconds: english.runtime > 0 ? english.runtime * 60 : null, ...localized });
+    }
   }
   for (const entry of entries.filter(entry => entry.seasonNumber !== null)) {
     const identities = workDetails.get(entry.workId).seasons;
@@ -329,7 +273,7 @@ export async function preflight({ environment, mappingPath, env = process.env, r
     for (const episode of english.episodes) {
       const id = `${entry.id}:episode:${episode.episode_number}`;
       check(Number.isSafeInteger(episode.id) && episode.id > 0 && Number.isSafeInteger(episode.episode_number) && episode.episode_number > 0 && episode.season_number === entry.seasonNumber && (episode.show_id === undefined || episode.show_id === entry.tmdbId) && !unitDetails.has(id), `${entry.id} TMDB 集身份错误或重复。`);
-      unitDetails.set(id, { tmdbId: episode.id, path: `${path}/episode/${episode.episode_number}` });
+      unitDetails.set(id, { workId: entry.workId, seasonId: entry.id, episodeNumber: episode.episode_number, seasonNumber: entry.seasonNumber, tmdbId: episode.id, path: `${path}/episode/${episode.episode_number}` });
     }
   }
   for (const unit of media) {
@@ -340,7 +284,43 @@ export async function preflight({ environment, mappingPath, env = process.env, r
       Object.assign(unit, { tmdbId: identity.tmdbId }, localized);
     } else Object.assign(unit, identity);
   }
-  return { environment, simulatedTmdb: Boolean(tmdbMockUrl), works, seasons, media, warnings };
+  if (allUnits) {
+    const episodes = [...unitDetails.values()].filter(unit => unit.path);
+    for (let at = 0; at < episodes.length; at += 4) {
+      const checked = await Promise.allSettled(episodes.slice(at, at + 4).map(async unit => {
+        const { english, localized } = await metadata(request, unit.path, data => data.id === unit.tmdbId && data.season_number === unit.seasonNumber && data.episode_number === unit.episodeNumber);
+        check(english.runtime == null || typeof english.runtime === "number" && Number.isFinite(english.runtime) && english.runtime >= 0, "TMDB 单集时长无效。");
+        Object.assign(unit, localized, { durationSeconds: english.runtime > 0 ? english.runtime * 60 : null });
+      }));
+      for (const result of checked) if (result.status === "rejected") throw result.reason;
+    }
+  }
+  return { environment, simulatedTmdb: Boolean(tmdbMockUrl), works, seasons, media, warnings, ...(allUnits ? {
+    units: [...unitDetails].map(([id, unit]) => ({ id, workId: unit.workId, seasonId: unit.seasonId ?? null, episodeNumber: unit.episodeNumber ?? null, tmdbId: unit.tmdbId, durationSeconds: unit.durationSeconds ?? null, titleZh: unit.titleZh ?? null, titleEn: unit.titleEn ?? null, overviewZh: unit.overviewZh ?? null, overviewEn: unit.overviewEn ?? null })),
+  } : {}) };
+}
+
+export function catalogQueries(result) {
+  check(Array.isArray(result.units), "缺少完整资料占位清单。");
+  const queries = [], works = new Map(result.works.map(work => [work.id, work])), seasons = new Map(result.seasons.map(season => [season.id, season]));
+  for (const work of result.works) queries.push({ sql: `INSERT INTO works (id,kind,tmdb_id,title_zh,title_en,overview_zh,overview_en,year,poster_asset) VALUES (?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(kind,tmdb_id) DO UPDATE SET title_zh=excluded.title_zh,title_en=excluded.title_en,overview_zh=excluded.overview_zh,overview_en=excluded.overview_en,year=excluded.year,poster_asset=excluded.poster_asset`,
+    params: [`${work.kind}_${work.tmdbId}`,work.kind,work.tmdbId,work.titleZh,work.titleEn,work.overviewZh,work.overviewEn,work.year,work.posterAsset] });
+  for (const season of result.seasons) queries.push({ sql: `INSERT INTO seasons (id,work_id,season_number,tmdb_id,title_zh,title_en,overview_zh,overview_en,poster_asset)
+    VALUES (?,(SELECT id FROM works WHERE kind='series' AND tmdb_id=?),?,?,?,?,?,?,?)
+    ON CONFLICT(work_id,season_number) DO UPDATE SET tmdb_id=excluded.tmdb_id,title_zh=excluded.title_zh,title_en=excluded.title_en,overview_zh=excluded.overview_zh,overview_en=excluded.overview_en,poster_asset=excluded.poster_asset`,
+    params: [`series_${works.get(season.workId).tmdbId}_s${season.seasonNumber}`,works.get(season.workId).tmdbId,season.seasonNumber,season.tmdbId,season.titleZh,season.titleEn,season.overviewZh,season.overviewEn,season.posterAsset] });
+  for (const unit of result.units) {
+    const work = works.get(unit.workId), season = unit.seasonId ? seasons.get(unit.seasonId) : null;
+    check(work && (!unit.seasonId || season), "资料清单缺少作品或季。");
+    queries.push({ sql: `INSERT INTO playable_units (id,kind,work_id,season_id,episode_number,tmdb_id,duration_seconds,title_zh,title_en,overview_zh,overview_en)
+      VALUES (?,?,(SELECT id FROM works WHERE kind=? AND tmdb_id=?),${season ? "(SELECT s.id FROM seasons s JOIN works w ON w.id=s.work_id WHERE w.kind='series' AND w.tmdb_id=? AND s.season_number=?)" : "NULL"},?,?,?,?,?,?,?)
+      ON CONFLICT(${season ? "season_id,episode_number" : "work_id"}) WHERE kind='${season ? "episode" : "movie"}' DO UPDATE SET
+      tmdb_id=excluded.tmdb_id,title_zh=excluded.title_zh,title_en=excluded.title_en,overview_zh=excluded.overview_zh,overview_en=excluded.overview_en,
+      duration_seconds=CASE WHEN EXISTS(SELECT 1 FROM media_files WHERE playable_unit_id=playable_units.id AND format='mp4') THEN playable_units.duration_seconds ELSE excluded.duration_seconds END`,
+      params: [`${work.kind}_${work.tmdbId}_${season ? `s${season.seasonNumber}_e${unit.episodeNumber}` : "unit"}`,season ? "episode" : "movie",work.kind,work.tmdbId,...(season ? [work.tmdbId,season.seasonNumber] : []),unit.episodeNumber,unit.tmdbId,unit.durationSeconds,unit.titleZh,unit.titleEn,unit.overviewZh,unit.overviewEn] });
+  }
+  return queries;
 }
 
 export function report(result) {
@@ -351,31 +331,49 @@ export function report(result) {
 }
 
 const help = `用法：node scripts/import-media.mjs preflight --environment staging|prod --mapping <本机 JSON> [--env-file <本机 env>] [--tmdb-mock-url <回环 HTTP 地址>]
-仅预检本机 MP4/VTT/ASS 和 TMDB 资料；不运行 cf，不写入 D1/R2，不保存转换文件。
+node scripts/import-media.mjs catalog --environment staging|prod [--env-file <本机 env>] [--execute]
+preflight 仅预检本机 MP4/VTT/ASS 和 TMDB 资料，不写入 D1/R2，不保存转换文件。
+catalog 获取全部作品、季和单元资料；默认仅预检，--execute 经 cf 原子初始化 D1 占位，不上传媒体。
 默认读取本工作树 .env，shell 变量优先；显式 --env-file 仅使用指定文件中的变量。
 输入契约与运行限制见 docs/import-media.md。
 ${UPLOAD_BLOCKER}`;
 
 async function main() {
-  const { values, positionals, tokens } = parseArgs({ tokens: true, allowPositionals: true, options: { environment: { type: "string" }, mapping: { type: "string" }, "env-file": { type: "string" }, "tmdb-mock-url": { type: "string" }, help: { type: "boolean" } } });
+  const { values, positionals, tokens } = parseArgs({ tokens: true, allowPositionals: true, options: { environment: { type: "string" }, mapping: { type: "string" }, "env-file": { type: "string" }, "tmdb-mock-url": { type: "string" }, execute: { type: "boolean" }, help: { type: "boolean" } } });
   const names = tokens.filter(token => token.kind === "option").map(token => token.name);
   check(new Set(names).size === names.length, "命令参数重复，请使用 --help。" );
   if (values.help) { console.log(help); return; }
   if (positionals.length === 1 && positionals[0] === "import") { console.error(UPLOAD_BLOCKER); process.exitCode = 2; return; }
-  check(positionals.length === 1 && positionals[0] === "preflight" && ["staging", "prod"].includes(values.environment) && values.mapping, help);
-  console.error(`目标环境：${values.environment}；仅预检。`);
+  const initializing = positionals[0] === "catalog";
+  check(positionals.length === 1 && ["catalog", "preflight"].includes(positionals[0]) && ["staging", "prod"].includes(values.environment) && (initializing ? !values.mapping : values.mapping && !values.execute), help);
+  check(!values.execute || !values["tmdb-mock-url"], "模拟 TMDB 不允许执行云端写入。");
+  console.error(`目标环境：${values.environment}；${values.execute ? "初始化资料" : "仅预检"}。`);
   let env = process.env;
   const envFile = values["env-file"] ? resolve(values["env-file"]) : join(root, ".env");
   try {
     const parsed = parseEnv(await readFile(envFile, "utf8"));
     env = values["env-file"] ? parsed : { ...parsed, ...process.env };
   } catch (error) { check(!values["env-file"] && error.code === "ENOENT", "本机 env 文件无法读取。" ); }
-  console.log(JSON.stringify(report(await preflight({ environment: values.environment, mappingPath: resolve(values.mapping), env, tmdbMockUrl: values["tmdb-mock-url"] })), null, 2));
+  if (!initializing) { console.log(JSON.stringify(report(await preflight({ environment: values.environment, mappingPath: resolve(values.mapping), env, tmdbMockUrl: values["tmdb-mock-url"] })), null, 2)); return; }
+  const directory = await mkdtemp(join(tmpdir(), "video-catalog-")), mappingPath = join(directory, "mapping.json"), batchPath = join(directory, "batch.json");
+  try {
+    const prefix = values.environment === "prod" ? "PRODUCTION" : "STAGING";
+    await writeFile(mappingPath, JSON.stringify({ environment: values.environment, resources: { d1DatabaseId: env[`${prefix}_D1_DATABASE_ID`], mediaBucketName: env[`${prefix}_MEDIA_BUCKET_NAME`] }, media: [] }), { mode: 0o600 });
+    const result = await preflight({ environment: values.environment, mappingPath, env, allUnits: true, tmdbMockUrl: values["tmdb-mock-url"] });
+    const queries = catalogQueries(result);
+    if (values.execute) {
+      await writeFile(batchPath, JSON.stringify(queries), { mode: 0o600 });
+      const response = await runFile(process.execPath, [join(root,"node_modules/cf/bin/cf"),"d1","query",env[`${prefix}_D1_DATABASE_ID`],"--mode",values.environment === "prod" ? "production" : "staging","--batch",`@${batchPath}`], { cwd: root, env: { ...process.env,...env }, encoding: "utf8", maxBuffer: 10 * 1024 * 1024, windowsHide: true });
+      const output = JSON.parse(response.stdout), rows = Array.isArray(output) ? output : output.result;
+      check(Array.isArray(rows) && rows.length === queries.length && rows.every(row => row.success === true), "D1 未确认全部资料原子写入，请核对后重试。");
+    }
+    console.log(JSON.stringify({ environment: values.environment, status: values.execute ? "catalog-initialized" : "catalog-preflight", cloudWrites: values.execute ? queries.length : 0, counts: { works: result.works.length,seasons: result.seasons.length,units: result.units.length }, simulatedTmdb: result.simulatedTmdb }));
+  } finally { await unlink(mappingPath).catch(() => {}); await unlink(batchPath).catch(() => {}); await rmdir(directory); }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main().catch(error => {
-    console.error(error.name === "ImportInputError" ? error.message : "预检失败：请核对命令参数、本机文件和配置；原始错误不输出。" );
+    console.error(["ImportInputError", "MediaFormatError"].includes(error.name) ? error.message : "预检失败：请核对命令参数、本机文件和配置；原始错误不输出。" );
     process.exitCode = 1;
   });
 }

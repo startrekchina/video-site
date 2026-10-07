@@ -1,6 +1,6 @@
 # 星际迷航中国视频站·需求文档
 
-- 状态：2026-10-06 已决定采用 Better Auth 并调整认证需求，变更索引见 6.3.4；同日将站长专用的网页数据库备份（下载、WebDAV、S3）纳入 v1（6.9.4）。2026-10-07 第二阶段工程基础和第三阶段邀请、账号与管理验收完成：staging 的验证/找回邮件、新密码、TOTP/备用码、手机会话撤销与通行密钥登录均经站长手工确认，套餐限额、管理页面、凭证日志及原生 scrypt 小样本已核对。第四阶段 T4.1 本地导入预检已实现并验证，站长提出先占位所有剧集、再扫描关联 R2 资源，6.8 新流程细则待确定；片库/作品/选集与播放授权/Range 已接入并验证本地 HTTP，ArtPlayer 与续期已接入，浏览器、真实手机和两小时平台播放仍待验收；备份按第六阶段实施。旧 POC 仅作历史差距证据，后续平台实测按 6.16，实际进展见 [正式开发计划](../PLAN.md)
+- 状态：2026-10-06 已决定采用 Better Auth 并调整认证需求，变更索引见 6.3.4；同日将站长专用的网页数据库备份（下载、WebDAV、S3）纳入 v1（6.9.4）。2026-10-07 第二阶段工程基础和第三阶段邀请、账号与管理验收完成：staging 的验证/找回邮件、新密码、TOTP/备用码、手机会话撤销与通行密钥登录均经站长手工确认，套餐限额、管理页面、凭证日志及原生 scrypt 小样本已核对。第四阶段资料占位与固定命名/服务器定时扫描已实现，本地迁移、R2 关联和真实 TMDB 预检通过；片库/作品/选集与播放授权/Range 已接入，ArtPlayer 实际解码和续期换 URL 已验证，staging 发布工具阻塞，云端关联、真实手机和两小时平台播放仍待验收；备份按第六阶段实施。旧 POC 仅作历史差距证据，后续平台实测按 6.16，实际进展见 [正式开发计划](../PLAN.md)
 - 适用范围：第一版（v1）。后续版本的内容见“范围外”一节
 - 本次范围基准：`proto/frontend-v1` 分支提交 `f03d9a8` 中的 `prototypes/frontend-v1/`；PR #3 将该原型及相关素材保留为 `main` 中的参考项目。原型用于明确页面、视觉和交互，本文仍是正式开发的唯一需求依据
 - 与原型的关系：邮箱验证、邮件发信及其相关页面是原型中没有的新增需求，属于正式版必须实现、但在 `prototypes/frontend-v1/` 中无对应实现的部分，不能以原型现状反推其可以不做
@@ -310,9 +310,10 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 | --- | --- |
 | 作品 `works` | `id, kind, tmdb_id, title_zh, title_en, overview_zh, overview_en, year, poster_asset`；`kind` 仅为 `movie` / `series`；唯一键 `(kind, tmdb_id)`，不能把电影和剧集的 TMDB 数字空间混为一谈。 |
 | 季 `seasons` | `id, work_id, season_number, tmdb_id`，另存双语资料和季海报；唯一键 `(work_id, season_number)`，外键指向剧集作品。manifest 的季海报 `tmdb_id` 是剧集 ID，不是季 ID；季的 TMDB ID 从 TMDB 季详情取得。 |
-| 可播放单元 `playable_units` | `id, kind, work_id, season_id, episode_number, tmdb_id, duration_seconds`，集另存双语资料；电影行无季号/集号，以 `work_id` 唯一；集行必须有季和集号，以 `(season_id, episode_number)` 唯一，且季属于同一作品。集记录即“集”对象，不再另建一份集表。 |
-| 媒体 `media_files` | `id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate`；外键关联单元，`object_key` 唯一，逻辑唯一键 `(playable_unit_id, format, variant)`。v1 导入只允许一条 MP4 片源，模型不限制以后增加格式或档位。 |
-| 字幕 `subtitle_tracks` | `id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256`；逻辑唯一键 `(playable_unit_id, track_key)`，`object_key` 唯一。语言和格式不是主键，避免将多条同语言轨道或以后的 ASS 挤成一个对象；v1 仅发布中文/英文 VTT。 |
+| 可播放单元 `playable_units` | `id, kind, work_id, season_id, episode_number, tmdb_id, duration_seconds`，集另存双语资料；未知时长可为 null，关联媒体后以实际时长为准。电影行无季号/集号，以 `work_id` 唯一；集行必须有季和集号，以 `(season_id, episode_number)` 唯一，且季属于同一作品。集记录即“集”对象，不再另建一份集表。 |
+| 媒体 `media_files` | `id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag`；外键关联单元，`object_key` 唯一，逻辑唯一键 `(playable_unit_id, format, variant)`。`r2_etag` 保存已验证的 R2 版本，历史未记录版本的行为不能作为新扫描验收依据。v1 只允许一条 MP4 片源，模型不限制以后增加格式或档位。 |
+| 字幕 `subtitle_tracks` | `id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256, r2_etag`；逻辑唯一键 `(playable_unit_id, track_key)`，`object_key` 唯一。扫描轨道标识为 `language.trackKey`，版本字段保存已验证 ETag；v1 仅发布中文/英文 VTT。 |
+| 媒体扫描 `media_sync_state` | 当前目录扫描的最后处理对象键、互斥租约及时间，仅在服务端保存；不向浏览器返回扫描位置或对象键。 |
 | 认证用户 `user` | 按锁定版本的 Better Auth schema 保存 `id, name, email, emailVerified, username, displayUsername, createdAt, updatedAt` 和插件字段。用户名按 6.3 的原生规则校验/规范化，当前邮箱小写化并唯一；密码哈希在 `account` 的 credential 记录中，不复制到业务成员表。日期序列化沿用 adapter，HTTP 输出 ISO 8601；0008 迁移的 D1 DATE 列实测保存 ISO 8601 文本，adapter 还原 Date，与旧业务表 UTC 毫秒列分别处理。 |
 | 成员业务资料 `member_profiles` | 与 Better Auth 用户 ID 一对一关联，记录 `role, status, registration_state, invited_by_user_id, invite_quota`；角色仅 `member/admin`，邀请关系完成后不可改，不允许自邀请。业务外键统一使用同一个稳定用户 ID，不生成第二套成员身份；库 updateUser 不接受客户端改角色、状态、邀请来源或注册完成标记。0009 已建立映射与业务外键；第三阶段 HTTP 与各受保护 loader 已接入独立成员门禁。 |
 | 验证状态 `verification` | 按 Better Auth schema 保存密码重置和认证挑战等临时记录，接受库的标识/值存储格式与消费方式。注册/改邮箱验证使用签名 JWT，不要求额外的 `email_verification_tokens` 哈希账本；重发不保证撤销旧 JWT。 |
@@ -584,7 +585,7 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 
 ### 6.8 离线导入工具
 
-> 2026-10-07 方案调整待定：站长提出所有剧集先建立资料占位，再自动扫描关联 R2 资源。资源命名匹配、扫描触发和已有文件验证细则正在确认；下列本机上传流程保留为原基线，确认后整体修订，不据此继续扩展旧上传实现。项目自己的导入 CLI 不等于 cf CLI；原需求没有指定内部必须用 cf 上传片源。
+2026-10-07 站长确认：全部剧集先建立资料占位，R2 资源使用固定命名，由服务器定时扫描并自动关联。项目自己的资料初始化 CLI 与 cf CLI 分开；媒体由站长使用支持大文件的工具独立上传，网站不增加上传或内容编辑后台。
 
 这是一个在站长本机运行的命令行工具，可以指定导入到 staging 还是 prod。它负责：
 
@@ -592,24 +593,29 @@ Cloudflare 的可接受使用政策（AUP）禁止托管侵权内容。一旦收
 - 按 TMDB ID 拉取作品、季和集的中英文资料；
 - 检查 MP4 的编码和 faststart 是否符合要求，不符合就报错，提示站长先在本地转码；
 - 把字幕统一转成 VTT，其中 ASS 字幕会丢失样式；
-- 上传媒体文件和字幕文件到 R2，并在 D1 中写入对应记录。
+- 在 D1 建立 manifest 范围内全部作品、季和集的资料占位，即使尚无片源；保持逻辑身份和内部 ID 稳定。已存在的记录更新资料，不重建 ID，不丢弃观看进度或讨论。
+
+服务器默认每 5 分钟通过当前环境的 R2 binding 扫描一次资源，每页最多 1000 个对象，保留最后处理的对象键并防止并发任务重复执行。默认每次最多验证 20 个新/变更对象、最多运行 6 分钟；剩余对象下次续作，失败或冲突对象在下一轮完整扫描重试，不阻挡后续资源。超过单次验证窗口或不支持的文件报告失败并保持不可播，不以文件名或扩展名当作验证成功。
 
 导入可以重复执行而不产生副作用：记录以 TMDB ID 或季号、集号为唯一键，已经存在的文件会跳过。网站本身不提供内容管理后台，TMDB API Key 只放在站长本地。
 
-#### 6.8.1 输入、预检与断点重试
+#### 6.8.1 资料占位、固定命名与幂等扫描
 
-- 输入契约由明确的 `environment`（仅 `staging` / `prod`）、仓库 manifest 和本机媒体映射组成。媒体映射声明 `kind, tmdbId`，集再声明 `seasonNumber, episodeNumber`，以及仅本地使用的 `videoPath`、字幕 `language, displayName, trackKey, sourcePath`；不靠文件名猜作品或集号，不把本机绝对路径存入 D1。工具启动时展示目标环境并校验资源归属，缺配置或身份歧义立即停止，不能默认写 prod。
+- 初始化输入为明确的 `environment`（仅 `staging` / `prod`）和仓库 manifest。启动时展示目标环境并校验资源归属，缺配置或身份歧义立即停止，不能默认写 prod。原本机媒体预检命令可继续使用，但不负责远端上传；本机绝对路径不进入 D1。
 - manifest 约束 v1 可导入作品和季；季条目的 `tmdb_id + season` 映射到所属剧和季号，再从 TMDB 获取季/集身份。电影和剧集分别使用其 TMDB 类型，不以标题匹配。manifest 的 `file` 是 `.jpg` 原图名，页面海报引用必须映射到仓库中存在的 `.webp` 静态资产；本项目海报留在 public，素材 README 中“生产导入 R2”的旧描述不改变 6.1 决策。
-- 上传前完成本地预检：MP4 容器有效、视频 H.264、音频 AAC，解析容器确认 `moov` 位于媒体数据 `mdat` 前而非仅看扩展名；记录时长、字节数和 SHA-256。失败给出具体文件与原因并提示先转码，工具不在线转码，也不自动上传不合格文件。
+- 固定对象命名为 `library/series/<作品 TMDB ID>/S<季号>/E<集号>.mp4`，电影为 `library/movie/<作品 TMDB ID>/movie.mp4`；季/集号至少两位且无多余前导零。字幕在同目录同主文件名下使用 `.<language>.<trackKey>.vtt`，language 为中文或英文，trackKey 为稳定轨道标识；D1 轨道标识保存为 `language.trackKey`。不同语言和多条同语言轨道分开匹配；不做模糊片名猜测。不合规则、范围外或没有占位记录的对象跳过并记录脱敏结果。
+- 没有片源的集可展示双语资料，但保持“片源暂缺”，不签发播放授权。TMDB 未给出时长时保存 null，展示“时长暂缺”，不填写假时长；关联 MP4 后以媒体实际时长为准。
+- 首次发现或对象版本变化时，服务器核对 MP4 顶层 box 完整边界、faststart、单 H.264 视频轨和 AAC 音轨、时长/字节数/码率，并流式计算 SHA-256；大文件不能整体读入内存。元数据块默认最多 32 MiB，超出时保持未关联并提示先在本机处理。文件在验证期间发生变化时放弃本轮关联。既有相同对象版本可跳过完整验证，重复扫描不重复挂接。
 - 字幕先按既有规则转为 VTT，再验证 UTF-8、`WEBVTT` 头、cue 时间语法、开始不晚于结束、时间可解析和标签/文本可安全渲染；ASS 转换明确提示样式丢失，不能把 ASS 原文件发布给 v1 播放器。语言限中文/英文，同一轨道用稳定 `trackKey` 识别。
 - TMDB key 仅从站长本机环境变量 `TMDB_API_KEY` 读取，禁止写进输入文件、上传清单或 Worker Secrets。中文缺失保留为空并回退英文，不能把两种文本覆盖为同一列；上游超时/限流可重试，不把失败写成成功的空资料覆盖已有记录。
-- 顺序为“预检及身份确认 → 上传并验证完整 R2 对象 → D1 原子挂接记录”。D1 和 R2 没有跨产品事务；上传过程中不修改现有可播记录，不能让 D1 引用未完成对象。大文件 multipart 的 upload ID、分片进度及校验值保存在本机断点记录，完成后才发布；失效上传重新开始并处理未完成分片。
-- 使用稳定逻辑唯一键和服务端生成的私密对象键防重复。本机检查发现 D1 与 R2 的长度/校验均吻合时跳过；R2 完整但 D1 未提交时可校验后补挂接，D1 存在而 R2 缺失时只补缺文件。相同身份却不同校验值必须报冲突，不能以“幂等”名义覆盖旧可播内容；替换既有媒体不在本次导入规则内。
+- 顺序为“资料占位及身份确认 → 独立上传完整 R2 对象 → 服务器验证 → D1 原子挂接”。D1 和 R2 没有跨产品事务；上传过程中不修改现有可播记录，不能让 D1 引用未完成对象。R2 multipart 的上传和断点恢复由站长所用上传工具负责，扫描只处理已完成对象。
+- 使用稳定逻辑唯一键及固定的私密对象命名防重复。长度、校验和及对象版本吻合时跳过；R2 完整但 D1 未提交时验证后补挂接，D1 已有引用而 R2 缺失时保留记录供补回，媒体请求仍返回脱敏 404。相同身份却不同校验值必须报冲突，不能以“幂等”名义覆盖旧可播记录；已有验证版本被替换时，播放入口拒绝新版本。替换既有媒体不在自动扫描规则内。
 - D1 提交失败时，v1 只保留完整且可验证的对象供重试，不在失败路径自动删除对象。如需清理，必须暂停导入并排除并发挂接后另行操作，不能仅凭一次“无引用”检查删除对象。中断后从本机记录和 D1/R2 实际状态重建进度，不相信单一“已上传”标志。最终报告已导入/已跳过/冲突/失败的逻辑 ID 和数量，不输出凭证或远端私密路径；私密路径仅存在本地配置、内部 D1/R2 数据，不进公开仓库或浏览器。
 
 ### 6.9 环境与备份
 
 - staging 和 prod 是两套完全独立的资源，各自有自己的 Worker、D1 和 R2。
+- 两环境不复制完整片库：可分别建立完整资料占位，staging 仅存少量自生成测试媒体/字幕，prod 保存正式片源；扫描只访问本环境绑定。
 - **开发与发布顺序（2026-10-06 确认）**：开发阶段使用本地环境与 staging，production 可以提前准备隔离资源映射、配置声明及本地构建 / dry-run。所有 v1 主要功能（认证与管理、片库与播放、进度/片单/讨论、备份与恢复）开发完成且相关测试和 staging 验收通过后，才在第六阶段补齐 production 上线配置与 Secrets，执行正式迁移、部署及上线验收；这些操作仍需站长明确授权。production 未上线不作为工程基础或第三至第五阶段未完成的依据。
 - D1 利用 Time Travel 功能，可以恢复到最近 30 天内的任意时间点。
 - 备份先调用 D1 导出 API 并存入私有 R2，再加密供直接下载或上传 WebDAV / S3。配置完整的 WebDAV 或 S3 目标后，站长可在网页设定自动备份频率和执行时间，由 Worker 定时入口执行；没有外部目标时仅支持手动备份，不启用定时备份。导出包含密码哈希和 TOTP 密钥，必须加密后才能离开 Cloudflare。备份默认保留 30 天。

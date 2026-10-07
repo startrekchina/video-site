@@ -5,6 +5,7 @@ import { accountHttp } from "../app/lib/account.server";
 import { invitationsHttp } from "../app/lib/invitations.server";
 import { adminHttp } from "../app/lib/admin.server";
 import { playbackHttp } from "../app/lib/playback.server";
+import { mediaSyncCron, syncMedia } from "../app/lib/media-sync.server";
 
 declare module "react-router" {
   export interface AppLoadContext {
@@ -24,6 +25,9 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 export default {
+  async scheduled(controller, env) {
+    if (controller.cron === mediaSyncCron) await syncMedia(env);
+  },
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
     const auth = path.startsWith("/api/auth/") || path === "/auth/register" || path === "/account/email-confirm";

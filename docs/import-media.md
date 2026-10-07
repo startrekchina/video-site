@@ -1,26 +1,49 @@
-# 离线导入预检
+# 资料占位与 R2 自动关联
 
-T4.1 的本地预检工具在 802b 从已提交的 `896156b` 基点重新实现。当前只能检查输入、生成内存中的 VTT 和读取 TMDB 资料；**完整导入尚未实现**，`import` 子命令退出码为 2，不执行云端写入。
+站长先初始化 manifest 范围的全部作品、季和集，再独立把媒体上传到本环境 R2。服务器默认每 5 分钟验证并关联完整对象。网站没有媒体上传或内容管理页面，TMDB key 只存在站长本机。
 
-2026-10-07 站长提出先占位所有剧集、再自动扫描关联 R2 已有资源。资料初始化与媒体关联将分开；资源命名匹配、扫描触发和已有文件验证细则待确定，确认后修订需求 6.8。当前预检 CLI 保留原输入契约，尚未实现资料写入或资源扫描；旧上传入口仍拒绝执行。
+## 资料初始化
 
-工具解释修正：项目导入 CLI 与 Cloudflare 的 cf CLI 是两种工具，原需求没有要求前者内部必须调用后者上传。cf beta.12 的 `r2 objects put` 端点上限 300 MB 且没有 multipart 命令；这项事实不能推导为 R2 不支持分片或扫描关联受阻。此前 cf-only 上传阻塞是对工具链规则的扩大解释；当前脚本中的该旧提示将在新流程确定后移除。资源创建、开发与部署继续遵守 cf 约定；没有执行云端媒体上传。
-
-## 启动
-
-依赖项目所要求的 Node 和 PATH 中的 FFmpeg（含 `ffprobe`）。在仓库根目录执行：
+项目要求 Node 22.18 或更新版本。配置目标资源与 `TMDB_API_KEY` 到本工作树被 Git 忽略的 `.env`，然后执行：
 
 ```powershell
-pnpm install --frozen-lockfile
-node scripts/import-media.mjs --help
-node scripts/import-media.mjs preflight --environment staging --mapping .cloudflare/import/mapping.json
+node scripts/import-media.mjs catalog --environment staging
+node scripts/import-media.mjs catalog --environment staging --execute
 ```
 
-目标必须显式为 `staging` 或 `prod`，并与映射中的环境一致。默认只读取当前工作树的 `.env`，同名 shell 变量优先；指定 `--env-file <文件>` 时只使用该文件内变量，避免混入 shell 中其他环境的资源。必需变量为 `TMDB_API_KEY` 和目标环境的 `STAGING_D1_DATABASE_ID` / `STAGING_MEDIA_BUCKET_NAME` 或 `PRODUCTION_D1_DATABASE_ID` / `PRODUCTION_MEDIA_BUCKET_NAME`。若另一环境已有配置，资源不得共用。真实配置放在忽略目录，不写入公开仓库。
+第一条只读取 TMDB 并报告数量，第二条先获取并验证完整资料，再通过项目 cf CLI 对 D1 执行一个原子批次。重复执行更新双语资料，保留已有作品/季/单元 ID、媒体实际时长、进度及讨论。TMDB 没有时长时保存 null；没有媒体的占位不获得播放授权。
 
-## 本机映射
+执行写入前，目标数据库须已应用 `0012_catalog_placeholders.sql` 或后续迁移；按 README 的目标环境迁移命令操作，不能把本地迁移完成视为云端已迁移。
 
-映射文件建议放在被忽略的 `.cloudflare/import/`。下例全部是占位资料；`tmdbId` 必须替换为仓库 manifest 中的实际数字身份，资源必须匹配本机所选环境。
+目标必须显式为 `staging` 或 `prod`。必需配置为目标环境的 `STAGING_D1_DATABASE_ID` / `STAGING_MEDIA_BUCKET_NAME` 或 `PRODUCTION_D1_DATABASE_ID` / `PRODUCTION_MEDIA_BUCKET_NAME`，执行时还须具备该环境构建配置和 cf 登录。缺配置、身份歧义、另一环境资源共用、TMDB 失败都会停止；不能默认写 prod。
+
+默认读取当前工作树 `.env`，同名 shell 变量优先；`--env-file <文件>` 仅使用该文件的配置。真实配置不进入公开仓库。需要网络代理时，在进程环境中设置 `HTTPS_PROXY` / `NO_PROXY`，并用 `node --use-env-proxy ...` 启动支持该选项的 Node；工具不更改系统代理。
+
+资料来源为英文详情和对应 translations 接口，中文只读取 `zh-CN` 原始翻译；缺失保留 null，由页面回退英文。作品、季、集、父子身份及翻译身份分别校验；429/5xx/网络错误最多重试两次。标准输出只报告目标环境、状态和数量，不输出 key、资源标识或上游正文。[TMDB 电影翻译](https://developer.themoviedb.org/reference/movie-translations)、[季翻译](https://developer.themoviedb.org/reference/tv-season-translations)、[集翻译](https://developer.themoviedb.org/reference/tv-episode-translations)是资料来源。
+
+## 固定命名与扫描
+
+下例为虚构身份，展示逻辑命名格式，不是真实桶地址：
+
+```text
+library/series/800002/S02/E03.mp4
+library/series/800002/S02/E03.zh-CN.main.vtt
+library/series/800002/S02/E03.en.main.vtt
+library/movie/800001/movie.mp4
+library/movie/800001/movie.zh.main.vtt
+```
+
+季/集号至少两位，无多余前导零；语言为 zh/en 及可选地区，轨道标识稳定。D1 字幕标识为 `language.trackKey`，因此不同语言的 main 不冲突。范围外、没有占位或命名错误的对象跳过；不猜片名。站长的上传工具负责 multipart 和断点恢复，扫描只读取已完成对象，不提供上传替代命令。
+
+Worker 的 staging / production 配置声明 `*/5 * * * *` Cron，通过当前环境 R2 binding 扫描。默认每页 1000 项，每次最多验证 20 个新/变更对象、6 分钟窗口；D1 保存最后处理对象键及互斥租约。已发布且 ETag/长度未变的对象跳过完整校验。失败或冲突对象在下一轮完整扫描重试，后续对象可以继续处理。
+
+MP4 须为 faststart、单 H.264 视频轨与 AAC 音轨。服务器有界读取元数据（最多 32 MiB），核对 box 边界、时长和码率，再流式计算整个文件长度及 SHA-256；不把大视频整体读入内存。VTT 最大 5 MiB，验证 UTF-8、头、cue 时间、设置、安全标签和实体，拒绝 STYLE/REGION。验证前后复核对象版本；期间变化不发布。
+
+关联 MP4 时，实际时长和媒体记录在同一 D1 批次提交。失败保留完整 R2 对象供重试；相同单元/轨道却不同校验和报冲突，不覆盖旧引用。缺失或已验证版本被替换时，播放入口返回脱敏 404；不会把新字节当成已验证片源。扫描没有删除或自动替换能力。
+
+## 可选本机媒体预检
+
+本机需要 PATH 上的 FFmpeg（含 ffprobe）。将映射放在被忽略的目录：
 
 ```json
 {
@@ -29,46 +52,32 @@ node scripts/import-media.mjs preflight --environment staging --mapping .cloudfl
     "d1DatabaseId": "00000000-0000-4000-8000-000000000001",
     "mediaBucketName": "fictional-staging-media"
   },
-  "media": [
-    {
-      "kind": "series",
-      "tmdbId": 800002,
-      "seasonNumber": 2,
-      "episodeNumber": 3,
-      "videoPath": "./episode.mp4",
-      "subtitles": [
-        {
-          "language": "zh-CN",
-          "displayName": "简体中文",
-          "trackKey": "zh-main",
-          "sourcePath": "./subtitle.ass"
-        }
-      ]
-    }
-  ]
+  "media": [{
+    "kind": "series", "tmdbId": 800002,
+    "seasonNumber": 2, "episodeNumber": 3,
+    "videoPath": "./episode.mp4",
+    "subtitles": [{"language": "zh-CN", "displayName": "简体中文", "trackKey": "main", "sourcePath": "./subtitle.ass"}]
+  }]
 }
 ```
 
-媒体路径相对于映射文件。电影使用 `kind: "movie"`，没有季号、集号；没有字幕时 `subtitles: []`。同一单元只能指定一个视频，轨道使用唯一的稳定 `trackKey`，语言限中文或英文。空 `media` 数组可只预检 manifest 资料。映射不能包含 API key 或其他未声明字段，不靠文件名猜身份。
+```powershell
+node scripts/import-media.mjs preflight --environment staging --mapping .cloudflare/import/mapping.json
+```
 
-## 已实现的检查
+媒体路径相对映射文件；电影没有季集号，没有字幕时使用空数组。检查 manifest 的类型/季集身份、JPG→存在的 WebP 映射、ffprobe 编码/时长/码率、faststart 和流式校验和。ASS 转 VTT 只生成内存字节并警告样式丢失；站长须自行保存合格 VTT 后上传。报告移除本机路径和配置，`cloudWrites` 恒为 0。旧 `import` 上传命令退出码为 2，不执行写入。
 
-- manifest 以 TMDB 类型、作品 ID、季号确认范围，季必须有所属作品；`.jpg` 原图名映射到存在于静态素材目录的 WebP 海报，不上传海报。
-- MP4 使用 ffprobe 核对容器、H.264/AAC、时长和码率，独立解析顶层 box 验证完整边界与 `moov` 在 `mdat` 前；流式计算长度和 SHA-256，检查预检期间文件是否变化。不合格文件报告文件名及原因，要求先转码。
-- VTT 验证 UTF-8、头、cue 时间、设置、受限安全标签与实体；目前拒绝 STYLE/REGION。ASS 由本机 FFmpeg 转 VTT，明确警告字体、定位等样式丢失，转后同样验证。转换字节只在内存中，不保存或发布 ASS。
-- TMDB 英文详情和对应 translations 接口分别读取，中文只使用 `zh-CN` 原始翻译；中文不存在时保留 null，展示可回退英文。作品、季与集的身份及翻译身份交叉核对。网络错误、429、5xx 最多重试两次，失败不产生可写入资料；不输出 key、上游正文或原始错误。[官方电影翻译接口](https://developer.themoviedb.org/reference/movie-translations)、[季翻译接口](https://developer.themoviedb.org/reference/tv-season-translations)、[集翻译接口](https://developer.themoviedb.org/reference/tv-episode-translations)是资料来源。
+本机保存转换结果可用 `ffmpeg -i subtitle.ass subtitle.zh.main.vtt`，再用 VTT 路径重新预检；字体、定位等 ASS 样式不会保留。
 
-标准错误输出目标环境和失败说明；标准输出为 JSON 预检报告，包含公开逻辑 ID、双语资料、媒体属性、字幕校验和及警告，`status` 固定为 `preflight-only`、`cloudWrites` 与 `imported` 固定为 0。不输出本机路径、D1 ID、桶名或 key。该报告不是导入完成凭证。
-
-## 验证边界
+## 验证与当前边界
 
 ```powershell
 pnpm test:tools
 pnpm test
 pnpm typecheck
-pnpm build
+pnpm build:staging
 ```
 
-工具测试使用临时虚构 manifest、自生成 H.264/AAC 片段和回环模拟 TMDB，不复制剧集或真实凭证。覆盖两次预检与实际 CLI、环境隔离、显式 env 文件优先、ASS 转换、非法 MP4/VTT、身份冲突、失败与限流重试及报告脱敏。测试需要 FFmpeg。
+测试使用虚构资料、自生成视频和回环模拟 TMDB。真实 TMDB 预检已取得 27 部作品、52 季、974 个单元；本地 scheduled 已关联 121 分钟生成视频，重复扫描没有重复引用。原子 upsert/回滚、依赖保留、格式/版本变化、失败重试、互斥、分页和失败文件后继续扫描均有检查。
 
-`--tmdb-mock-url http://127.0.0.1:<port>/3/` 只允许无凭证的回环 HTTP 服务，发送固定假 key，不向模拟服务发送本机 TMDB key；结果标记 `simulatedTmdb: true`。模拟结果不能证明真实 TMDB 或云端导入通过。上传中断、R2/D1 状态恢复、并发引用及完整对象保留尚未实现/验收，T4.1 整体保持未完成。
+`--tmdb-mock-url http://127.0.0.1:<port>/3/` 仅限回环无凭证 HTTP，使用固定假 key，禁止搭配 `--execute`；模拟结果不作为云端验收。staging 构建/dry-run 通过，但 cf beta.12 因既有 Worker 的脚本 API 更新记录拒绝上传，尚未进行本阶段云端迁移、占位和扫描验收。真实手机及两小时 staging 播放状态见 [第四阶段记录](screenshots/phase4/README.md)。

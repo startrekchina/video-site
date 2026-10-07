@@ -12,9 +12,9 @@ beforeEach(async () => {
   try { await member("Kepler"); cookie = await login("Kepler"); } finally { vi.unstubAllGlobals(); }
   const protection = await csrf(cookie); cookie = protection.cookie; csrfToken = protection.token;
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',20,'hash',4,'h264','aac',100)"),
-    env.DB.prepare("INSERT INTO subtitle_tracks VALUES ('zh','episode-unit','zh','vtt','中文','zh','fictional-private-subtitle',8,'hash')"),
-    env.DB.prepare("INSERT INTO subtitle_tracks VALUES ('foreign','movie-unit','en','vtt','English','en','fictional-foreign-subtitle',8,'hash')"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',20,'hash',4,'h264','aac',100,NULL)"),
+    env.DB.prepare("INSERT INTO subtitle_tracks VALUES ('zh','episode-unit','zh','vtt','中文','zh','fictional-private-subtitle',8,'hash',NULL)"),
+    env.DB.prepare("INSERT INTO subtitle_tracks VALUES ('foreign','movie-unit','en','vtt','English','en','fictional-foreign-subtitle',8,'hash',NULL)"),
   ]);
   await env.MEDIA_BUCKET.put("fictional-private-object", "0123456789abcdefghij", { httpMetadata: { contentType: "video/mp4", cacheControl: "public" } });
   await env.MEDIA_BUCKET.put("fictional-private-subtitle", "WEBVTT\n\n");
@@ -87,6 +87,10 @@ it("implements full GET/HEAD/Range/If-Range and private headers over real R2 byt
   const mismatch = await http(url, { headers: { Range: "bytes=0-1", "If-Range": '"wrong"' } }); expect(mismatch.status).toBe(200); expect(await bytesText(mismatch)).toHaveLength(20);
   expect((await http(url, { method: "POST" })).status).toBe(405);
   const denied = await exports.default.fetch(`http://localhost:6120${url}`, { method: "HEAD" }); expect(denied.status).toBe(401); expect(denied.headers.has("Content-Length")).toBe(false);
+  const version = (await env.MEDIA_BUCKET.head("fictional-private-object"))!.etag;
+  await env.DB.prepare("UPDATE media_files SET r2_etag = ?").bind(version).run();
+  await env.MEDIA_BUCKET.put("fictional-private-object", "same-length-change!!");
+  expect((await http(url)).status).toBe(404);
 });
 
 it("enforces exact concurrent signing quota and CSRF without charging media requests", async () => {

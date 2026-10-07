@@ -1,12 +1,14 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { MenuIcon, MoonStarIcon, SunMediumIcon } from "lucide-react";
-import { Link, NavLink, useLocation } from "react-router";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { MenuIcon, MoonStarIcon, SearchIcon, SunMediumIcon } from "lucide-react";
+import { Form, Link, NavLink, useLocation } from "react-router";
 import { useHotkey } from "@/lib/hotkeys";
 import { toggleTheme, useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ThemeSwitcher } from "@/components/ui/theme-switcher";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { BottomRuler } from "./bottom-ruler";
 import { ScrollToTop } from "./scroll-to-top";
 import { SiteMark } from "./site-mark";
@@ -24,11 +26,12 @@ function Navigation({ items, onNavigate }: { items: readonly NavigationItem[]; o
   ));
 }
 
-function BottomNav({ items }: { items: readonly NavigationItem[] }) {
+function BottomNav({ items, onSearch }: { items: readonly NavigationItem[]; onSearch: () => void }) {
   const [open, setOpen] = useState(false);
   if (!items.length) return null;
   return (
-    <div className="fixed bottom-[calc(--spacing(2)+env(safe-area-inset-bottom,0px))] left-1/2 z-50 -translate-x-1/2 rounded-xl bg-popover p-1 shadow-md ring ring-foreground/10 lg:hidden dark:ring-foreground/20">
+    <div className="fixed bottom-[calc(--spacing(2)+env(safe-area-inset-bottom,0px))] left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-xl bg-popover p-1 shadow-md ring ring-foreground/10 lg:hidden dark:ring-foreground/20">
+      <Button variant="ghost" size="icon-sm" aria-label="搜索作品" onClick={onSearch}><SearchIcon /></Button>
       <Popover open={open} onOpenChange={setOpen} modal>
         <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="菜单"><MenuIcon /></Button>} />
         <PopoverContent className="w-48 rounded-xl p-3" side="top" sideOffset={8}>
@@ -43,8 +46,12 @@ function BottomNav({ items }: { items: readonly NavigationItem[] }) {
 export function SiteShell({ children, memberNavigation }: { children: ReactNode; memberNavigation?: readonly NavigationItem[] }) {
   const theme = useTheme();
   const tone = useHeaderTone();
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
   const { pathname } = useLocation();
   useHotkey("d", toggleTheme);
+  useHotkey("k", () => setSearchOpen(open => !open), { mod: true, enabled: Boolean(memberNavigation) });
+  useHotkey("/", () => setSearchOpen(true), { enabled: Boolean(memberNavigation) });
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
   return (
     <div className="group/layout relative isolate content-frame has-data-[slot=auth-frame]:flex has-data-[slot=auth-frame]:min-h-svh has-data-[slot=auth-frame]:flex-col">
@@ -57,6 +64,7 @@ export function SiteShell({ children, memberNavigation }: { children: ReactNode;
             <Navigation items={memberNavigation ?? guestNavigation} />
           </nav>
           <div className="flex items-center gap-2">
+            {memberNavigation && <Button variant="ghost" size="icon-sm" className="max-lg:hidden" aria-label="搜索作品" title="搜索作品（Ctrl/⌘ K 或 /）" onClick={() => setSearchOpen(true)}><SearchIcon /></Button>}
             {!memberNavigation && pathname !== "/login" && <Button variant="secondary" size="sm" nativeButton={false} render={<Link to="/login" />}>登录</Button>}
             <Button variant="ghost" size="icon-sm" aria-label="切换深浅色" title="切换深浅色（D）" onClick={toggleTheme}>
               {theme === "dark" ? <SunMediumIcon /> : <MoonStarIcon />}
@@ -80,7 +88,11 @@ export function SiteShell({ children, memberNavigation }: { children: ReactNode;
         <div className="h-(--fade-bottom-height) bg-linear-to-b from-transparent to-background mask-linear-[to_top,var(--background)_25%,transparent] backdrop-blur-[1px]" />
         <div className="bg-background pb-[env(safe-area-inset-bottom,0px)]" /><BottomRuler />
       </div>
-      <BottomNav items={memberNavigation ?? []} />
+      <BottomNav items={memberNavigation ?? []} onSearch={() => setSearchOpen(true)} />
+      {memberNavigation && <Dialog open={searchOpen} onOpenChange={setSearchOpen}><DialogContent initialFocus={searchInput} className="top-[12svh] translate-y-0!">
+        <DialogHeader><DialogTitle>搜索作品</DialogTitle><DialogDescription>按中文或英文作品名搜索剧集和电影。</DialogDescription></DialogHeader>
+        <Form method="get" action="/search" className="flex gap-2" onSubmit={() => setSearchOpen(false)}><Input ref={searchInput} name="q" aria-label="作品名" placeholder="输入作品名…" maxLength={100} required /><Button type="submit">搜索</Button></Form>
+      </DialogContent></Dialog>}
       <ScrollToTop />
     </div>
   );

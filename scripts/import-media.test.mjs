@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, before, test } from "node:test";
 import { promisify } from "node:util";
-import { inspectMp4, preflight, report, validateVtt } from "./import-media.mjs";
+import { DatabaseSync } from "node:sqlite";
+import { catalogQueries, inspectMp4, preflight, report, validateVtt } from "./import-media.mjs";
 
 let directory, repository, server, base, movieVideo, seriesVideo, mappingPath;
 let mode = "normal", calls = [];
@@ -151,7 +152,7 @@ test("missing/duplicate manifest identities and missing JPG to WebP assets", asy
 test("CLI help and blocked import do not read private config or write cloud resources", () => {
   const cli = resolve("scripts/import-media.mjs");
   assert.match(execFileSync(process.execPath, [cli, "--help"], { encoding: "utf8" }), /仅预检/u);
-  assert.throws(() => execFileSync(process.execPath, [cli, "import", "--environment", "prod", "--mapping", "missing.json"], { stdio: "pipe" }), error => error.status === 2 && !error.stdout.length && /multipart/u.test(error.stderr.toString()));
+  assert.throws(() => execFileSync(process.execPath, [cli, "import", "--environment", "prod", "--mapping", "missing.json"], { stdio: "pipe" }), error => error.status === 2 && !error.stdout.length && /catalog/u.test(error.stderr.toString()));
   assert.throws(() => execFileSync(process.execPath, [cli, "preflight", "--environment", "staging", "--environment", "prod"], { stdio: "pipe" }), error => error.status === 1 && /重复/u.test(error.stderr.toString()));
 });
 
@@ -160,6 +161,8 @@ test("actual CLI preflight twice: explicit env file wins over conflicting shell 
   await mkdir(scripts);
   const cli = join(scripts, "import-media.mjs");
   await writeFile(cli, await readFile(resolve("scripts/import-media.mjs")));
+  await mkdir(join(repository, "app/lib"), { recursive: true });
+  await writeFile(join(repository, "app/lib/media-format.ts"), await readFile(resolve("app/lib/media-format.ts")));
   const envFile = join(directory, ".env-test");
   await writeFile(envFile, Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n"));
   await writeFile(mappingPath, JSON.stringify(mapping()));
@@ -170,4 +173,37 @@ test("actual CLI preflight twice: explicit env file wins over conflicting shell 
   assert.equal(JSON.parse(first.stdout).counts.media, 2);
   assert.match(first.stderr, /目标环境：staging/u);
   assert.ok(!first.stdout.includes(directory));
+});
+
+test("catalog placeholders: all units, stable upserts, actual media duration and atomic rollback", async () => {
+  const input = mapping(); input.media = [];
+  const result = await run(input, { allUnits: true });
+  assert.equal(result.units.length, 2);
+  assert.ok(result.units.every(unit => unit.durationSeconds === null));
+  assert.equal(result.units.find(unit => unit.seasonId).titleZh, "虚构中文标题");
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(await readFile(resolve("migrations/0001_catalog.sql"), "utf8"));
+    db.exec(await readFile(resolve("migrations/0012_catalog_placeholders.sql"), "utf8"));
+    const batch = queries => { db.exec("BEGIN"); try { for (const query of queries) db.prepare(query.sql).run(...query.params); db.exec("COMMIT"); } catch (error) { db.exec("ROLLBACK"); throw error; } };
+    const queries = catalogQueries(result); batch(queries); batch(queries);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM playable_units").get().n, 2);
+    const id = "series_800002_s2_e3";
+    db.prepare("UPDATE playable_units SET duration_seconds=4 WHERE id=?").run(id);
+    db.prepare("INSERT INTO media_files VALUES ('media',?,'mp4','original','fictional.mp4',10,'fictional-checksum',4,'h264','aac',20,NULL)").run(id);
+    result.units.find(unit => unit.seasonId).durationSeconds = 1200;
+    result.units.find(unit => unit.seasonId).titleEn = "Updated name";
+    batch(catalogQueries(result));
+    assert.deepEqual({ ...db.prepare("SELECT id,duration_seconds,title_en FROM playable_units WHERE id=?").get(id) }, { id, duration_seconds: 4, title_en: "Updated name" });
+    assert.equal(db.prepare("SELECT playable_unit_id FROM media_files").get().playable_unit_id, id);
+    const bad = catalogQueries(result); bad[0].params[3] = "Must roll back"; bad.at(-1).params[1] = "invalid-kind";
+    assert.throws(() => batch(bad));
+    assert.equal(db.prepare("SELECT title_zh FROM works WHERE kind='movie'").get().title_zh, null);
+    assert.equal(db.prepare("PRAGMA foreign_key_check").all().length, 0);
+  } finally { db.close(); }
+  const cli = join(repository, "scripts/import-media.mjs"), envFile = join(directory, ".env-test");
+  const output = await promisify(execFile)(process.execPath, [cli, "catalog", "--environment", "staging", "--env-file", envFile, "--tmdb-mock-url", base], { encoding: "utf8", windowsHide: true });
+  assert.deepEqual(JSON.parse(output.stdout).counts, { works: 2, seasons: 1, units: 2 });
+  assert.equal(JSON.parse(output.stdout).cloudWrites, 0);
+  assert.ok(!output.stdout.includes(env.STAGING_D1_DATABASE_ID));
 });

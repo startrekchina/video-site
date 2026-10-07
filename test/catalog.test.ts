@@ -8,7 +8,7 @@ it("maps named public data, literal bilingual search, seasons, unavailable media
   await seedCatalog(env.DB);
   await env.DB.batch([
     env.DB.prepare("UPDATE works SET title_zh = NULL, poster_asset = '/private/file' WHERE id = 'series'"),
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',4,'hash',4,'h264','aac',100)"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',4,'hash',4,'h264','aac',100,NULL)"),
     env.DB.prepare("INSERT INTO watch_progress VALUES ('nova','episode-unit',2,0,100,1)"),
   ]);
   const list = await catalog(env.DB, "nova"), work = list.find(work => work.slug === "series")!;
@@ -28,16 +28,16 @@ it("returns only configured first episodes with actual MP4 sources for a member 
   expect(homeStages(await catalog(env.DB, "nova")).items).toEqual([]);
   await env.DB.batch([
     env.DB.prepare("UPDATE works SET tmdb_id = 103516 WHERE id = 'series'"),
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',4,'hash',4,'h264','aac',100)"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',4,'hash',4,'h264','aac',100,NULL)"),
   ]);
   expect(homeStages(await catalog(env.DB, "nova"))).toMatchObject({ label: "推荐起点", items: [{ unit: { id: "episode-unit" } }] });
 });
 
 it("protects all catalog pages and their loader requests independently and keeps guest landing free of catalog data", async () => {
   await seedCatalog(env.DB);
-  for (const path of ["/series", "/movies", "/title/series", "/watch/episode-unit", "/series.data"]) {
+  for (const path of ["/series", "/movies", "/search?q=Survey", "/title/series", "/watch/episode-unit", "/series.data", "/search.data?q=Survey"]) {
     const response = await exports.default.fetch(`http://localhost:6120${path}`, { redirect: "manual" });
-    expect(path.endsWith(".data") ? [202] : [302]).toContain(response.status);
+    expect(path.includes(".data") ? [202] : [302]).toContain(response.status);
     if (response.status === 302) expect(response.headers.get("Location")).toContain("/login?next=");
     expect(await response.text()).not.toContain("Fictional Survey");
   }
@@ -48,5 +48,9 @@ it("protects all catalog pages and their loader requests independently and keeps
     await member("Kepler"); const cookie = await login("Kepler");
     const response = await exports.default.fetch("http://localhost:6120/title/series", { headers: { Cookie: cookie } });
     expect(response.status).toBe(200); expect(await response.text()).toContain("虚构勘测队");
+    const results = await exports.default.fetch("http://localhost:6120/search", { headers: { Cookie: cookie } });
+    expect(results.status).toBe(200); expect(await results.text()).toContain("Signal Test");
+    const search = await exports.default.fetch("http://localhost:6120/search?q=Survey", { headers: { Cookie: cookie } });
+    const content = await search.text(); expect(search.status).toBe(200); expect(content).toContain("虚构勘测队"); expect(content).not.toContain("Signal Test");
   } finally { vi.unstubAllGlobals(); }
 }, 60000);

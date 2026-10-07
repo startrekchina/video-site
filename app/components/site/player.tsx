@@ -53,5 +53,5 @@ export function Player({ unitId, authorization, csrfToken, startSeconds }: { uni
     }).catch(() => setMessage("播放器加载失败，请刷新后重试。"));
     return () => { disposed = true; renewal?.stop(); art?.destroy(false); };
   }, [unitId]);
-  return <div><div className="relative aspect-video max-h-[70svh] bg-zinc-950 text-white"><div ref={container} className="size-full" /></div>{message && <div className="flex flex-wrap items-center gap-3 p-4" role="status"><p>{message}</p><Button size="sm" onClick={() => retry.current()}>重试播放凭证</Button></div>}</div>;
+  return <div className="max-sm:[&_.art-control-pip]:hidden! max-sm:[&_.art-control-fullscreenWeb]:hidden!"><div className="relative aspect-video max-h-[70svh] bg-zinc-950 text-white"><div ref={container} className="size-full" /></div>{message && <div className="flex flex-wrap items-center gap-3 p-4" role="status"><p>{message}</p><Button size="sm" onClick={() => retry.current()}>重试播放凭证</Button></div>}</div>;
 }

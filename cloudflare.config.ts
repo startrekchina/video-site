@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { bindings, defineConfig } from "cf/config";
+import { bindings, defineConfig, triggers } from "cf/config";
 import * as entrypoint from "./workers/app.ts" with { type: "cf-worker" };
 
 // `react-router build` does not load .env into process.env; `cf` does. Load it here for both.
@@ -78,6 +78,7 @@ export default defineConfig(({ mode = "development" }) => {
       domains: mode === "staging" || mode === "production" ? [new URL(e.appOrigin).hostname] : [],
       workersDev: false,
       previewUrls: false,
+      triggers: mode === "staging" || mode === "production" ? [triggers.scheduled({ schedule: "*/5 * * * *" })] : [],
       observability: {
         enabled: true,
         redactQueryString: true,

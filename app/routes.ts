@@ -4,5 +4,6 @@ export default [index("routes/home.tsx"), route("about", "routes/about.tsx"), ro
   ...["login", "register", "forgot-password", "reset-password", "reset-password/complete", "verify-email", "verify-pending"].map(path => route(path, "routes/auth.tsx", { id: path })),
   route("account", "routes/account.tsx"), route("invites", "routes/invites.tsx"), route("admin", "routes/admin.tsx"),
   route("series", "routes/catalog.tsx", { id: "series" }), route("movies", "routes/catalog.tsx", { id: "movies" }),
+  route("search", "routes/catalog.tsx", { id: "search" }),
   route("title/:id", "routes/title.tsx"), route("watch/:id", "routes/watch.tsx"),
 ] satisfies RouteConfig;

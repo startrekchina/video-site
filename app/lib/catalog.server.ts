@@ -25,7 +25,7 @@ export async function catalog(db: D1Database, userId: string, query = "") {
     EXISTS(SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4') AS playable,
     p.position_seconds, p.completed, p.updated_at, p.revision FROM playable_units u
     LEFT JOIN watch_progress p ON p.playable_unit_id = u.id AND p.user_id = ? ORDER BY u.episode_number, u.id`).bind(userId).all<{
-      id: string; work_id: string; season_id: string | null; episode_number: number | null; tmdb_id: number; title_zh: string | null; title_en: string | null; overview_zh: string | null; overview_en: string | null; duration_seconds: number; playable: number; position_seconds: number | null; completed: number | null; updated_at: number | null; revision: number | null;
+      id: string; work_id: string; season_id: string | null; episode_number: number | null; tmdb_id: number; title_zh: string | null; title_en: string | null; overview_zh: string | null; overview_en: string | null; duration_seconds: number | null; playable: number; position_seconds: number | null; completed: number | null; updated_at: number | null; revision: number | null;
     }>();
   // ponytail: in-memory joins suit the fixed v1 catalog; use indexed/grouped queries if the catalog grows.
   return works.results.map(row => {
@@ -33,7 +33,7 @@ export async function catalog(db: D1Database, userId: string, query = "") {
       const season = seasons.results.find(season => season.id === unit.season_id)?.season_number ?? 0;
       return { id: unit.id, number: unit.episode_number ?? 0, seasonNumber: season, tmdbId: unit.tmdb_id,
         titleZh: unit.title_zh, titleEn: unit.title_en, overviewZh: unit.overview_zh, overviewEn: unit.overview_en,
-        durationSeconds: unit.duration_seconds, runtimeMin: unit.duration_seconds / 60, playable: Boolean(unit.playable),
+        durationSeconds: unit.duration_seconds, runtimeMin: unit.duration_seconds === null ? null : unit.duration_seconds / 60, playable: Boolean(unit.playable),
         still: stills.get(`${row.tmdb_id}:${season}:${unit.episode_number}`) ?? null,
         positionSeconds: unit.position_seconds ?? 0, completed: Boolean(unit.completed), updatedAt: unit.updated_at ?? 0, revision: unit.revision ?? 0 };
     };

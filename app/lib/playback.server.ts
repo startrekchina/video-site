@@ -127,11 +127,11 @@ export async function playbackHttp(request: Request, env: Env, ctx: ExecutionCon
   const authorizedMedia = await env.DB.withSession("first-primary").prepare("SELECT id FROM media_files WHERE id = ? AND playable_unit_id = ? AND format = 'mp4'").bind(payload.mediaFileId, payload.playableUnitId).first();
   if (!authorizedMedia) return fail("FORBIDDEN", "PLAYBACK_INVALID", "播放片源已失效。");
   const table = match[1] === "media" ? "media_files" : "subtitle_tracks";
-  const file = await env.DB.withSession("first-primary").prepare(`SELECT id, playable_unit_id, format, object_key, byte_length FROM ${table} WHERE id = ?`).bind(match[2]).first<{ id: string; playable_unit_id: string; format: string; object_key: string; byte_length: number }>();
+  const file = await env.DB.withSession("first-primary").prepare(`SELECT id, playable_unit_id, format, object_key, byte_length, r2_etag FROM ${table} WHERE id = ?`).bind(match[2]).first<{ id: string; playable_unit_id: string; format: string; object_key: string; byte_length: number; r2_etag: string | null }>();
   if (!file || file.playable_unit_id !== payload.playableUnitId || (match[1] === "media" ? file.id !== payload.mediaFileId || file.format !== "mp4" : file.format !== "vtt")) return fail("FORBIDDEN", "PLAYBACK_INVALID", "播放凭证不能访问此资源。");
   if (!["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
   const metadata = await env.MEDIA_BUCKET.head(file.object_key);
-  if (!metadata) { console.info(JSON.stringify({ event: "media_missing", resourceId: file.id })); return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。"); }
+  if (!metadata || file.r2_etag && metadata.etag !== file.r2_etag) { console.info(JSON.stringify({ event: "media_missing", resourceId: file.id })); return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。"); }
   if (metadata.size !== file.byte_length) throw new Error("Media length mismatch");
   const headers = new Headers({ "Content-Type": match[1] === "media" ? "video/mp4" : "text/vtt; charset=utf-8", "Content-Length": String(metadata.size), "Accept-Ranges": "bytes", ETag: metadata.httpEtag, "Last-Modified": metadata.uploaded.toUTCString(), "Cache-Control": "private, no-store", "Content-Encoding": "identity" });
   current.headers.forEach((value, name) => headers.append(name, value));
