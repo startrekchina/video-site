@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownWideNarrowIcon, ArrowUpNarrowWideIcon, ChartNoAxesGanttIcon, LayoutGridIcon, SearchIcon } from "lucide-react";
-import { data, Form, NavLink, useSearchParams, useSubmit } from "react-router";
+import { data, Form, NavLink, useSearchParams, useSubmit, type ShouldRevalidateFunctionArgs } from "react-router";
 import { pageMember } from "@/lib/member.server";
-import { catalog, singleParameter } from "@/lib/catalog.server";
+import { catalogCards, singleParameter } from "@/lib/catalog.server";
+import { presentationNavigation } from "@/lib/catalog";
 import { WorkGrid } from "@/components/site/media";
 import { WorksTimeline } from "@/components/site/works-timeline";
 import { HeadingGap, Page, PageHeading, PageHeadingTagline, PageHeadingTitle } from "@/components/site/panel";
@@ -15,9 +16,11 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const current = await pageMember(request, context.cloudflare.env), url = new URL(request.url);
   const query = singleParameter(url, "q") ?? "";
   const kind = url.pathname === "/search" ? "search" : url.pathname === "/movies" ? "movie" : "series";
-  const works = (await catalog(context.cloudflare.env.DB, current.member.user_id, query)).filter(work => kind === "search" || work.kind === kind);
-  const totals = await context.cloudflare.env.DB.prepare("SELECT kind, count(*) AS n FROM works GROUP BY kind").all<{ kind: string; n: number }>();
-  return data({ works, kind, query, totals: Object.fromEntries(totals.results.map(row => [row.kind, row.n])) }, { headers: current.headers });
+  const { works, totals } = await catalogCards(context.cloudflare.env.DB, current.member.user_id, query, kind === "search" ? null : kind);
+  return data({ works, kind, query, totals }, { headers: current.headers });
+}
+export function shouldRevalidate(args: ShouldRevalidateFunctionArgs) {
+  return !args.formMethod && presentationNavigation(args.currentUrl, args.nextUrl) ? false : args.defaultShouldRevalidate;
 }
 export default function Catalog({ loaderData: { works, kind, query, totals } }: Route.ComponentProps) {
   const [params, setParams] = useSearchParams();

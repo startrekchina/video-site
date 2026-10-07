@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollFadeEffect } from "@/components/ui/scroll-fade-effect"
 import { cn } from "@/lib/utils"
 
-import type { Episode, Work } from "@/lib/catalog"
+import type { Episode, WorkCard } from "@/lib/catalog"
 
 // Home hero (影院): a full-bleed dark stage that breaks out of the column once and sits under a
 // transparent header. Stills are out of scope for v1, so the backdrop is the item's own poster,
@@ -37,12 +37,12 @@ function timecode(seconds: number) {
   const s = Math.max(0, Math.round(seconds)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), tail = String(s % 60).padStart(2, "0");
   return h ? `${h}:${String(m).padStart(2, "0")}:${tail}` : `${m}:${tail}`;
 }
-function makeStages(items: { work: Work; unit: Episode; why?: string }[]): Stage[] {
+function makeStages(items: { work: WorkCard; unit: Episode; why?: string }[]): Stage[] {
   return items.map(({ work, unit, why }) => ({ key: unit.id, poster: work.poster,
     eyebrow: [why ? "欢迎登舰" : "继续观看", work.code || "电影", work.year].filter(Boolean).join(" · "), title: work.titleZh,
     sub: why || [work.kind === "series" ? episodeCode(unit) : "", unit.titleZh || unit.titleEn].filter(Boolean).join(" · "), overview: (why ? work.overviewZh || work.overviewEn : unit.overviewZh || unit.overviewEn || work.overviewZh || work.overviewEn) || "简介暂缺",
     frac: unit.positionSeconds && unit.durationSeconds ? unit.positionSeconds / unit.durationSeconds : null,
-    meta: why ? work.kind === "series" ? `${work.seasons.length} 季 · ${work.units.length} 集` : formatRuntime(work.runtimeMin) : unit.durationSeconds === null ? "时长暂缺" : `${timecode(unit.positionSeconds)} / ${timecode(unit.durationSeconds)} · 剩余 ${Math.max(0, Math.round((unit.durationSeconds - unit.positionSeconds) / 60))} 分钟`,
+    meta: why ? work.kind === "series" ? `${work.seasonCount} 季 · ${work.episodeCount} 集` : formatRuntime(work.runtimeMin) : unit.durationSeconds === null ? "时长暂缺" : `${timecode(unit.positionSeconds)} / ${timecode(unit.durationSeconds)} · 剩余 ${Math.max(0, Math.round((unit.durationSeconds - unit.positionSeconds) / 60))} 分钟`,
     note: unit.updatedAt ? new Date(unit.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "",
     thumb: [work.code || "电影", work.kind === "series" && !why ? episodeCode(unit) : String(work.year ?? "")],
     primary: { label: why ? "播放第 1 集" : "继续播放", to: "/watch/" + unit.id },
@@ -122,7 +122,7 @@ function Scale({ label, stages, index, onPick }: { label: string; stages: Stage[
   )
 }
 
-export function HeroTheatre({ items, label }: { items: { work: Work; unit: Episode; why?: string }[]; label: string }) {
+export function HeroTheatre({ items, label }: { items: { work: WorkCard; unit: Episode; why?: string }[]; label: string }) {
   const stages = makeStages(items)
   const [selected, setSelected] = useState(0)
   const [announce, setAnnounce] = useState("")

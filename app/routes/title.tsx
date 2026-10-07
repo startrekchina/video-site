@@ -1,7 +1,7 @@
 import { data, Link } from "react-router";
 import { ArrowLeftIcon, ArrowRightIcon, CalendarIcon, CircleCheckIcon, ClockIcon, DatabaseIcon, LayersIcon, PlayIcon } from "lucide-react";
 import { pageMember } from "@/lib/member.server";
-import { catalog, singleParameter } from "@/lib/catalog.server";
+import { catalog, catalogSummary, singleParameter } from "@/lib/catalog.server";
 import { displayTitle, episodeCode, formatRuntime, resumeTarget, workProgress } from "@/lib/catalog";
 import { EpisodeStill } from "@/components/site/episode-still";
 import { Poster, ProgressBar, WatchedBadge } from "@/components/site/media";
@@ -14,13 +14,14 @@ import type { Episode } from "@/lib/catalog";
 import type { Route } from "./+types/title";
 export async function loader({ request, params, context }: Route.LoaderArgs) {
   const current = await pageMember(request, context.cloudflare.env);
-  const works = await catalog(context.cloudflare.env.DB, current.member.user_id), index = works.findIndex(work => work.slug === params.id);
-  if (index < 0) throw new Response(null, { status: 404 });
-  const work = works[index], raw = singleParameter(new URL(request.url), "season");
+  const [works, summary] = await Promise.all([catalog(context.cloudflare.env.DB, current.member.user_id, "", { workId: params.id }), catalogSummary(context.cloudflare.env.DB)]);
+  const work = works[0];
+  if (!work) throw new Response(null, { status: 404 });
+  const raw = singleParameter(new URL(request.url), "season");
   const number = raw === null ? work.seasons[0]?.number : /^\d+$/u.test(raw) ? Number(raw) : NaN;
   const season = work.seasons.find(season => season.number === number);
   if (raw !== null && !season) throw new Response(null, { status: 400 });
-  const same = works.filter(candidate => candidate.kind === work.kind), at = same.findIndex(candidate => candidate.slug === work.slug);
+  const same = summary.works.filter(candidate => candidate.kind === work.kind), at = same.findIndex(candidate => candidate.slug === work.slug);
   return data({ work, season, previous: same[at - 1]?.slug, previousTitle: same[at - 1]?.titleZh, next: same[at + 1]?.slug, nextTitle: same[at + 1]?.titleZh }, { headers: current.headers });
 }
 export function DetailTop({ back, backLabel, title, children }: { back: string; backLabel: string; title: React.ReactNode; children?: React.ReactNode }) {

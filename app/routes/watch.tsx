@@ -16,7 +16,7 @@ import { DetailTop, Overview, StepLink } from "./title";
 import type { Route } from "./+types/watch";
 export async function loader({ request, params, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env, current = await pageMember(request, env);
-  const works = await catalog(env.DB, current.member.user_id), work = works.find(work => work.units.some(unit => unit.id === params.id)), unit = work?.units.find(unit => unit.id === params.id);
+  const works = await catalog(env.DB, current.member.user_id, "", { unitId: params.id }), work = works[0], unit = work?.units.find(unit => unit.id === params.id);
   if (!work || !unit) throw new Response(null, { status: 404 });
   const headers = new Headers(current.headers);
   const authorization = unit.playable ? await authorizePlayback(request, env, unit.id, headers) : null;

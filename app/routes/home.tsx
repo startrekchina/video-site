@@ -1,6 +1,7 @@
 import { data } from "react-router";
 import { currentMember } from "@/lib/member.server";
 import { catalog, homeStages } from "@/lib/catalog.server";
+import { workCard } from "@/lib/catalog";
 import { GuestStarChart } from "@/components/site/guest-home/star-chart";
 import { HeroTheatre } from "@/components/site/theatre";
 import { WorkGrid } from "@/components/site/media";
@@ -9,8 +10,9 @@ import type { Route } from "./+types/home";
 export async function loader({ request, context }: Route.LoaderArgs) {
   const current = await currentMember(request, context.cloudflare.env);
   if (!current) return data({ works: null, stage: null });
-  const works = await catalog(context.cloudflare.env.DB, current.member.user_id);
-  return data({ works, stage: homeStages(works) }, { headers: current.headers });
+  const works = await catalog(context.cloudflare.env.DB, current.member.user_id, "", { home: true });
+  const stage = homeStages(works);
+  return data({ works: works.map(workCard), stage: { ...stage, items: stage.items.map(item => ({ ...item, work: workCard(item.work) })) } }, { headers: current.headers });
 }
 export default function Home({ loaderData: { works, stage } }: Route.ComponentProps) {
   if (!works || !stage) return <GuestStarChart />;

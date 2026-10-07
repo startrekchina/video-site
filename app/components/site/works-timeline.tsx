@@ -1,6 +1,6 @@
 import { Link } from "react-router"
 
-import type { Work } from "@/lib/catalog"
+import type { WorkCard } from "@/lib/catalog"
 import { cn } from "@/lib/utils"
 import {
   TimescaleAge,
@@ -18,7 +18,7 @@ import {
 
 import { Poster } from "./media"
 
-function Timeline({ works, ...props }: { works: Work[] } & React.ComponentProps<typeof TimescaleRoot>) {
+function Timeline({ works, ...props }: { works: WorkCard[] } & React.ComponentProps<typeof TimescaleRoot>) {
   const series = works[0]?.kind === "series"
   return (
     <TimescaleRoot {...props}>
@@ -49,7 +49,7 @@ function Timeline({ works, ...props }: { works: Work[] } & React.ComponentProps<
                     <span className="font-medium text-balance">{w.titleZh}</span>
                     <span className="text-xs text-muted-foreground">{w.titleEn}</span>
                     <span className="mt-auto font-mono text-xs text-muted-foreground">
-                      {w.kind === "series" ? `${w.seasons.length} 季` : w.runtimeMin ? `${w.runtimeMin} 分钟` : null}
+                      {w.kind === "series" ? `${w.seasonCount} 季` : w.runtimeMin ? `${w.runtimeMin} 分钟` : null}
                     </span>
                   </div>
                 </Link>
@@ -63,7 +63,7 @@ function Timeline({ works, ...props }: { works: Work[] } & React.ComponentProps<
 }
 
 /** Works plotted by premiere year; horizontal on desktop, vertical on phones (after chanhdai.com/timeline). */
-export function WorksTimeline({ works, sweep, className }: { works: Work[]; sweep?: boolean; className?: string }) {
+export function WorksTimeline({ works, sweep, className }: { works: WorkCard[]; sweep?: boolean; className?: string }) {
   return (
     <div className={cn("screen-line-top screen-line-bottom", className)}>
       <div className="h-3" />

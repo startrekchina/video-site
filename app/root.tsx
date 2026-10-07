@@ -1,10 +1,11 @@
-import { data, isRouteErrorResponse, Link, Links, Meta, Outlet, Scripts, ScrollRestoration, useRouteLoaderData } from "react-router";
+import { data, isRouteErrorResponse, Link, Links, Meta, Outlet, Scripts, ScrollRestoration, useRouteLoaderData, type ShouldRevalidateFunctionArgs } from "react-router";
 import type { Route } from "./+types/root";
 import { SiteShell } from "@/components/site/site-shell";
 import { NotFoundPage } from "@/components/site/not-found";
 import { themeInitScript } from "@/lib/theme";
 import { currentMember } from "@/lib/member.server";
 import { catalogSummary } from "@/lib/catalog.server";
+import { presentationNavigation } from "@/lib/catalog";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Page } from "@/components/site/panel";
@@ -37,6 +38,9 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const current = await currentMember(request, context.cloudflare.env);
   return data({ member: current ? { username: current.member.displayUsername || current.member.username, role: current.member.role } : null,
     catalog: current ? await catalogSummary(context.cloudflare.env.DB) : null }, { headers: current?.headers });
+}
+export function shouldRevalidate(args: ShouldRevalidateFunctionArgs) {
+  return !args.formMethod && presentationNavigation(args.currentUrl, args.nextUrl) ? false : args.defaultShouldRevalidate;
 }
 
 export default function App({ loaderData }: Route.ComponentProps) {

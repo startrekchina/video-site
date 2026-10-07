@@ -2,7 +2,7 @@ import type React from "react"
 import { CheckIcon } from "lucide-react"
 import { Link } from "react-router"
 
-import { formatRuntime, type Work } from "@/lib/catalog"
+import { formatRuntime, type WorkCard } from "@/lib/catalog"
 import { workProgress } from "@/lib/catalog"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -41,7 +41,7 @@ export function WatchedBadge({ className }: { className?: string }) {
 }
 
 /** Grid tile used in catalog sections, after the reference PostItem: padded, hover wash, greyscale until hover on fine pointers. */
-export function WorkTile({ work, className, loading }: { work: Work; className?: string; loading?: "eager" | "lazy" }) {
+export function WorkTile({ work, className, loading }: { work: WorkCard; className?: string; loading?: "eager" | "lazy" }) {
   const p = workProgress(work)
   const fav = work.favorite
   const frac = p.total ? p.watched / p.total : 0
@@ -75,7 +75,7 @@ export function WorkTile({ work, className, loading }: { work: Work; className?:
         </h3>
         <p className="text-sm text-muted-foreground">
           {work.year}
-          {work.kind === "series" ? ` · ${work.seasons.length} 季` : work.runtimeMin ? ` · ${formatRuntime(work.runtimeMin)}` : ""}
+          {work.kind === "series" ? ` · ${work.seasonCount} 季` : work.runtimeMin ? ` · ${formatRuntime(work.runtimeMin)}` : ""}
         </p>
       </div>
     </div>
@@ -89,7 +89,7 @@ const COLS = "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:g
  * a full-bleed rule under every row. `rows` caps it at that many full rows from md up
  * (4, 5 and 6 columns); smaller screens show the md count.
  */
-export function WorkGrid({ works, rows, eager = 0 }: { works: Work[]; rows?: number; eager?: number }) {
+export function WorkGrid({ works, rows, eager = 0 }: { works: WorkCard[]; rows?: number; eager?: number }) {
   const shown = rows ? works.slice(0, rows * 6) : works
   const reveal = (i: number) => (!rows || i < rows * 4 ? "" : i < rows * 5 ? "hidden lg:block" : "hidden xl:block")
   // Rule i (0-based) sits on the right edge of column i; show it only when column i+1 exists.
