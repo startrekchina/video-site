@@ -59,6 +59,38 @@
   }
 }
 
+.typeset-description {
+  font-size: 15px;
+  line-height: 1.7;
+}
+.typeset-description p + p { margin-top: 1em; }
+
+/* Keep ArtPlayer chrome and subtitles aligned with the prototype typography. */
+.art-video-player { font-family: var(--font-sans) !important; }
+.art-video-player .art-subtitle {
+  font-family: var(--font-sans);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9), 0 0 8px rgb(0 0 0 / 0.5);
+}
+.player-surface { container-type: inline-size; }
+@container (max-width: 480px) {
+  .art-control-pip, .art-control-fullscreenWeb { display: none !important; }
+}
+@container (max-width: 360px) {
+  .art-control-volume { display: none !important; }
+}
+@media (max-height: 600px) {
+  [data-watch-page] { padding-top: 12px; }
+  [data-watch-page] h1 { font-size: 1.5rem; line-height: 2rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="dialog-content"], [data-slot="command-dialog-content"],
+  [data-slot="popover-content"], [data-slot="dropdown-menu-content"],
+  [data-slot="tooltip-content"], [data-slot="tabs-indicator"] {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 @utility link-underline {
   @apply underline decoration-current/30 decoration-1 underline-offset-3 transition-colors hover:decoration-current;
 }

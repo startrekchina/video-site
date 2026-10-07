@@ -3,7 +3,7 @@ import { useRef, useState } from "react"
 import { PlayIcon } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 
-import { episodeCode } from "@/lib/catalog"
+import { episodeCode, formatRuntime } from "@/lib/catalog"
 import { useStageHeader } from "@/lib/header-tone"
 import { Poster, ProgressBar } from "@/components/site/media"
 import { Button } from "@/components/ui/button"
@@ -33,16 +33,20 @@ type Stage = {
   secondary: { label: string; to: string }
 }
 
-function makeStages(items: { work: Work; unit: Episode }[]): Stage[] {
-  return items.map(({ work, unit }) => ({ key: unit.id, poster: work.poster,
-    eyebrow: [work.code || "电影", work.year].filter(Boolean).join(" · "), title: work.titleZh,
-    sub: unit.titleZh || unit.titleEn || episodeCode(unit), overview: unit.overviewZh || unit.overviewEn || work.overviewZh || work.overviewEn || "简介暂缺",
+function timecode(seconds: number) {
+  const s = Math.max(0, Math.round(seconds)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), tail = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${tail}` : `${m}:${tail}`;
+}
+function makeStages(items: { work: Work; unit: Episode; why?: string }[]): Stage[] {
+  return items.map(({ work, unit, why }) => ({ key: unit.id, poster: work.poster,
+    eyebrow: [why ? "欢迎登舰" : "继续观看", work.code || "电影", work.year].filter(Boolean).join(" · "), title: work.titleZh,
+    sub: why || [work.kind === "series" ? episodeCode(unit) : "", unit.titleZh || unit.titleEn].filter(Boolean).join(" · "), overview: (why ? work.overviewZh || work.overviewEn : unit.overviewZh || unit.overviewEn || work.overviewZh || work.overviewEn) || "简介暂缺",
     frac: unit.positionSeconds && unit.durationSeconds ? unit.positionSeconds / unit.durationSeconds : null,
-    meta: unit.durationSeconds === null ? "时长暂缺" : Math.ceil((unit.durationSeconds - unit.positionSeconds) / 60) + " 分钟",
+    meta: why ? work.kind === "series" ? `${work.seasons.length} 季 · ${work.units.length} 集` : formatRuntime(work.runtimeMin) : unit.durationSeconds === null ? "时长暂缺" : `${timecode(unit.positionSeconds)} / ${timecode(unit.durationSeconds)} · 剩余 ${Math.max(0, Math.round((unit.durationSeconds - unit.positionSeconds) / 60))} 分钟`,
     note: unit.updatedAt ? new Date(unit.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "",
-    thumb: [work.code || "电影", work.kind === "series" ? episodeCode(unit) : String(work.year ?? "")],
-    primary: { label: unit.positionSeconds ? "继续播放" : "开始播放", to: "/watch/" + unit.id },
-    secondary: { label: "作品详情", to: "/title/" + work.slug },
+    thumb: [work.code || "电影", work.kind === "series" && !why ? episodeCode(unit) : String(work.year ?? "")],
+    primary: { label: why ? "播放第 1 集" : "继续播放", to: "/watch/" + unit.id },
+    secondary: { label: !why && work.kind === "series" ? "选集" : "作品详情", to: "/title/" + work.slug + (!why && work.kind === "series" ? `?season=${unit.seasonNumber}` : "") },
   }));
 }
 
@@ -118,7 +122,7 @@ function Scale({ label, stages, index, onPick }: { label: string; stages: Stage[
   )
 }
 
-export function HeroTheatre({ items, label }: { items: { work: Work; unit: Episode }[]; label: string }) {
+export function HeroTheatre({ items, label }: { items: { work: Work; unit: Episode; why?: string }[]; label: string }) {
   const stages = makeStages(items)
   const [selected, setSelected] = useState(0)
   const [announce, setAnnounce] = useState("")
@@ -203,7 +207,7 @@ export function HeroTheatre({ items, label }: { items: { work: Work; unit: Episo
           </div>
         </div>
 
-        <Scale label={label} stages={stages} index={index} onPick={pick} />
+      <Scale label={label === "继续观看" ? `${label} · ${items.length}` : label} stages={stages} index={index} onPick={pick} />
       </div>
       <p className="sr-only" aria-live="polite">
         {announce}

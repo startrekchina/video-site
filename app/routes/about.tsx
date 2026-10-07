@@ -1,6 +1,7 @@
 import type React from "react"
 import { ArrowRightIcon } from "lucide-react"
-import { Link } from "react-router"
+import { Link, useRouteLoaderData } from "react-router"
+import type { loader as rootLoader } from "@/root"
 
 import { useActiveSection } from "@/lib/use-active-section"
 import { cn } from "@/lib/utils"
@@ -58,6 +59,7 @@ export function meta() {
 }
 
 export default function AboutPage() {
+  const member = useRouteLoaderData<typeof rootLoader>("root")?.member
   const active = useActiveSection(SECTIONS.map((s) => s.href.slice(1)))
 
   return (
@@ -98,12 +100,12 @@ export default function AboutPage() {
           </p>
           <p>注册时需要填写邮箱并完成验证。本站没有申请入口，请不要通过其他渠道向站长索要邀请码。</p>
         </Prose>
-          <div className="screen-line-top flex justify-center py-4">
+          {!member && <div className="screen-line-top flex justify-center py-4">
             <Button className="gap-2 pr-2.5 pl-3 shadow-[inset_0_0_1px] shadow-foreground/20" variant="secondary" size="sm" nativeButton={false} render={<Link to="/register" />}>
               我有邀请码
               <ArrowRightIcon />
             </Button>
-          </div>
+          </div>}
       </Section>
 
       <Separator />

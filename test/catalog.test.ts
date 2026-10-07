@@ -51,6 +51,10 @@ it("protects all catalog pages and their loader requests independently and keeps
     const results = await exports.default.fetch("http://localhost:6120/search", { headers: { Cookie: cookie } });
     expect(results.status).toBe(200); expect(await results.text()).toContain("Signal Test");
     const search = await exports.default.fetch("http://localhost:6120/search?q=Survey", { headers: { Cookie: cookie } });
-    const content = await search.text(); expect(search.status).toBe(200); expect(content).toContain("虚构勘测队"); expect(content).not.toContain("Signal Test");
+    const content = await search.text(); expect(search.status).toBe(200);
+    const main = content.match(/<main\b[^>]*>([\s\S]*?)<\/main>/)?.[1] ?? "";
+    expect(main).toContain("虚构勘测队"); expect(main).not.toContain("Signal Test");
+    // The authenticated global palette also carries other public work summaries.
+    expect(content).toContain("Signal Test"); expect(content).not.toMatch(/fictional-private-object|object_key/);
   } finally { vi.unstubAllGlobals(); }
 }, 60000);

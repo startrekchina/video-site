@@ -41,7 +41,7 @@ export function ScrollToTop() {
       variant="secondary"
       size="icon-sm"
       aria-label="回到顶部"
-      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      onClick={() => window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" })}
     >
       <ArrowUpIcon />
     </Button>

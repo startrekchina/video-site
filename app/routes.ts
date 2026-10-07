@@ -6,4 +6,5 @@ export default [index("routes/home.tsx"), route("about", "routes/about.tsx"), ro
   route("series", "routes/catalog.tsx", { id: "series" }), route("movies", "routes/catalog.tsx", { id: "movies" }),
   route("search", "routes/catalog.tsx", { id: "search" }),
   route("title/:id", "routes/title.tsx"), route("watch/:id", "routes/watch.tsx"),
+  route("*", "routes/not-found.tsx", { id: "not-found" }),
 ] satisfies RouteConfig;
