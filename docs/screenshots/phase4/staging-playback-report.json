@@ -1,0 +1,128 @@
+{
+  "environment": "staging",
+  "continuousPlayback": {
+    "passed": true,
+    "startedAt": "2026-10-07T14:41:24+08:00",
+    "twoHourMilestoneAt": "2026-10-07T16:42:24+08:00",
+    "milestoneElapsedSeconds": 7260.005200000048,
+    "milestoneMediaPositionSeconds": 7204.666778,
+    "endedAt": "2026-10-07T16:43:20+08:00",
+    "elapsedToEndSeconds": 7315.622899999976,
+    "observedAt": "2026-10-07T16:45:10+08:00",
+    "mediaDurationSeconds": 7260,
+    "finalMediaPositionSeconds": 7260,
+    "clockModified": false,
+    "renewalTimersModified": false,
+    "shortClipLoop": false,
+    "decodedErrors": 0,
+    "rate": 1,
+    "samples": 742,
+    "naturalRenewalsDuringPlayback": 4,
+    "naturalRenewals": [
+      {
+        "at": "2026-10-07T15:04:18+08:00",
+        "status": 200,
+        "mediaPositionSeconds": 1365.428372,
+        "paused": false,
+        "afterCompletion": false,
+        "positionRestoredAfterMs": 2626.8000000715256
+      },
+      {
+        "at": "2026-10-07T15:29:20+08:00",
+        "status": 200,
+        "mediaPositionSeconds": 2853.997527,
+        "paused": false,
+        "afterCompletion": false,
+        "positionRestoredAfterMs": 3296.4000000953674
+      },
+      {
+        "at": "2026-10-07T15:54:22+08:00",
+        "status": 200,
+        "mediaPositionSeconds": 4346.429235,
+        "paused": false,
+        "afterCompletion": false,
+        "positionRestoredAfterMs": 2719.899999976158
+      },
+      {
+        "at": "2026-10-07T16:19:23+08:00",
+        "status": 200,
+        "mediaPositionSeconds": 5834.995451,
+        "paused": false,
+        "afterCompletion": false,
+        "positionRestoredAfterMs": 2458.8000000715256
+      },
+      {
+        "at": "2026-10-07T16:44:24+08:00",
+        "status": 200,
+        "mediaPositionSeconds": 7260,
+        "paused": true,
+        "afterCompletion": true,
+        "positionRestoredAfterMs": null
+      }
+    ],
+    "sourceChangesDuringPlayback": 4,
+    "finalSubtitle": "en",
+    "endedNaturally": true
+  },
+  "catalog": {
+    "works": 27,
+    "seasons": 52,
+    "units": 974,
+    "media": 3,
+    "subtitles": 3,
+    "migrations": 12,
+    "foreignKeyViolations": 0
+  },
+  "privacy": {
+    "logEvents": 146,
+    "nativeNetworkDisconnectMessages": 4,
+    "leakedQueryValues": 0,
+    "leakedPrivateHeaders": 0,
+    "leakedKnownSecrets": 0,
+    "publicR2Access": false
+  },
+  "realPhone": "pending",
+  "platformMetrics": [
+    {
+      "status": "clientDisconnected",
+      "requests": 21,
+      "errors": 0,
+      "cpuTotalMs": 2462.075,
+      "cpuP50Ms": 107.723,
+      "cpuP99Ms": 375.587,
+      "wallP50Ms": 1251.856,
+      "wallP99Ms": 109035.09,
+      "v8MemoryP50Bytes": 30730444,
+      "v8MemoryP99Bytes": 50984424,
+      "responseBytes": 108480969,
+      "clientDisconnects": 21
+    },
+    {
+      "status": "success",
+      "requests": 113,
+      "errors": 0,
+      "cpuTotalMs": 4656.759,
+      "cpuP50Ms": 16.37,
+      "cpuP99Ms": 167.077,
+      "wallP50Ms": 932.931,
+      "wallP99Ms": 6690.765,
+      "v8MemoryP50Bytes": 22530668,
+      "v8MemoryP99Bytes": 48541080,
+      "responseBytes": 38048070,
+      "clientDisconnects": 0
+    }
+  ],
+  "costMeasurement": {
+    "workerRequests": 134,
+    "workerCpuMs": 7118.834,
+    "workersLinearOverageEquivalentUsd": 0.00018257668,
+    "generatedR2Objects": 6,
+    "generatedR2Bytes": 30395007,
+    "pricingCheckedOn": "2026-10-07",
+    "scope": "GraphQL Worker sample and generated R2 storage; included allowances and billing-unit rounding are not applied; D1 operations, R2 request counts and full-account usage are not measured",
+    "sources": [
+      "https://developers.cloudflare.com/workers/platform/pricing/",
+      "https://developers.cloudflare.com/r2/pricing/"
+    ]
+  }
+}
