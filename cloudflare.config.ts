@@ -34,6 +34,10 @@ function environment(mode: string) {
         rateLimitBase: 1000,
         appOrigin: process.env.APP_ORIGIN ?? "http://localhost:6120",
         turnstileSiteKey: CLOUDFLARE_TEST_TURNSTILE_SITE_KEY,
+        emailApiBaseUrl: "https://postal.example.test",
+        emailSenderDomain: "example.test",
+        emailFrom: "noreply@example.test",
+        emailReplyTo: "support@example.test",
       };
     case "staging":
       return {
@@ -44,6 +48,10 @@ function environment(mode: string) {
         rateLimitBase: 2000,
         appOrigin: requiredEnv("STAGING_APP_ORIGIN"),
         turnstileSiteKey: requiredEnv("STAGING_TURNSTILE_SITE_KEY"),
+        emailApiBaseUrl: requiredEnv("STAGING_EMAIL_API_BASE_URL"),
+        emailSenderDomain: requiredEnv("STAGING_EMAIL_SENDER_DOMAIN"),
+        emailFrom: requiredEnv("STAGING_EMAIL_FROM"),
+        emailReplyTo: requiredEnv("STAGING_EMAIL_REPLY_TO"),
       };
     case "production":
       return {
@@ -54,6 +62,10 @@ function environment(mode: string) {
         rateLimitBase: 3000,
         appOrigin: "https://video.startrekchina.org",
         turnstileSiteKey: requiredEnv("PRODUCTION_TURNSTILE_SITE_KEY"),
+        emailApiBaseUrl: requiredEnv("PRODUCTION_EMAIL_API_BASE_URL"),
+        emailSenderDomain: requiredEnv("PRODUCTION_EMAIL_SENDER_DOMAIN"),
+        emailFrom: requiredEnv("PRODUCTION_EMAIL_FROM"),
+        emailReplyTo: requiredEnv("PRODUCTION_EMAIL_REPLY_TO"),
       };
     default:
       throw new Error(`Unknown mode "${mode}". Use development, test, staging or production.`);
@@ -86,6 +98,10 @@ export default defineConfig(({ mode = "development" }) => {
         APP_ORIGIN: bindings.text(e.appOrigin),
         WEBAUTHN_RP_ID: bindings.text(new URL(e.appOrigin).hostname),
         TURNSTILE_SITE_KEY: bindings.text(e.turnstileSiteKey),
+        EMAIL_API_BASE_URL: bindings.text(e.emailApiBaseUrl),
+        EMAIL_SENDER_DOMAIN: bindings.text(e.emailSenderDomain),
+        EMAIL_FROM: bindings.text(e.emailFrom),
+        EMAIL_REPLY_TO: bindings.text(e.emailReplyTo),
         ASSETS: bindings.assets(),
         DB: bindings.d1({ name: e.resource, id: e.d1Id }),
         MEDIA_BUCKET: bindings.r2({ name: e.mediaBucket }),
@@ -98,6 +114,7 @@ export default defineConfig(({ mode = "development" }) => {
         BETTER_AUTH_SECRET: bindings.secret(),
         TURNSTILE_SECRET_KEY: bindings.secret(),
         BACKUP_ENCRYPTION_KEY: bindings.secret(),
+        EMAIL_API_KEY: bindings.secret(),
       },
     },
   };

@@ -6,9 +6,11 @@ const DAY = 24 * HOUR;
 export const settings = {
   inviteQuota: 2,
   invitationTtl: 30 * DAY,
+  registrationReservationTtl: 15 * MINUTE,
   backupCodeCount: 10,
   resetLinkTtl: HOUR,
   emailVerificationTtl: HOUR,
+  emailRequestTimeout: 10,
   completionThreshold: 0.9,
   progressReportInterval: 15,
   backupRetention: 30 * DAY,

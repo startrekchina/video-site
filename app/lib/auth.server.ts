@@ -4,8 +4,8 @@ import { captcha, twoFactor, username } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { settings } from "./settings.server.ts";
 
-/** T2.7 configuration/probe only; HTTP routing requires the third-stage business gates. */
-export function createAuth(env: Env) {
+/** HTTP routing requires the third-stage business gates. The optional user ID is server-owned. */
+export function createAuth(env: Env, registrationUserId?: string) {
   const secret = env.BETTER_AUTH_SECRET;
   if (!secret || secret.length < 32) throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
   if (secret === env.PLAYBACK_HMAC_KEY || secret === env.BACKUP_ENCRYPTION_KEY) {
@@ -56,6 +56,9 @@ export function createAuth(env: Env) {
       "/sign-up/email", "/sign-in/email", "/update-user", "/delete-user", "/delete-user/callback",
       "/two-factor/send-otp", "/two-factor/verify-otp",
     ],
+    databaseHooks: registrationUserId ? {
+      user: { create: { before: async (user) => ({ data: { ...user, id: registrationUserId } }) } },
+    } : undefined,
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         if (ctx.body?.trustDevice) throw new APIError("BAD_REQUEST", { code: "TRUST_DEVICE_DISABLED", message: "Trusted devices are disabled" });

@@ -5,8 +5,8 @@ BETTER_AUTH_SECRET=local-dev-better-auth-secret-0123456789abcdef
 # Cloudflare's documented always-pass Turnstile test secret.
 TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
 BACKUP_ENCRYPTION_KEY=local-dev-backup-encryption-key
-# Reserved for email/backup integration; not declared as required bindings yet.
 EMAIL_API_KEY=local-dev-email-api-key
+# Reserved for backup integration; not declared as required bindings yet.
 CLOUDFLARE_API_TOKEN=local-dev-cloudflare-api-token
 WEBDAV_URL=https://webdav.invalid/backups/
 WEBDAV_USERNAME=local-dev
