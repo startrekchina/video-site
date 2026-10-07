@@ -14,7 +14,8 @@
     "deploy:production": "pnpm build:production && cf deploy --prebuilt --mode production",
     "typecheck": "cf workers types && react-router typegen --mode development && tsc",
     "db:migrate:local": "cf d1 migrations apply 00000000-0000-4000-8000-000000000000 --local --persist-to .cloudflare/state",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:tools": "node --test scripts/*.test.mjs"
   },
   "dependencies": {
     "isbot": "^5.2.2",

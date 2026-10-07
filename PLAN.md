@@ -56,7 +56,7 @@
 ### T2.3 环境、绑定与 Secrets
 
 - [x] `cloudflare.config.ts` 声明需求 6.9.1 的逻辑绑定：`ASSETS`、`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`TOTP_ENCRYPTION_KEY`、`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`。发件人地址、发件域名和邮件 API 基础地址等发件配置项待站长提供已购服务的 API 文档后在第三阶段加入，不预先猜写。
-- [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；缺失或混用时构建失败。
+- [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；任一部署模式均要求两套 D1 ID 齐全，忽略首尾空白和字母大小写后重复即拒绝配置，缺失或混用时构建失败。
 - [x] 集中默认配置（需求 6.9.1 “集中默认配置”整行，含全部限流数值、会话期限、TOTP 参数、额度、分页和 token 时长）落在一个服务端模块（`app/lib/settings.server.ts`）并有单测核对数值。
 - [ ] **阻塞（待站长授权）**：用 `cf d1 create`、`cf r2 buckets create` 创建 staging / prod 的 D1 与私有 R2，确定 Rate Limiting namespace，写入线上 Secrets，并决定 staging 的访问域名；Cron 表达式 `0 20 * * *` 在备份任务实现时再加入。
 - 验收：`cf deploy --prebuilt --mode staging --dry-run` 与 `--mode production` 列出各自独立的绑定；仓库内 `git grep` 不出现真实 ID 或密钥。
@@ -106,6 +106,8 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面�
 | 6120 端口被原型 dev server（`.worktree/frontend-v1`）占用 | 阻塞正式工程的本机 dev 与浏览器验收 | 按规则不关闭他人实例；需站长决定是否停止原型 dev server，让正式工程使用 6120 |
 
 ## 6. 进展与验证记录
+
+- 2026-10-07：修复 #13 的 D1 环境隔离审查意见：staging / production 配置均要求两套数据库 ID，规范化后重复即拒绝。新增 6 项实际配置加载回归测试，修复前重复 ID 的 4 项用例均失败，修复后全部通过；6 项 Workers 测试、类型检查和构建通过。
 
 - 2026-10-07：修复 #13 审查意见：`.env*` 全部忽略并保留 `.env.example`；Worker 无条件设置 `private, no-store`；补齐 `ASSETS` 绑定和运行时断言。新增缓存头用例可复现并阻止路由自设 `public`；绑定用例在缺少声明时失败。6 项 Workers 测试、类型检查、构建及环境文件忽略检查通过。
 
