@@ -56,6 +56,7 @@ Kimi 会话 video-site-import-802b，组名“视频站导入工具核对”。�
 - 实际 Cron 首轮用时 6593 ms，关联 5 个对象、拒绝 1 个非法字幕；再次拒绝后修复，下一轮用时 1552 ms、关联 1 个、跳过 5 个。未输出对象键。生成媒体/字幕合计约 30.4 MB，staging 不保存正式片源库副本。
 - 初始日志 76 条，未见 query token、私密 header、已知密钥或内部资源配置值。拖动/换页面取消旧流产生两条平台 Network connection lost 记录，GraphQL 中对应 clientDisconnected，执行 errors 为 0；这类取消与播放器错误分开记录。
 - 北京时间 14:41 从零开始 staging 连续播放 121 分钟生成视频，监测样本、源切换和真实签发状态。没有修改系统/JS 时钟或原始续期计时器；达到两小时并完成自然续期复核前保持未验收。
+- 15:04 首轮自然续期 POST 200，换源后保留播放位置、播放状态和中文字幕；随后用 C 验证关闭档，再切到可见英文字幕并持续播放。尚未达到两小时门槛。
 
 | staging 页面 | 截图 |
 | --- | --- |
@@ -63,3 +64,4 @@ Kimi 会话 video-site-import-802b，组名“视频站导入工具核对”。�
 | 第二季资料占位，375 px | [截图](staging-title-mobile.png) |
 | 全站中文搜索，375 px | [截图](staging-global-search-mobile.png) |
 | 自生成长片开始连续播放 | [截图](staging-watch-start.png) |
+| 首轮自然续期后，已切换英文字幕 | [截图](staging-watch-renewal-1.png) |
