@@ -6,11 +6,12 @@
 
 v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确认，对应接口行为和第 7 节测试期望已同步。邮箱验证、成员修改邮箱、管理员删评和单个成员解封均纳入 v1；发信沿用站长已购买服务的 HTTPS API。历史备份恢复后保留讨论，由管理员手动重新删除不应恢复的内容。
 
-规则确认**不代表功能已实现或已验收**：根目录 `PLAN.md` 尚未建立，正式应用尚未开始开发，Better Auth POC、已购发件服务接入和平台实测等门槛（需求文档第 6.16 节）都还没做。前端参考原型保留在 `prototypes/frontend-v1/`，已验证独立安装、构建和测试，成熟的视觉方向、页面结构和主要交互可作为正式工程基准。
+规则确认**不代表功能已实现或已验收**：已建立根目录 [`PLAN.md`](PLAN.md)，正式开发进入第二阶段“工程基础”，正式应用尚在搭建；Better Auth POC、已购发件服务接入和平台实测等门槛（需求文档第 6.16 节）都还没做。前端参考原型保留在 `prototypes/frontend-v1/`，已验证独立安装、构建和测试，成熟的视觉方向、页面结构和主要交互可作为正式工程基准。
 
 ## 文档
 
 - [需求文档](docs/requirements.md)：v1 的范围、用户故事、实现决策、前端代码沿用要求和测试决策。
+- [正式开发计划](PLAN.md)：执行约束、技术基线、当前阶段的可验收待办和未决事项。
 - [协作约定](AGENTS.md)：语言、Git 流程、目录结构和安全规则。
 - [前端参考原型](prototypes/frontend-v1/README.md)：独立运行方式、页面与交互基准、验证记录和迁移时须修正的已知问题。
 - [海报素材说明](public/assets/posters/star-trek/README.md)：海报来源和命名规则。
@@ -33,7 +34,7 @@ v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确�
 
 ### 2. 工程基础
 
-- [ ] 建立并确认根目录 `PLAN.md`，把功能顺序和验收条件整理为可执行待办。
+- [x] 建立根目录 `PLAN.md`，把功能顺序和验收条件整理为可执行待办；工具链已在本机探针中验证。
 - [ ] 使用 `cf` CLI 建立 React Router v7 + Workers 正式工程，配置类型检查、构建和 Workers Vitest 测试入口；不使用 Wrangler。
 - [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；本地开发使用 `6120` 端口并复用已有实例。
 - [ ] 完成 Better Auth 最小 POC（scrypt、D1 注册与恢复事务、Cookie、通行密钥、TOTP），通过后采用；失败报告站长决定。
@@ -76,7 +77,28 @@ HLS、ASS 渲染、弹幕、同时播放数限制、OAuth 登录等范围外功�
 - 媒体存储：Cloudflare R2（私有）
 - 播放器：ArtPlayer
 
-本地开发和部署步骤会在工具链确定后补充。
+工具链基线（`cf` CLI、`@cloudflare/vite-plugin` 2.0 beta、Workers Vitest）及已知限制见 [`PLAN.md`](PLAN.md) 第 2 节。
+
+## 本地开发
+
+需要 Node 22.18+（推荐 24）和 pnpm 12。正式工程在仓库根目录，与 `prototypes/frontend-v1/` 互不依赖。
+
+```bash
+pnpm install --frozen-lockfile
+cp .dev.vars.example .dev.vars   # 本地占位 Secrets，不提交
+pnpm dev                         # cf dev，监听 0.0.0.0:6120
+```
+
+| 命令 | 作用 |
+| --- | --- |
+| `pnpm typecheck` | 由 `cloudflare.config.ts` 生成绑定类型、生成路由类型，再运行 `tsc` |
+| `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟，Secrets 取 `.dev.vars.example` 的占位值 |
+| `pnpm test:tools` | Node 回归测试：加载实际 Cloudflare 配置，检查 staging / production 的 D1 ID 隔离 |
+| `pnpm build` | development 模式构建到 `.cloudflare/output/v0` |
+| `pnpm build:staging` / `pnpm build:production` | 按环境构建；需要本机 `.env`（见 `.env.example`），缺少资源标识时构建失败 |
+| `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
+
+`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。构建 staging 或 production 时必须同时提供两套 D1 ID；忽略首尾空白和字母大小写后相同即报错，防止测试环境绑定正式数据库。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
 
 ## 许可证
 
