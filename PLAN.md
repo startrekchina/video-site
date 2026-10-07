@@ -48,8 +48,8 @@
 ### T2.2 正式工程骨架
 
 - [x] 在仓库根目录建立 React Router v7 + Workers 正式工程（`app/`、`workers/`、`cloudflare.config.ts`、`vite.config.ts`、`react-router.config.ts`、`tsconfig.json`、`vitest.config.ts`），`public/` 作为公开静态资源。
-- [ ] `pnpm dev`（`cf dev`，`0.0.0.0:6120`）、`pnpm typecheck`、`pnpm build`（及 `build:staging` / `build:production`）、`pnpm test` 均可运行；`.gitignore` 覆盖 `node_modules`、`build`、`.cloudflare`、`.react-router`、`.dev.vars*`、`.env*`。
-  - 进展：`typecheck`、`test`、`build`、`build:staging`、`build:production`（占位 `.env`）均已通过，忽略规则已补齐。`pnpm dev` 的同款配置已在探针中于其他端口验证；6120 目前被 `.worktree/frontend-v1` 的原型 dev server 占用，按规则未关闭，正式工程尚未在 6120 实际启动（见第 5 节）。
+- [x] `pnpm dev`（`cf dev`，`0.0.0.0:6120`）、`pnpm typecheck`、`pnpm build`（及 `build:staging` / `build:production`）、`pnpm test` 均可运行；`.gitignore` 覆盖 `node_modules`、`build`、`.cloudflare`、`.react-router`、`.dev.vars*`、`.env*`。
+  - 进展：`typecheck`、`test`、`build` 及两环境占位构建 / dry-run 均已通过。正式工程已在集成工作树 `.worktree/dev` 常驻监听 `0.0.0.0:6120`，本机和局域网请求 `/about` 返回 200；复用该实例，不另起服务。
 - [x] 公共响应约定先落地并有测试：所有动态响应带 `X-Robots-Tag: noindex`、`Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff`；HTML 默认 `Cache-Control: private, no-store`；`GET /robots.txt` 返回 `User-agent: *` 与 `Disallow: /`；静态资源经 `public/_headers` 带 noindex（需求 6.1、6.1.1）。静态资源头在 staging 部署后另行核对。
 - 验收：上述命令全部通过；Workers Vitest 中请求 `/`、`/robots.txt`、不存在的路径，断言状态码与安全头；不依赖 `prototypes/`。
 
@@ -63,8 +63,9 @@
 
 ### T2.4 Better Auth 最小 POC（需求 6.3.1、6.16）
 
-- [ ] 在独立分支 / 工作树做最小 POC，逐项验证：scrypt（N=2^14、r=8、p=5）替换默认哈希；D1 中注册与邀请码原子消费（`batch()` 条件写入，影响 0 行整批失败）；三条恢复路径的事务及旧会话、旧恢复码、旧重置链接撤销；`__Host-session` Cookie 属性（`HttpOnly; Secure; SameSite=Lax; Path=/`、无 `Domain`）与“仅存哈希”；通行密钥（用户验证、challenge 原子消费）与 TOTP（6 位、30 秒、±1 步、时间步防重放）；会话 180 天绝对 / 30 天不活跃且只在页面 loader 续活。
-- [ ] 输出逐项通过 / 差距报告。**全部满足才采用；有差距则报告站长决定，不绕过门槛自研，也不让库默认行为覆盖需求规则。**
+- [x] 在独立分支完成 Better Auth 1.7.7 最小 POC，对需求 6.3.1 的 scrypt、注册 / 恢复原子性、Cookie / 会话、通行密钥、TOTP、恢复码与管理员证明逐项核对，明确区分 workerd 实测与发布源码审查。29 项测试和类型检查通过；测试包含复现库缺陷的断言，绿色不代表兼容性通过。
+- [x] 输出逐项通过 / 差距报告：分支 `spike/auth-poc-report`，提交 `4fc3bc4`，文件 `spikes/better-auth/REPORT.md`。可用 `git show spike/auth-poc-report:spikes/better-auth/REPORT.md` 阅读；POC 保持独立，不接入正式工程。
+- [ ] **阻塞（待站长决定）**：采用或替代认证方案。**全部满足才采用；有差距则报告站长决定，不绕过门槛自研，也不让库默认行为覆盖需求规则。** 真实 WebAuthn 仪式及 staging 平台成本尚未验证，不能标为通过。
 - 验收：POC 的 Workers Vitest 用例与报告；结论写入本文件第 5 节。
 
 ### T2.5 D1 迁移、约束与测试夹具
@@ -76,8 +77,9 @@
 
 ### T2.6 前端基础迁移
 
-- [ ] 从原型迁入设计 token、全局样式（Tailwind v4）、字体（Noto Sans SC、Geist Mono、Antonio）、`components/ui` 基础组件、主题（跟随系统 / 浅色 / 深色）与站点外壳（顶栏、页脚、内容列宽切换、手机底部胶囊），以及 404 页和关于页（含 `contact@startrekchina.org` 版权下架联系方式）。
-- [ ] 外壳只依赖 props / loader 数据，不引入原型的模拟身份、PROTO 控制台和内存数据；受保护入口在访客态不出现。
+- [x] 从原型迁入设计 token、全局样式（Tailwind v4）、字体（Noto Sans SC、Geist Mono、Antonio）、`components/ui` 基础组件、主题（跟随系统 / 浅色 / 深色）与站点外壳（顶栏、页脚、内容列宽切换、手机底部胶囊），以及 404 页和关于页（含 `contact@startrekchina.org` 版权下架联系方式）。
+- [x] 外壳只依赖 props / loader 数据，不引入原型的模拟身份、PROTO 控制台和内存数据；受保护入口在访客态不出现。
+- 进展：样式 / 字体、页面外壳、主题三档与 D 键、SSR 防闪烁、手机菜单胶囊展示组件、回到顶部、关于页 / 404 已迁入；访客不传成员导航、不显示胶囊和受保护链接。关于页补齐邮箱验证 / 三条恢复路径、修正邀请连带方向并展示下架联系邮箱。成员胶囊的真实数据与权限接入随认证阶段验收。`pnpm typecheck`、`pnpm test` 83 项、`pnpm build` 通过；SSR 首次 Vite 编译约 14–20 秒，测试先预热再按原 5 秒请求阈值验证。集成后的浏览器验收及截图见 [前端基础验收记录](docs/screenshots/phase2/README.md)。
 - 验收：类型检查、构建通过；用浏览器在 1440×1000 与 360×800、浅色与深色下对照原型截图验收关于页和 404，保存截图。
 
 ### 第二阶段完成定义
@@ -100,13 +102,15 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面�
 | React Router v7 与 `@cloudflare/vite-plugin` 2.0 beta 的产物目录不一致 | 已用同步插件绕过，构建 / 预览 / dry-run 已验证 | 需求定 v7，暂不升级。若站长同意升级 v8（官方支持组合），需同步修改需求 6.1 与 README 技术栈 |
 | `cf` 与 Vite 插件 2.0 均为 beta | 风险 | 锁定精确版本；升级单独提交并重跑全部验证 |
 | staging / prod 云端资源、Secrets、staging 域名 | 阻塞，待站长授权 | 骨架先以 dry-run 验证；授权后创建并记录（不入库真实 ID） |
-| Better Auth 是否满足需求规则 | 待 T2.4 | 有差距时由站长决定 |
+| Better Auth 是否满足需求规则 | POC 未通过采用门槛，报告已完成，待站长决定 | D1 注册 / 恢复不原子、session bearer 明文、续期超出绝对上限、TOTP 可重放且无独立密钥 / AAD、恢复码可逆；建议 B：允许按既定规则替代认证实现，复用成熟 WebAuthn 库。A 为保留库并替换多数核心流程；C 为降低规则，不建议。未获决定前不实施替代方案 |
 | 已购发件服务的 API 文档与配置 | 阻塞，第三阶段前需要 | 站长提供后接入，测试用本地模拟服务 |
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | 待 staging 资源 | 第六阶段执行，不以本地结果代替 |
-| 6120 端口被原型 dev server（`.worktree/frontend-v1`）占用 | 阻塞正式工程的本机 dev 与浏览器验收 | 按规则不关闭他人实例；需站长决定是否停止原型 dev server，让正式工程使用 6120 |
 
 ## 6. 进展与验证记录
 
+- 2026-10-06：T2.4 形成书面差距结论，独立分支 `spike/auth-poc-report` 提交 `4fc3bc4`。workerd 测试 6 个文件 29 项及类型检查通过，实测注册 / 恢复部分提交、明文会话、滚动续期、并发 TOTP 重放和可逆恢复码；报告列出全部 A1–A7 / B1–B10 证据、未运行项目与 A/B/C 选项。待站长决定，未合入 POC、未实现正式认证。
+- 2026-10-06：T2.5 修复及 T2.6 前端基础合入本地 `dev`。集成工作树重新执行 `pnpm typecheck`、`pnpm test`（83 项）、`pnpm build`、`pnpm db:migrate:local`（7 个迁移）通过。正式 `pnpm dev` 常驻监听 `0.0.0.0:6120`，局域网访问 `/about` 返回 200。浏览器完成关于页 / 404 的 1440×1000、360×800、浅 / 深色八视图验收；验证三档主题、系统切换、刷新持久化、D 键与输入时忽略、1152 / 768 px 列宽、回到顶部及访客导航，无横向溢出或捕获的客户端异常。截图和边界见 `docs/screenshots/phase2/README.md`。
+- 2026-10-06：确认 D1 任务分支无独有提交、工作树无未提交 / 未跟踪文件及运行进程后，移除 `.worktree/d1-schema` 和已合入的两条 D1 任务分支。原 `.worktree/frontend-foundation`、`.worktree/auth-poc` 及 `.worktree/development-roadmap` 带有先前未提交内容，保留；原型工作树保留参考用途。`spike/auth-poc-report` 及其工作树保留供认证决策复核，集成工作树继续运行服务。
 - 2026-10-07：修复 #13 的 D1 环境隔离审查意见：staging / production 配置均要求两套数据库 ID，规范化后重复即拒绝。新增 6 项实际配置加载回归测试，修复前重复 ID 的 4 项用例均失败，修复后全部通过；6 项 Workers 测试、类型检查和构建通过。
 
 - 2026-10-07：修复 #13 审查意见：`.env*` 全部忽略并保留 `.env.example`；Worker 无条件设置 `private, no-store`；补齐 `ASSETS` 绑定和运行时断言。新增缓存头用例可复现并阻止路由自设 `public`；绑定用例在缺少声明时失败。6 项 Workers 测试、类型检查、构建及环境文件忽略检查通过。

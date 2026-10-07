@@ -1,6 +1,7 @@
 import { cpSync, existsSync } from "node:fs";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { reactRouter } from "@react-router/dev/vite";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 
 const RR_CLIENT_DIR = "build/client";
@@ -27,7 +28,7 @@ function syncReactRouterClientDir(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [cloudflare({ viteEnvironment: { name: "ssr" } }), reactRouter(), syncReactRouterClientDir()],
+  plugins: [cloudflare({ viteEnvironment: { name: "ssr" } }), tailwindcss(), reactRouter(), syncReactRouterClientDir()],
   resolve: { tsconfigPaths: true },
   server: { host: "0.0.0.0", port: 6120, strictPort: true },
   preview: { host: "0.0.0.0", port: 6120, strictPort: true },
