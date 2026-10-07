@@ -33,6 +33,7 @@ it("exposes the declared bindings in the test environment", () => {
   expect(env.APP_ENV).toBe("test");
   expect(env.APP_ORIGIN).toBe("http://localhost:6120");
   expect(env.WEBAUTHN_RP_ID).toBe("localhost");
+  expect(env.ASSETS).toHaveProperty("fetch", expect.any(Function));
   expect(typeof env.DB.prepare).toBe("function");
   expect(typeof env.MEDIA_BUCKET.get).toBe("function");
   expect(typeof env.AUTH_RATE_LIMITER.limit).toBe("function");
