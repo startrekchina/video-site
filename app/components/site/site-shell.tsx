@@ -10,6 +10,7 @@ import { ThemeSwitcher } from "@/components/ui/theme-switcher";
 import { BottomRuler } from "./bottom-ruler";
 import { ScrollToTop } from "./scroll-to-top";
 import { SiteMark } from "./site-mark";
+import { useHeaderTone } from "@/lib/header-tone";
 
 type NavigationItem = { to: string; label: string; end?: boolean };
 const guestNavigation = [{ to: "/", label: "首页", end: true }, { to: "/about", label: "关于" }];
@@ -27,7 +28,7 @@ function BottomNav({ items }: { items: readonly NavigationItem[] }) {
   const [open, setOpen] = useState(false);
   if (!items.length) return null;
   return (
-    <div className="fixed bottom-[calc(--spacing(2)+env(safe-area-inset-bottom,0px))] left-1/2 z-50 -translate-x-1/2 rounded-xl bg-popover p-1 shadow-md ring ring-foreground/10 sm:hidden dark:ring-foreground/20">
+    <div className="fixed bottom-[calc(--spacing(2)+env(safe-area-inset-bottom,0px))] left-1/2 z-50 -translate-x-1/2 rounded-xl bg-popover p-1 shadow-md ring ring-foreground/10 lg:hidden dark:ring-foreground/20">
       <Popover open={open} onOpenChange={setOpen} modal>
         <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="菜单"><MenuIcon /></Button>} />
         <PopoverContent className="w-48 rounded-xl p-3" side="top" sideOffset={8}>
@@ -41,17 +42,18 @@ function BottomNav({ items }: { items: readonly NavigationItem[] }) {
 // Member navigation is presentation data supplied by an authenticated page loader.
 export function SiteShell({ children, memberNavigation }: { children: ReactNode; memberNavigation?: readonly NavigationItem[] }) {
   const theme = useTheme();
+  const tone = useHeaderTone();
   const { pathname } = useLocation();
   useHotkey("d", toggleTheme);
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
   return (
     <div className="group/layout relative isolate content-frame has-data-[slot=auth-frame]:flex has-data-[slot=auth-frame]:min-h-svh has-data-[slot=auth-frame]:flex-col">
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[60] focus:rounded focus:bg-background focus:p-3">跳到正文</a>
-      <header className="sticky top-0 z-50 max-w-screen overflow-x-clip bg-background px-2 text-foreground">
+      <header className={cn("sticky top-0 z-50 max-w-screen overflow-x-clip px-2", tone === "default" ? "bg-background text-foreground" : "dark text-white", tone === "stage" && "bg-zinc-950/90")}>
         <div className="screen-line-top screen-line-bottom mx-auto flex h-(--header-height) items-center gap-2 border-x pr-2 pl-4 after:z-1 sm:gap-4 md:max-w-(--content-width)">
           <Link to="/" aria-label="首页"><SiteMark className="max-sm:hidden" /><SiteMark className="sm:hidden" compact /></Link>
           <div className="flex-1" />
-          <nav className={cn("flex items-center gap-4", memberNavigation && "max-sm:hidden")} aria-label="主导航">
+          <nav className={cn("flex items-center gap-4", memberNavigation && "max-lg:hidden")} aria-label="主导航">
             <Navigation items={memberNavigation ?? guestNavigation} />
           </nav>
           <div className="flex items-center gap-2">

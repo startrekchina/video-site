@@ -74,7 +74,7 @@ export default defineConfig(({ mode = "development" }) => {
       name: e.worker,
       entrypoint,
       compatibilityDate: "2026-09-25",
-      compatibilityFlags: ["nodejs_compat"],
+      compatibilityFlags: ["nodejs_compat", "enable_request_signal"],
       domains: mode === "staging" || mode === "production" ? [new URL(e.appOrigin).hostname] : [],
       workersDev: false,
       previewUrls: false,

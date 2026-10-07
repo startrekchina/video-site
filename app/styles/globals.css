@@ -1,6 +1,7 @@
 /* Only app/ is scanned for class names; prototypes/ and docs/ must not leak into the build. */
 @import "tailwindcss" source("..");
 @import "./shadcn.css";
+@import "./scroll-fade-effect.css";
 @import "tw-animate-css";
 
 @custom-variant dark (&:where(.dark, .dark *));

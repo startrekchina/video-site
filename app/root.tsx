@@ -35,7 +35,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 }
 
 export default function App({ loaderData }: Route.ComponentProps) {
-  const items = loaderData.role ? [{ to: "/account", label: "账号" }, { to: "/invites", label: "邀请" },
+  const items = loaderData.role ? [{ to: "/", label: "首页", end: true }, { to: "/series", label: "剧集" }, { to: "/movies", label: "电影" }, { to: "/account", label: "账号" }, { to: "/invites", label: "邀请" },
     ...(loaderData.role === "admin" ? [{ to: "/admin", label: "管理" }] : []), { to: "/about", label: "关于" }] : undefined;
   return <SiteShell memberNavigation={items}><Outlet /></SiteShell>;
 }

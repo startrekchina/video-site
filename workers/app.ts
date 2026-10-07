@@ -4,6 +4,7 @@ import { authHttp } from "../app/lib/auth-http.server";
 import { accountHttp } from "../app/lib/account.server";
 import { invitationsHttp } from "../app/lib/invitations.server";
 import { adminHttp } from "../app/lib/admin.server";
+import { playbackHttp } from "../app/lib/playback.server";
 
 declare module "react-router" {
   export interface AppLoadContext {
@@ -29,6 +30,7 @@ export default {
     const account = path.startsWith("/account/sessions");
     const invites = path.startsWith("/invites/");
     const admin = path.startsWith("/admin/members/");
+    const playback = path.startsWith("/playback/") || path.startsWith("/media/") || path.startsWith("/subtitles/");
     const requestId = crypto.randomUUID();
     let input: Request = request;
     if (account || invites || admin) {
@@ -39,7 +41,7 @@ export default {
     let code: string | undefined;
     try {
       response = auth ? await authHttp(input, env) : account ? await accountHttp(input, env)
-        : invites ? await invitationsHttp(input, env) : admin ? await adminHttp(input, env)
+        : invites ? await invitationsHttp(input, env) : admin ? await adminHttp(input, env) : playback ? await playbackHttp(input, env, ctx)
         : await requestHandler(request, { cloudflare: { env, ctx } });
     } catch (error) {
       const native = error instanceof APIError;
@@ -54,7 +56,7 @@ export default {
     headers.set("X-Request-Id", requestId);
     // Route families only: never log paths, queries, cookies or library errors.
     // Cloudflare attaches the original request path to each application log, even with invocation logs disabled.
-    if (!path.startsWith("/api/auth/reset-password/")) console.info(JSON.stringify({ requestId, route: auth ? "auth" : account ? "account/sessions" : invites ? "invites" : admin ? "admin/members" : "page", status: response.status, code }));
-    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    if (!path.startsWith("/api/auth/reset-password/")) console.info(JSON.stringify({ requestId, route: auth ? "auth" : account ? "account/sessions" : invites ? "invites" : admin ? "admin/members" : playback ? "playback" : "page", status: response.status, code }));
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers, ...(playback ? { encodeBody: "manual" as const } : {}) });
   },
 } satisfies ExportedHandler<Env>;
