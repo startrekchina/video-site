@@ -78,6 +78,7 @@ export default defineConfig(({ mode = "development" }) => {
         APP_ORIGIN: bindings.text(e.appOrigin),
         WEBAUTHN_RP_ID: bindings.text(new URL(e.appOrigin).hostname),
         TURNSTILE_SITE_KEY: bindings.text(e.turnstileSiteKey),
+        ASSETS: bindings.assets(),
         DB: bindings.d1({ name: e.resource, id: e.d1Id }),
         MEDIA_BUCKET: bindings.r2({ name: e.mediaBucket }),
         // Auxiliary only: quotas are decided by exact D1 counters (requirements 6.3.2).
