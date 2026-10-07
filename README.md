@@ -38,7 +38,7 @@ v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确�
 - [ ] 使用 `cf` CLI 建立 React Router v7 + Workers 正式工程，配置类型检查、构建和 Workers Vitest 测试入口；不使用 Wrangler。
 - [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；本地开发使用 `6120` 端口并复用已有实例。
 - [ ] 完成 Better Auth 最小 POC（scrypt、D1 注册与恢复事务、Cookie、通行密钥、TOTP），通过后采用；失败报告站长决定。
-- [ ] 落地 D1 迁移、唯一键和外键约束，准备虚构成员、自行生成的视频与字幕测试夹具。
+- [x] 落地 D1 迁移、唯一键和外键约束，准备虚构成员、自行生成的视频与字幕测试夹具。
 - [ ] 按页面或流程迁移原型的展示组件、布局、样式和已定稿交互，适配 loader / action 与真实数据；正式工程不依赖原型目录，不沿用演示认证和权限。
 
 ### 3. 邀请、账号与管理
@@ -86,19 +86,23 @@ HLS、ASS 渲染、弹幕、同时播放数限制、OAuth 登录等范围外功�
 ```bash
 pnpm install --frozen-lockfile
 cp .dev.vars.example .dev.vars   # 本地占位 Secrets，不提交
+pnpm db:migrate:local            # 先应用 D1 迁移，状态与 cf dev 共用
 pnpm dev                         # cf dev，监听 0.0.0.0:6120
 ```
 
 | 命令 | 作用 |
 | --- | --- |
+| `pnpm db:migrate:local` | `cf d1 migrations apply`：将 `migrations/` 应用到本地占位 D1，持久化到被忽略的 `.cloudflare/state`，可重复运行 |
 | `pnpm typecheck` | 由 `cloudflare.config.ts` 生成绑定类型、生成路由类型，再运行 `tsc` |
-| `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟，Secrets 取 `.dev.vars.example` 的占位值 |
+| `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟；每条用例重置绑定并应用 `migrations/`，Secrets 取 `.dev.vars.example` 的占位值 |
 | `pnpm test:tools` | Node 回归测试：加载实际 Cloudflare 配置，检查 staging / production 的 D1 ID 隔离 |
 | `pnpm build` | development 模式构建到 `.cloudflare/output/v0` |
 | `pnpm build:staging` / `pnpm build:production` | 按环境构建；需要本机 `.env`（见 `.env.example`），缺少资源标识时构建失败 |
 | `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
 
 `cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。构建 staging 或 production 时必须同时提供两套 D1 ID；忽略首尾空白和字母大小写后相同即报错，防止测试环境绑定正式数据库。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
+
+测试数据工厂 `test/fixtures/catalog.ts` 只创建虚构成员、作品、季和集。需要媒体夹具时，安装 PATH 上可用的 ffmpeg 后运行 `node scripts/gen-test-media.mjs`：生成 4 秒 H.264 + AAC、faststart 的 MP4 到被忽略的 `test/fixtures/media/`，可重复生成。自行编写的中英文 VTT 在 `test/fixtures/subtitles/` 中随代码提交；约束测试不依赖生成的 MP4。
 
 ## 许可证
 
