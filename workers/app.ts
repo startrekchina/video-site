@@ -22,7 +22,7 @@ export default {
     const response = await requestHandler(request, { cloudflare: { env, ctx } });
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
-    if (!headers.has("Cache-Control")) headers.set("Cache-Control", "private, no-store");
+    headers.set("Cache-Control", "private, no-store");
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   },
 } satisfies ExportedHandler<Env>;

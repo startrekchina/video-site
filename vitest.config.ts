@@ -13,7 +13,7 @@ export default defineConfig({
     cloudflareTest({
       main: "./workers/app.ts",
       experimental: { newConfig: true },
-      miniflare: { bindings: testSecrets },
+      miniflare: { bindings: testSecrets, assets: { directory: "public" } },
     }),
   ],
   resolve: { tsconfigPaths: true },
