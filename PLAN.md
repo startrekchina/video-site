@@ -55,7 +55,7 @@
 
 ### T2.3 环境、绑定与 Secrets
 
-- [x] `cloudflare.config.ts` 声明需求 6.9.1 的逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`TOTP_ENCRYPTION_KEY`、`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`。发件人地址、发件域名和邮件 API 基础地址等发件配置项待站长提供已购服务的 API 文档后在第三阶段加入，不预先猜写。
+- [x] `cloudflare.config.ts` 声明需求 6.9.1 的逻辑绑定：`ASSETS`、`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`TOTP_ENCRYPTION_KEY`、`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`。发件人地址、发件域名和邮件 API 基础地址等发件配置项待站长提供已购服务的 API 文档后在第三阶段加入，不预先猜写。
 - [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；缺失或混用时构建失败。
 - [x] 集中默认配置（需求 6.9.1 “集中默认配置”整行，含全部限流数值、会话期限、TOTP 参数、额度、分页和 token 时长）落在一个服务端模块（`app/lib/settings.server.ts`）并有单测核对数值。
 - [ ] **阻塞（待站长授权）**：用 `cf d1 create`、`cf r2 buckets create` 创建 staging / prod 的 D1 与私有 R2，确定 Rate Limiting namespace，写入线上 Secrets，并决定 staging 的访问域名；Cron 表达式 `0 20 * * *` 在备份任务实现时再加入。
@@ -111,6 +111,7 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面�
 - 2026-10-06：T2.4 形成书面差距结论，独立分支 `spike/auth-poc-report` 提交 `4fc3bc4`。workerd 测试 6 个文件 29 项及类型检查通过，实测注册 / 恢复部分提交、明文会话、滚动续期、并发 TOTP 重放和可逆恢复码；报告列出全部 A1–A7 / B1–B10 证据、未运行项目与 A/B/C 选项。待站长决定，未合入 POC、未实现正式认证。
 - 2026-10-06：T2.5 修复及 T2.6 前端基础合入本地 `dev`。集成工作树重新执行 `pnpm typecheck`、`pnpm test`（83 项）、`pnpm build`、`pnpm db:migrate:local`（7 个迁移）通过。正式 `pnpm dev` 常驻监听 `0.0.0.0:6120`，局域网访问 `/about` 返回 200。浏览器完成关于页 / 404 的 1440×1000、360×800、浅 / 深色八视图验收；验证三档主题、系统切换、刷新持久化、D 键与输入时忽略、1152 / 768 px 列宽、回到顶部及访客导航，无横向溢出或捕获的客户端异常。截图和边界见 `docs/screenshots/phase2/README.md`。
 - 2026-10-06：确认 D1 任务分支无独有提交、工作树无未提交 / 未跟踪文件及运行进程后，移除 `.worktree/d1-schema` 和已合入的两条 D1 任务分支。原 `.worktree/frontend-foundation`、`.worktree/auth-poc` 及 `.worktree/development-roadmap` 带有先前未提交内容，保留；原型工作树保留参考用途。`spike/auth-poc-report` 及其工作树保留供认证决策复核，集成工作树继续运行服务。
+- 2026-10-07：修复 #13 审查意见：`.env*` 全部忽略并保留 `.env.example`；Worker 无条件设置 `private, no-store`；补齐 `ASSETS` 绑定和运行时断言。新增缓存头用例可复现并阻止路由自设 `public`；绑定用例在缺少声明时失败。6 项 Workers 测试、类型检查、构建及环境文件忽略检查通过。
 
 - 2026-10-06：修复 T2.5 复核发现的 P1：SQLite `INSERT OR REPLACE` 会绕过 UPDATE 触发器，可改写邀请来源并遗留邮箱占用。增量迁移 `0007_users_insert_guard.sql` 在 INSERT 前拒绝与既有成员 ID 或用户名键冲突的插入；成员变更必须使用 UPDATE。新增两种 REPLACE 语法、ID / 用户名冲突、邮箱占用保留与失败批次回滚回归用例。`pnpm test` 82 项、`pnpm typecheck`、`pnpm build` 通过；本地 `cf` 应用全部 7 个迁移成功。未改写旧迁移。
 
