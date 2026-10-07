@@ -14,7 +14,7 @@ export default defineConfig({
     cloudflareTest({
       main: "./workers/app.ts",
       experimental: { newConfig: true },
-      miniflare: { bindings: { ...testSecrets, TEST_MIGRATIONS: testMigrations } },
+      miniflare: { bindings: { ...testSecrets, TEST_MIGRATIONS: testMigrations }, assets: { directory: "public" } },
     }),
   ],
   resolve: { tsconfigPaths: true },
