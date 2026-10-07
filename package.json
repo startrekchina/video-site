@@ -13,7 +13,8 @@
     "deploy:staging": "pnpm build:staging && cf deploy --prebuilt --mode staging",
     "deploy:production": "pnpm build:production && cf deploy --prebuilt --mode production",
     "typecheck": "cf workers types && react-router typegen --mode development && tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:tools": "node --test scripts/*.test.mjs"
   },
   "dependencies": {
     "isbot": "^5.2.2",

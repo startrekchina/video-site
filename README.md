@@ -93,11 +93,12 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 | --- | --- |
 | `pnpm typecheck` | 由 `cloudflare.config.ts` 生成绑定类型、生成路由类型，再运行 `tsc` |
 | `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟，Secrets 取 `.dev.vars.example` 的占位值 |
+| `pnpm test:tools` | Node 回归测试：加载实际 Cloudflare 配置，检查 staging / production 的 D1 ID 隔离 |
 | `pnpm build` | development 模式构建到 `.cloudflare/output/v0` |
 | `pnpm build:staging` / `pnpm build:production` | 按环境构建；需要本机 `.env`（见 `.env.example`），缺少资源标识时构建失败 |
 | `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
 
-`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
+`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。构建 staging 或 production 时必须同时提供两套 D1 ID；忽略首尾空白和字母大小写后相同即报错，防止测试环境绑定正式数据库。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
 
 ## 许可证
 

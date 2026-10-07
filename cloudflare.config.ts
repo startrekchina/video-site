@@ -15,6 +15,14 @@ function requiredEnv(name: string) {
 }
 
 function environment(mode: string) {
+  if (mode === "staging" || mode === "production") {
+    const stagingId = requiredEnv("STAGING_D1_DATABASE_ID").trim().toLowerCase();
+    const productionId = requiredEnv("PRODUCTION_D1_DATABASE_ID").trim().toLowerCase();
+    if (stagingId === productionId) {
+      throw new Error("STAGING_D1_DATABASE_ID and PRODUCTION_D1_DATABASE_ID must be different.");
+    }
+  }
+
   switch (mode) {
     case "development":
     case "test":
