@@ -4,13 +4,13 @@
 
 ## 当前状态
 
-v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确认，对应接口行为和第 7 节测试期望已同步。邮箱验证、成员修改邮箱、管理员删评和单个成员解封均纳入 v1；发信沿用站长已购买的 Postal 服务，环境配置与 HTTPS 传输层已落地，完整业务回调和实际投递尚待接入验证。历史备份恢复后保留讨论，由管理员手动重新删除不应恢复的内容。
+v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确认，对应接口行为和第 7 节测试期望已同步。邮箱验证、成员修改邮箱、管理员删评和单个成员解封均纳入 v1；发信沿用站长已购买的 Postal 服务，原生回调与业务配额已接入，验证/找回邮件及重新登录已在 staging 实际通过。历史备份恢复后保留讨论，由管理员手动重新删除不应恢复的内容。
 
 数据库备份将提供站内操作：直接下载加密文件，或保存到 WebDAV / S3；仅 Worker 变量 `OWNER_EMAIL` 匹配的正常管理员可访问，其他管理员无此权限。只有 WebDAV / S3 目标配置完整后，才能在网页设置定时备份频率与执行时间；仅下载不启用定时备份，不再固定每日 04:00。这项需求和验收已同步，功能按 PLAN T6.1 待实现。
 
-规则确认**不代表功能已实现或已验收**：第二阶段本地工程基础与 T2.7 已完成，进入第三阶段“邀请、账号与管理”。Better Auth/passkey 锁定 1.7.7，原生认证表、0009 成员资料/注册预留与业务外键迁移、21 项原生探针及关于页新版完成；全量 100 项 Workers 测试、类型检查、构建、本地迁移和桌面/手机浅深色截图验收通过。旧认证契约用例已退役，29 项独立 POC 用例仅作历史差距证据。
+第二阶段工程基础和第三阶段邀请、账号与管理验收完成。邀请注册、认证 HTTP、邮箱验证/找回/本人改邮箱、账号与设备管理、邀请额度及管理员操作已实现，Better Auth/passkey 仍锁定 1.7.7。页面尽可能沿用原型结构，新增邮箱流程沿用同套控件；成功重置后进入无密码表单、无 URL token 的独立完成页，提供登录按钮。[第三阶段验收记录](docs/screenshots/phase3/README.md)列明已验证范围和差异。邮件套餐、管理页面、原生 scrypt 平台小样本已验收；站长确认真实 TOTP、备用码、手机会话撤销及通行密钥登录均有效。下一阶段为片库与播放闭环，PLAN T4.1–T4.4 已细化，尚未开工。
 
-staging 已复用既有 Worker、域名和私有媒体桶，云端当前应用 8 个迁移并部署上一版工程基础；EMAIL_API_KEY 与备份 Token 已配置。Postal 传输层的 12 项模拟测试、两环境构建 / dry-run 和客户端隐私扫描通过；T3.1 内部注册核心现已完成，16 项专项覆盖预留归属、原生部分创建续作、冲突/并发及业务原子回滚，0010 迁移已在本地应用，最新全量 128 项 Workers 测试、类型检查与构建通过。真实配置只在本机保存；注册/认证 HTTP、发信配额和回调、页面仍按 [`PLAN.md`](PLAN.md) T3.1 推进。production 资源映射和独立密钥已准备，尚未迁移、上传 Secrets 或上线；备份外部配置和平台实测仍待完成。前端参考原型保留在 `prototypes/frontend-v1/`。
+staging 已按站长授权部署第三阶段代码及 11 个迁移，复用既有 Worker、域名、私有媒体桶和 Secrets。公开页面、访客权限、跨站拒绝、通行密钥 UV 选项、静态 noindex 与凭证日志脱敏探针通过，邮件重定向运行时问题已修复；站长确认验证/找回邮件、新密码和登录实际通过。原生 scrypt 的 8 次 HTTP 检查全部符合预期，最多 2 路并发，对应 6 条平台样本 CPU P99 约 83.6 ms、V8 isolate memory P99 约 19.0 MiB、执行错误 0；临时探针已移除并复核正常入口，此样本不代表完整容量。production 资源映射和独立密钥已有准备记录；正式迁移、Secrets 上传、部署和上线验收安排在所有主要功能开发完成后的第六阶段，不作为工程基础或第三至第五阶段完成条件。真实配置只在本机/平台保存，剩余验收与阶段状态以 [`PLAN.md`](PLAN.md) 为准，前端参考原型保留在 `prototypes/frontend-v1/`。
 
 ## 文档
 
@@ -42,26 +42,29 @@ staging 已复用既有 Worker、域名和私有媒体桶，云端当前应用 8
 
 - [x] 建立根目录 `PLAN.md`，把功能顺序和验收条件整理为可执行待办；工具链已在本机探针中验证。
 - [x] 使用 `cf` CLI 建立 React Router v7 + Workers 正式工程，配置类型检查、构建和 Workers Vitest 测试入口；不使用 Wrangler。
-- [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；staging 当前工程、8 个迁移、四项 Secrets 及 HTTPS 冒烟检查通过。production 资源与独立密钥已准备，尚未迁移或部署；邮件/备份外部凭证仍待提供。
+- [x] 完成 staging 开发资源与 Secrets 配置，并验证 staging / production 的隔离配置、资源映射和构建 / dry-run；staging 的 11 个迁移、五项所需 Secrets 及 HTTPS 冒烟通过。production 正式迁移、Secrets 上传、部署和上线验收按第六阶段执行。
 - [x] 完成 Better Auth 旧规则 POC 与差距报告；29 项测试是行为/差距证据，不等于新方案验收。
 - [x] 站长决定调整需求并采用 Better Auth；需求、接口、验收和计划已同步，变更索引见需求 6.3.4。
 - [x] 落地 D1 迁移/约束与虚构成员、生成媒体/字幕夹具；0008 原生认证表与 0009 成员业务资料/外键已验证，未转换旧凭证会让迁移拒绝并回滚。
 - [x] 完成 Better Auth 原生配置、依赖/Secrets/常量适配与 21 项 workerd/D1 探针；这不表示完整认证流程已接通。
 - [x] 完成 PLAN T2.7：库原生 schema/业务成员与注册预留增量迁移、依赖/Secrets/常量适配、原生行为探针和关于页新文案验收。
 - [x] 迁移前端基础并通过桌面/手机、浅/深色验收；关于页 Better Auth 新文案截图见 [新版验收记录](docs/screenshots/phase2-better-auth/README.md)，旧截图仅作历史参考。
-- [ ] 按页面或流程迁移原型的展示组件、布局、样式和已定稿交互，适配 loader / action 与真实数据；正式工程不依赖原型目录，不沿用演示认证和权限。
+其余原型页面的展示组件、布局、样式和已定稿交互随第三至第五阶段的对应功能迁移，适配 loader / action 与真实数据；正式工程不依赖原型目录，不沿用演示认证和权限。逐页迁移的剩余工作按对应阶段验收。
 
-### 3. 邀请、账号与管理
+### 3. 邀请、账号与管理（已完成本阶段验收）
 
-- [ ] 接入 Better Auth 和邀请注册的预留/创建/完成流程；验默认用户名/密码、一次性邀请码与失败续作、访问门禁、原生跨站/IP 限流/Turnstile 和业务配额。
-- [x] 完成内部邀请注册核心与 0010 归属/原子提交约束；实际读取原生身份，冲突不消费码，部分账号仅由同一尝试续作，并发不重复建号。HTTP 防护、发信和页面未完成，上一项不勾选。
+- [x] 接入 Better Auth 和邀请注册预留/创建/完成；本地集成测试覆盖默认用户名/密码、邀请码与失败续作、成员门禁、跨站/IP 限流/Turnstile 和精确邮件配额。
+- [x] 完成内部邀请注册核心与 0010 归属/原子提交约束；实际读取原生身份，冲突不消费码，部分账号仅由同一尝试续作，并发不重复建号。HTTP 防护、发信回调和原型式页面现已接入，实际邮件与平台小样本结果见下一项。
 - [x] 实现 Postal HTTPS 发信传输与五项环境配置绑定；模拟服务验证单次请求、HTTP / 业务错误、超时及脱敏。实际投递和业务回调见下一项，不因传输测试通过标为完成。
-- [ ] 接入已购 Postal 发件服务；API 文档/地址和两环境 From / Reply-To 已确认，staging Secret 已配置，production Secret 未配置。核对套餐限额，完成原生签名邮箱验证、邮箱重置链接、成员发信限流、待验证账号访问限制和投递失败处理（见需求文档第 6.0 节）。
-- [ ] 完成已登录成员的原生改邮箱与本人会话确认；验证新邮箱前保留旧邮箱，不提供匿名改邮箱、不预占待邮箱、不承诺撤销未过期旧重置链接。
-- [ ] 完成 UV 通行密钥、TOTP/二步备用码、滚动会话、改密、邮箱找回及失败处置；备用码仅第二因素，移除恢复码重设密码/管理员重置流程。
-- [ ] 完成邀请码管理、成员与邀请链查询、额度调整、角色变更、封禁与解除单个成员封禁（不连带、需绑定 TOTP 和新鲜会话），以及首管由本机运维提升；验证管理员权限、自封禁/自降权保护和确认后的连带范围。
+- [x] 完成已购 Postal 发件服务的 staging 验收；API 文档/地址和 From / Reply-To 已确认，staging Secret、原生签名邮箱验证、邮箱重置链接、成员发信限流、待验证账号门禁及失败处理已接入。验证/找回邮件实际通过，站长确认上游额度每小时 3,000 封、每日 24,000 封（需求 6.0）。production 邮件凭证在第六阶段上线前配置。
+- [x] 完成已登录成员的原生改邮箱与本人会话确认；验证新邮箱前保留旧邮箱，不提供匿名改邮箱、不预占待邮箱、不承诺撤销未过期旧重置链接。
+- [x] 接入通行密钥选项/UV 钩子、TOTP/备用码、滚动会话、改密、邮箱找回及故障处置；备用码仅第二因素，旧密码恢复码/管理员重置路径关闭。
+- [x] 补齐其他成员管理对话框和多层邀请关系的桌面/手机浅深色浏览器检查；staging 原生 scrypt 哈希/校验及最多 2 路并发小样本、凭证日志脱敏通过。
+- [x] 站长确认真实 TOTP 绑定、密码加动态码/备用码登录、备用码余量减少及电脑撤销手机会话有效，D1 已核对 TOTP 验证/启用状态。
+- [x] 站长确认 staging HTTPS 上通行密钥登录手工验收成功，D1 已核对绑定存在；UV 选项/钩子另有自动检查，第三阶段验收完成。
+- [x] 完成邀请码管理、成员与邀请链查询、额度调整、角色变更、封禁与解除单个成员封禁（不连带、需绑定 TOTP 和新鲜会话），以及首管由本机运维提升；验证管理员权限、自封禁/自降权保护和确认后的连带范围。
 
-### 4. 片库与播放闭环
+### 4. 片库与播放闭环（待开工，详见 PLAN T4.1–T4.4）
 
 - [ ] 完成离线导入 CLI：manifest / TMDB 双语资料、MP4 格式与 faststart 预检、字幕转 VTT、R2 / D1 挂接及幂等重试。
 - [ ] 将访客入口、成员首页、片库网格与时间轴、作品和选集页面接入正式数据，验证站长配置的三个推荐起点、版权联系、搜索、资料回退、海报和单集剧照状态。
@@ -77,6 +80,7 @@ staging 已复用既有 Worker、域名和私有媒体桶，云端当前应用 8
 
 - [ ] 完成仅 `OWNER_EMAIL` 匹配管理员可用的站内备份页、手动创建/重试、加密下载与 WebDAV / S3 保存，以及外部目标配置完整后才可启用的频率/时间设置；共用 D1 → R2 流程，验证回读校验、失败处理、各端保留与隔离手动恢复，确认媒体冷备与历史密钥可用（PLAN T6.1）。
 - [ ] 在 staging 完成端到端验收：未登录 / 越权访问、封禁与续期、并发幂等、日志脱敏、noindex、备份恢复及真实平台限制；实测网页备份执行生命周期与中断重试、定时全流程 15 分钟窗口、Time Travel 隔离能力、限流与 scrypt 行为。
+- [ ] 所有主要功能（认证与管理、片库与播放、进度/片单/讨论、备份与恢复）开发完成并通过相关测试和 staging 验收后，补齐 production 独立配置与 Secrets；获站长明确授权后执行正式迁移、部署及 HTTPS、权限和安全头验收（PLAN T6.2）。
 - [ ] 验证目标规模下的播放体验和预算，补齐本地启动、部署及恢复说明，再发布 v1。
 
 HLS、ASS 渲染、弹幕、同时播放数限制、OAuth 登录等范围外功能不纳入本清单；邮箱验证、邮件发信和成员自助修改注册邮箱已纳入 v1，完整范围以需求文档为准。
@@ -86,7 +90,7 @@ HLS、ASS 渲染、弹幕、同时播放数限制、OAuth 登录等范围外功�
 - 运行时：Cloudflare Workers
 - 框架：React Router v7（框架模式）
 - 数据库：Cloudflare D1，认证与业务资料均保存在站长自己的数据库
-- 认证：Better Auth 1.7.7 + username/twoFactor/captcha 与同版 passkey 插件（配置、认证表及探针已落地，HTTP 流程待接通）
+- 认证：Better Auth 1.7.7 + username/twoFactor/captcha 与同版 passkey 插件（原生认证与本站必要 HTTP 门禁已接通，真实设备/平台验收待完成）
 - 媒体存储：Cloudflare R2（私有）
 - 播放器：ArtPlayer
 
@@ -103,33 +107,65 @@ pnpm db:migrate:local            # 先应用 D1 迁移，状态与 cf dev 共用
 pnpm dev                         # cf dev，监听 0.0.0.0:6120
 ```
 
-启动前检查 6120 端口，已有实例则复用。原集成工作树服务已停止，当前实例在任务工作树监听 `0.0.0.0:6120`；`/about` 是公开关于页，未知路径显示 404，`/` 暂为工程首页。旧认证表和关于页新文案已完成 T2.7 迁移；登录、注册、邮箱找回、二步备用码及真实发信业务按第三阶段实现，不以展示链接或传输层测试表示完整认证已完成。新截图与核对见 [验收记录](docs/screenshots/phase2-better-auth/README.md)。
+启动前检查 6120 端口，已有实例则复用。当前服务在任务工作树监听 `0.0.0.0:6120`；`/login`、`/register`、`/forgot-password`、`/reset-password`、`/verify-email`、`/verify-pending` 是公开账号流程，`/account`、`/invites` 是成员页，`/admin` 仅正常管理员可用。权限由页面和 JSON 接口分别校验，访客受保护页面跳回登录并保留返回目标。`/about` 保持公开；`/` 暂为工程首页，片库和播放按第四阶段实现。
 
 已有 `.dev.vars` 需补入至少 32 字符的 `BETTER_AUTH_SECRET`，与播放/备份密钥独立；旧 `TOTP_ENCRYPTION_KEY` 不再声明。测试只用 `.dev.vars.example` 的虚构占位值，不读取本机真实 Secrets。原生认证表由 `cf` 版本化迁移管理，不在请求中自动迁移；D1 的原生 DATE 列实测存 ISO 8601 文本，与旧业务表 UTC 毫秒列分别处理。
 
-本地迁移现包含 0010：新增注册归属字段和 credential 唯一约束，未改写已应用迁移。内部 registerWithInvitation 只返回注册/重试结果，尚无可用网页注册入口；接入前必须完成 PLAN T3.1 的跨站、Turnstile、IP 限流、邮件配额和日志脱敏，不能直接暴露服务函数或库 sign-up 端点。
+本地迁移现包含 0011：0010 保护注册归属与业务完成，0011 在密码写入时原子撤销旧会话，并在封禁时原子作废未用码及删除会话，未改写已应用迁移。正式注册只开放带 Origin、业务 CSRF、人机验证和原生限流的 `/auth/register`；直接 sign-up、邮箱密码直登、管理员重置及多余库端点关闭。原生多步流程仍可能部分成功，错误不表示密码或凭证状态一定回滚。
 
 | 命令 | 作用 |
 | --- | --- |
 | `pnpm db:migrate:local` | `cf d1 migrations apply`：将 `migrations/` 应用到本地占位 D1，持久化到被忽略的 `.cloudflare/state`，可重复运行 |
+| `pnpm db:migrate:staging` / `pnpm db:migrate:production` | 授权后应用远程增量迁移；通过 cf 的临时 SQL 副本规避 D1 触发器解析问题，不改写已应用迁移 |
 | `pnpm typecheck` | 由 `cloudflare.config.ts` 生成绑定类型、生成路由类型，再运行 `tsc` |
+| `pnpm test:tools` | 本机 bootstrap、首管提升、远程迁移传输兼容及 Cloudflare 配置 D1 ID 隔离回归测试，不触及云端 |
+| `pnpm admin:bootstrap` | 明确选择环境的初始邀请码/首管提升命令，默认只预检，见下文 |
 | `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟；每条用例重置绑定并应用 `migrations/`，Secrets 取 `.dev.vars.example` 的占位值 |
-| `pnpm test:tools` | Node 回归测试：加载实际 Cloudflare 配置，检查 staging / production 的 D1 ID 隔离 |
 | `pnpm build` | development 模式构建到 `.cloudflare/output/v0` |
 | `pnpm build:staging` / `pnpm build:production` | 按环境构建；需要本机 `.env`（见 `.env.example`），缺少资源标识时构建失败 |
 | `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
 
-`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。构建 staging 或 production 时必须同时提供两套 D1 ID；忽略首尾空白和字母大小写后相同即报错，防止测试环境绑定正式数据库。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
+`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。构建 staging 或 production 时必须同时提供两套 D1 ID；忽略首尾空白和字母大小写后相同即报错，防止测试环境绑定正式数据库。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。开发期间使用本地与 staging；production 构建 / dry-run 仅验证准备状态，正式迁移、Secrets 上传和部署须等主要功能完成后按 PLAN T6.2 执行。
 
 已授权的云端配置复用既有 Worker，D1 名称/ID 与媒体桶名由 `.env.example` 所列环境变量分别映射；旧 staging 数据库因 schema 不兼容而保留，当前工程使用新库，不对旧库套用迁移。staging 沿用原有自定义域名，production 使用本文确定的正式域名；Custom Domain 由 `worker.domains` 管理，workers.dev 与版本预览入口关闭。
 
-`bindings.secret()` 在实际部署时要求值齐全。当前声明认证、播放、Turnstile、备份加密与 EMAIL_API_KEY 五项；备份 API Token 和启用的 WebDAV / S3 目标凭证随对应模块再声明，禁止用样例值满足线上检查。服务端站长变量 OWNER_EMAIL 也随备份模块加入，当前尚未声明或校验。邮件配置使用 .env.example 中的 STAGING_EMAIL_* / PRODUCTION_EMAIL_*；API 基础地址必须为 HTTPS origin，发件人域名须匹配 EMAIL_SENDER_DOMAIN。传输只发送纯文本正文、最多等待 10 秒、不跟随重定向或自动重发；业务配额、失败记录和认证回调仍在 T3.1 待办中。
+远程迁移使用 `pnpm db:migrate:staging` / `pnpm db:migrate:production`。staging 实测 D1 `/query` 将 0010 触发器内裸 `CASE…END` 错认作触发器结束，整份 0010 回滚；[Cloudflare 问题记录](https://github.com/cloudflare/workers-sdk/issues/4727)描述同类行为。脚本仅在临时副本给该表达式加等价括号，再交给 `cf d1 migrations apply --dir`，由 CLI 正常记录原文件名并执行增量判断；原始文件和本地已应用迁移不改写，临时文件执行后清除。SQLite 验证合法邀请原子完成、过期邀请完整拒绝。不要直接重复失败的原始远程命令，也不使用 Wrangler 兜底。
+
+`bindings.secret()` 在实际部署时要求值齐全。当前声明认证、播放、Turnstile、备份加密与 EMAIL_API_KEY 五项；备份 API Token 和启用的 WebDAV / S3 目标凭证随对应模块再声明，禁止用样例值满足线上检查。服务端站长变量 OWNER_EMAIL 也随备份模块加入，当前尚未声明或校验。邮件配置使用 .env.example 中的 STAGING_EMAIL_* / PRODUCTION_EMAIL_*；API 基础地址必须为 HTTPS origin，发件人域名须匹配 EMAIL_SENDER_DOMAIN。传输只发送纯文本正文、最多等待 10 秒、不跟随重定向或自动重发；业务配额、失败记录和认证回调已接入；验证用途共享邮箱摘要配额，找回单独计数，失败/未确认也计入。真实投递与上游套餐限额仍待核对。
 
 本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，只含原有四项密钥，未包含站长另行配置的 EMAIL_API_KEY；production 不能仅凭该文件通过正式部署检查。授权部署时可用 `pnpm exec cf deploy --prebuilt --mode staging --secrets-file .dev.vars.staging.secrets.json` 上传文件中的密钥；既有 EMAIL_API_KEY 由站长在对应 Worker 配置，不复制 staging 的值到 production。密钥还须由站长保存到密码管理器和离线副本，保管/轮换见需求 6.9.1。
 
 线上启用应用日志和 query 脱敏，关闭含请求 URL 的 invocation logs；原生 traces 的凭证路径脱敏验证前保持关闭。配置核对和页面冒烟检查不替代第六阶段的真实日志内容、安全与性能验收。
 
+staging 另测发现 Cloudflare 会给应用日志附加请求 URL/路径，即使 invocation logs 已关闭。重置链接凭证位于原生路径中，因此 `/api/auth/reset-password/` 不产生应用日志，避免平台再次附加原文；Better Auth 原始日志保持关闭，其他请求仍记录白名单路由族、状态与请求标识。query token 由平台 `redact_query_string` 剔除。
+
+实际 Workers 的邮件 fetch 使用 `redirect: "error"` 会在发出请求前抛错，改为 `manual` 并拒绝所有非 2xx（包含 3xx）。一次请求、不跟随重定向、不自动补发及 10 秒上限保持不变；匿名探针只证明 Postal 可达，实际投递以收信和验证结果为准。
+
+2026-10-06 第三阶段 staging 部署遇到 cf beta.12 的固定严格检查：配置差异以及“最近由 API 更新”均会拒绝上传，CLI 没有覆盖参数。站长明确授权本次 staging 使用官方 API；保存旧配置快照后激活已配置的邮件 Secret 版本、同步邮件/RP ID、清除旧 Cron，再按[官方静态资源上传流程](https://developers.cloudflare.com/workers/static-assets/direct-upload/)上传同一份已验证 Build Output。代码与资源最终已在线；静态 `_headers` 元数据及关键绑定复核通过。临时部署脚本和私密快照只在忽略目录，不改变后续使用 cf 的规则。实际邮件测试使用站长指定地址，真实地址和注册链接不写入公开文档。
+
 测试数据工厂 `test/fixtures/catalog.ts` 只创建虚构成员、作品、季和集。需要媒体夹具时，安装 PATH 上可用的 ffmpeg 后运行 `node scripts/gen-test-media.mjs`：生成 4 秒 H.264 + AAC、faststart 的 MP4 到被忽略的 `test/fixtures/media/`，可重复生成。自行编写的中英文 VTT 在 `test/fixtures/subtitles/` 中随代码提交；约束测试不依赖生成的 MP4。
+
+## 本机初始邀请码与首个管理员
+
+从工作树根目录执行，必须明确选择环境，默认只预检；实际写入需显式增加 `--execute`：
+
+```bash
+pnpm admin:bootstrap invite --env=development
+pnpm admin:bootstrap invite --env=development --execute
+pnpm admin:bootstrap promote <已验证用户名> --env=development --execute
+```
+
+初始邀请码没有虚构发出人，默认 30 天有效，原码只在执行成功后显示一次，数据库只存摘要。用它正常注册并验证邮箱，再提升首管；网页注册不能赋予管理员身份。staging / production 将环境名换成对应值，数据库 ID 从忽略的 .env 读取；云端实际执行仍须站长明确授权，不能用 staging 的邮箱或密钥代替 production。
+
+`cf` beta.12 的 D1 query 暂不支持本地执行。本地实际命令使用其 migrations runner 执行同一条条件 SQL，以专用 `local_admin_operations` 元数据表记录，不混入正式迁移目录；条件影响行数不为 1 时整批回滚。线上使用参数化 D1 query，临时 SQL/JSON 文件执行后删除，不回退到 Wrangler。
+
+## 本地认证验收边界
+
+本地官方 Turnstile 测试服务返回 example.com 且没有 action。仅在 development 且 Site Key / Secret 均等于官方 always-pass 配对时接受这一测试响应；test、staging 和 production 仍严格检查本站 hostname 与 auth action。客户端保留原型窄卡片，在容器小于 300px 时切换官方 compact 控件，并预留其高度；[控件尺寸依据](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/#widget-sizes)。
+
+局域网验收须将本地 .env 中的 `APP_ORIGIN` 配为实际访问 origin；RP ID 随该 origin 的 hostname 生成，来源校验不因调试而放宽。通行密钥还需浏览器认可的安全上下文；实际设备和部署 HTTPS 的验收仍在 PLAN 中保留。
+
+测试并发设为两路，避免原生密码哈希与 Worker 模块图同时争用 CPU。HTTP suite 单独预热 SSR 编译，允许最多 60 秒；普通单请求仍保留原来的 5 秒测试阈值。模拟发信不向真实服务发送邮件，浏览器验收仅使用虚构本地账号。注册、改邮箱和重置失败可能留下部分原生状态，相关故障注入与重试行为见测试和需求 6.4.1。
 
 ## 许可证
 

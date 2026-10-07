@@ -15,7 +15,10 @@
     "typecheck": "cf workers types && react-router typegen --mode development && tsc",
     "db:migrate:local": "cf d1 migrations apply 00000000-0000-4000-8000-000000000000 --local --persist-to .cloudflare/state",
     "test": "vitest run",
-    "test:tools": "node --test scripts/*.test.mjs"
+    "test:tools": "node --test scripts/*.test.mjs",
+    "db:migrate:staging": "node scripts/migrate-remote.mjs staging",
+    "db:migrate:production": "node scripts/migrate-remote.mjs production",
+    "admin:bootstrap": "node scripts/admin-bootstrap.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",

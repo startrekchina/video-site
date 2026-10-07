@@ -13,7 +13,7 @@ it("sends exactly one Postal request with the configured sender and returns only
   expect(fetch).toHaveBeenCalledTimes(1);
   const [url, options] = fetch.mock.calls[0] as unknown as [URL, RequestInit];
   expect(url.href).toBe("https://postal.example.test/api/v1/send/message");
-  expect(options).toMatchObject({ method: "POST", redirect: "error", headers: { "Content-Type": "application/json", "X-Server-API-Key": env.EMAIL_API_KEY } });
+  expect(options).toMatchObject({ method: "POST", redirect: "manual", headers: { "Content-Type": "application/json", "X-Server-API-Key": env.EMAIL_API_KEY } });
   expect(JSON.parse(String(options.body))).toEqual({ to: [message.to], from: env.EMAIL_FROM, reply_to: env.EMAIL_REPLY_TO, subject: message.subject, plain_body: message.text });
 });
 
@@ -29,6 +29,15 @@ it("treats an HTTP dependency failure as failure without retrying", async () => 
   vi.stubGlobal("fetch", fetch);
   expect(await sendEmail(env, message)).toEqual({ status: "failed", errorCode: "EMAIL_HTTP_ERROR" });
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it("rejects redirects without sending the API key or mail to the redirected host", async () => {
+  const fetch = vi.fn(async () => new Response(null, { status: 307, headers: { Location: "https://other.example.test/send" } }));
+  vi.stubGlobal("fetch", fetch);
+  expect(await sendEmail(env, message)).toEqual({ status: "failed", errorCode: "EMAIL_HTTP_ERROR" });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  const [, options] = fetch.mock.calls[0] as unknown as [URL, RequestInit];
+  expect(options.redirect).toBe("manual");
 });
 
 it("marks an incomplete success response as unconfirmed", async () => {
