@@ -8,6 +8,8 @@
 
 staging 已部署第四阶段及 12 个迁移；production 只有独立资源/密钥准备记录和构建验证，正式上线须待主要功能与 staging 验收通过并取得站长授权。当前阶段、模块状态、依赖及阻塞以[核心计划](PLAN.md)为准，具体任务只在模块计划维护，本页不复制开发清单。
 
+常规发布要求 Cloudflare 从 GitHub 分支云端构建，规则见 [B 6.9.5](docs/detailed-requirements.md#695-github-分支构建与发布)；云端发布链路尚未接通，实施与验收见[运维计划](docs/plan/operations.md)。
+
 ## 文档入口
 
 按 A → B → 核心计划 → 本次任务所属模块阅读，不必加载全部计划及归档。
@@ -67,10 +69,10 @@ Better Auth 的原生结构检查保留在 test 模式；development/staging/pro
 | `pnpm admin:bootstrap` | 明确选择环境的初始邀请码/首管提升命令，默认只预检，见下文 |
 | `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟；每条用例重置绑定并应用 `migrations/`，Secrets 取 `.dev.vars.example` 的占位值 |
 | `pnpm build` | development 模式构建到 `.cloudflare/output/v0` |
-| `pnpm build:staging` / `pnpm build:production` | 按环境构建；需要本机 `.env`（见 `.env.example`），缺少资源标识时构建失败 |
+| `pnpm build:staging` / `pnpm build:production` | 按环境构建；通过环境变量或本机 `.env` 提供配置（见 `.env.example`），缺少资源标识时构建失败 |
 | `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
 
-`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。开发期间使用本地与 staging；production 构建 / dry-run 仅验证准备状态，正式迁移、Secrets 上传和部署须等主要功能完成后按 运维计划 T6.2 执行。
+`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 在本机使用被忽略的 `.env`，云端构建使用对应环境的平台配置，不提交仓库；运行时 Secrets 由站长授权后写入 Worker Secrets，不与构建 Secrets 混用。在本机运行 `deploy:staging` / `deploy:production` 等直接部署命令，仅限站长明确授权的例外。开发期间使用本地与 staging；production 构建 / dry-run 仅验证准备状态，正式迁移、Secrets 上传和部署须等主要功能完成后按运维计划 T6.2 执行。
 
 已授权的云端配置复用既有 Worker，D1 名称/ID 与媒体桶名由 `.env.example` 所列环境变量分别映射；旧 staging 数据库因 schema 不兼容而保留，当前工程使用新库，不对旧库套用迁移。staging 沿用原有自定义域名，production 使用本文确定的正式域名；Custom Domain 由 `worker.domains` 管理，workers.dev 与版本预览入口关闭。
 
@@ -78,7 +80,7 @@ Better Auth 的原生结构检查保留在 test 模式；development/staging/pro
 
 `bindings.secret()` 在实际部署时要求值齐全。当前声明认证、播放、Turnstile、备份加密与 EMAIL_API_KEY 五项；备份 API Token 和启用的 WebDAV / S3 目标凭证随对应模块再声明，禁止用样例值满足线上检查。服务端站长变量 OWNER_EMAIL 也随备份模块加入，当前尚未声明或校验。邮件配置使用 .env.example 中的 STAGING_EMAIL_* / PRODUCTION_EMAIL_*；API 基础地址必须为 HTTPS origin，发件人域名须匹配 EMAIL_SENDER_DOMAIN。传输只发送纯文本正文、最多等待 10 秒、不跟随重定向或自动重发；业务配额、失败记录和认证回调已接入；验证用途共享邮箱摘要配额，找回单独计数，失败/未确认也计入。staging 验证/找回投递及上游小时/日额度已验收，production 凭证按运维计划准备；月额度/API 频率仍未提供。
 
-本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，只含原有四项密钥，未包含站长另行配置的 EMAIL_API_KEY；production 不能仅凭该文件通过正式部署检查。授权部署时可用 `pnpm exec cf deploy --prebuilt --mode staging --secrets-file .dev.vars.staging.secrets.json` 上传文件中的密钥；既有 EMAIL_API_KEY 由站长在对应 Worker 配置，不复制 staging 的值到 production。密钥还须由站长保存到密码管理器和离线副本，保管规则见 B 6.9.1，技术步骤见[运维计划](docs/plan/operations.md#691-绑定secrets-与集中配置)。
+本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，只含原有四项密钥，未包含站长另行配置的 EMAIL_API_KEY；production 不能仅凭该文件通过正式部署检查。仅在获准本机直接部署的例外任务中，可用 `pnpm exec cf deploy --prebuilt --mode staging --secrets-file .dev.vars.staging.secrets.json` 上传文件中的密钥，不作为 Git 集成的常规步骤；既有 EMAIL_API_KEY 由站长在对应 Worker 配置，不复制 staging 的值到 production。密钥还须由站长保存到密码管理器和离线副本，保管规则见 B 6.9.1，技术步骤见[运维计划](docs/plan/operations.md#691-绑定secrets-与集中配置)。
 
 线上启用应用日志和 query 脱敏，关闭含请求 URL 的 invocation logs；原生 traces 的凭证路径脱敏验证前保持关闭。配置核对和页面冒烟检查不替代第六阶段的真实日志内容、安全与性能验收。
 
