@@ -6,13 +6,15 @@
 
 v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确认，对应接口行为和第 7 节测试期望已同步。邮箱验证、成员修改邮箱、管理员删评和单个成员解封均纳入 v1；发信沿用站长已购买服务的 HTTPS API。历史备份恢复后保留讨论，由管理员手动重新删除不应恢复的内容。
 
-规则确认**不代表功能已实现或已验收**：根目录 `PLAN.md` 尚未建立，正式应用尚未开始开发，Better Auth POC、已购发件服务接入和平台实测等门槛（需求文档第 6.16 节）都还没做。前端参考原型保留在 `prototypes/frontend-v1/`，已验证独立安装、构建和测试，成熟的视觉方向、页面结构和主要交互可作为正式工程基准。
+规则确认**不代表功能已实现或已验收**：正式开发处于第二阶段“工程基础”，工程骨架、环境声明、D1 迁移 / 约束 / 夹具和前端基础已合入本地 `dev`，原工程基础的 83 项 Workers 测试、类型检查、构建及关于页 / 404 浏览器验收通过。本分支补充邀请码来源一致性增量迁移及 20 项回归用例，包含延迟外键批次，完整 103 项 Workers 测试、类型检查和构建通过；后续成员表迁移的同步事项见 PLAN 风险表。Better Auth 最小 POC 的 29 项测试与差距报告已完成，但未通过采用门槛，认证路线待站长决定；云端资源、已购发件服务接入和平台实测仍待完成。详细进展见 [`PLAN.md`](PLAN.md)。前端参考原型保留在 `prototypes/frontend-v1/`。
 
 ## 文档
 
 - [需求文档](docs/requirements.md)：v1 的范围、用户故事、实现决策、前端代码沿用要求和测试决策。
+- [正式开发计划](PLAN.md)：执行约束、技术基线、当前阶段的可验收待办和未决事项。
 - [协作约定](AGENTS.md)：语言、Git 流程、目录结构和安全规则。
 - [前端参考原型](prototypes/frontend-v1/README.md)：独立运行方式、页面与交互基准、验证记录和迁移时须修正的已知问题。
+- [前端基础验收记录](docs/screenshots/phase2/README.md)：正式关于页 / 404 的桌面、手机和浅 / 深色截图及交互核对。
 - [海报素材说明](public/assets/posters/star-trek/README.md)：海报来源和命名规则。
 
 ## 开发节奏 TODO
@@ -33,11 +35,13 @@ v1 产品范围及需求第 6.13、6.16 节列出的业务、运维策略已确�
 
 ### 2. 工程基础
 
-- [ ] 建立并确认根目录 `PLAN.md`，把功能顺序和验收条件整理为可执行待办。
-- [ ] 使用 `cf` CLI 建立 React Router v7 + Workers 正式工程，配置类型检查、构建和 Workers Vitest 测试入口；不使用 Wrangler。
-- [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；本地开发使用 `6120` 端口并复用已有实例。
-- [ ] 完成 Better Auth 最小 POC（scrypt、D1 注册与恢复事务、Cookie、通行密钥、TOTP），通过后采用；失败报告站长决定。
-- [ ] 落地 D1 迁移、唯一键和外键约束，准备虚构成员、自行生成的视频与字幕测试夹具。
+- [x] 建立根目录 `PLAN.md`，把功能顺序和验收条件整理为可执行待办；工具链已在本机探针中验证。
+- [x] 使用 `cf` CLI 建立 React Router v7 + Workers 正式工程，配置类型检查、构建和 Workers Vitest 测试入口；不使用 Wrangler。
+- [ ] 配置隔离的 staging / prod Worker、D1、私有 R2 和 Secrets；配置声明、占位构建 / dry-run 与 `0.0.0.0:6120` 本地开发已验证，云端资源及线上 Secrets 待授权。
+- [x] 完成 Better Auth 最小 POC（scrypt、D1 注册与恢复事务、Cookie、通行密钥、TOTP）核对与差距报告；库未通过采用门槛。
+- [ ] 根据 POC 结论由站长决定认证方案，再同步需求和后续计划。
+- [x] 落地 D1 迁移、唯一键和外键约束，准备虚构成员、自行生成的视频与字幕测试夹具。
+- [x] 迁移前端基础：设计 token、字体、主题、站点外壳、关于页及 404，完成桌面 / 手机、浅 / 深色验收。
 - [ ] 按页面或流程迁移原型的展示组件、布局、样式和已定稿交互，适配 loader / action 与真实数据；正式工程不依赖原型目录，不沿用演示认证和权限。
 
 ### 3. 邀请、账号与管理
@@ -76,7 +80,35 @@ HLS、ASS 渲染、弹幕、同时播放数限制、OAuth 登录等范围外功�
 - 媒体存储：Cloudflare R2（私有）
 - 播放器：ArtPlayer
 
-本地开发和部署步骤会在工具链确定后补充。
+工具链基线（`cf` CLI、`@cloudflare/vite-plugin` 2.0 beta、Workers Vitest）及已知限制见 [`PLAN.md`](PLAN.md) 第 2 节。
+
+## 本地开发
+
+需要 Node 22.18+（推荐 24）和 pnpm 12。正式工程在仓库根目录，与 `prototypes/frontend-v1/` 互不依赖。
+
+```bash
+pnpm install --frozen-lockfile
+cp .dev.vars.example .dev.vars   # 本地占位 Secrets，不提交
+pnpm db:migrate:local            # 先应用 D1 迁移，状态与 cf dev 共用
+pnpm dev                         # cf dev，监听 0.0.0.0:6120
+```
+
+启动前检查 6120 端口，已有实例则复用。工程基础验收时服务运行于集成工作树 `.worktree/dev`；`/about` 是公开关于页，未知路径显示 404，`/` 暂为工程首页。登录、注册、恢复及成员功能按后续阶段实现；当前顶栏登录按钮暂时禁用，认证页面接入后再启用。浏览器截图与核对见 [验收记录](docs/screenshots/phase2/README.md)。
+
+| 命令 | 作用 |
+| --- | --- |
+| `pnpm db:migrate:local` | `cf d1 migrations apply`：将 `migrations/` 应用到本地占位 D1，持久化到被忽略的 `.cloudflare/state`，可重复运行 |
+| `pnpm typecheck` | 由 `cloudflare.config.ts` 生成绑定类型、生成路由类型，再运行 `tsc` |
+| `pnpm test` | Workers Vitest：在 workerd 中运行 Worker，D1 / R2 使用本地模拟；每条用例重置绑定并应用 `migrations/`，Secrets 取 `.dev.vars.example` 的占位值 |
+| `pnpm build` | development 模式构建到 `.cloudflare/output/v0` |
+| `pnpm build:staging` / `pnpm build:production` | 按环境构建；需要本机 `.env`（见 `.env.example`），缺少资源标识时构建失败 |
+| `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
+
+`cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
+
+合并到 `main` 不构成上线授权。仓库中没有部署工作流；2026-10-13 经 `cf` 只读核查当前账号全部 42 个 Worker 的 Builds 触发器及 14 个 Pages 项目的 Git 来源，未发现关联本仓库的自动部署配置。合并前仍须确认 Cloudflare Dashboard 未为 `main` 启用 Workers Builds / Git 自动部署，避免核验后配置变化。
+
+测试数据工厂 `test/fixtures/catalog.ts` 只创建虚构成员、作品、季和集。需要媒体夹具时，安装 PATH 上可用的 ffmpeg 后运行 `node scripts/gen-test-media.mjs`：生成 4 秒 H.264 + AAC、faststart 的 MP4 到被忽略的 `test/fixtures/media/`，可重复生成。自行编写的中英文 VTT 在 `test/fixtures/subtitles/` 中随代码提交；约束测试不依赖生成的 MP4。
 
 ## 许可证
 

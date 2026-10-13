@@ -1,0 +1,131 @@
+# 正式开发计划
+
+本文件定义 v1 正式开发的执行顺序、约束和待办；需求以 [`docs/requirements.md`](docs/requirements.md)（下称“需求”）为唯一依据，协作与 Git 规则见 [`AGENTS.md`](AGENTS.md)。两者与本文件冲突时，先停下确认并修正文档，再实现。
+
+- 建立时间：2026-10-05。当前阶段：**第二阶段 工程基础**。
+- 勾选规则：只有实现完成、相关构建与测试通过、并经复核的事项才勾选；部分完成写在“进展”里，不勾选。依赖站长提供材料或决策的事项标“阻塞”，不自行绕过。
+- 每完成一个可验证的任务或出现新阻塞，同步更新本文件的待办、进展、验证记录和未决事项；影响阶段状态时同步更新 `README.md`。
+
+## 1. 执行约束
+
+1. **范围**：只做需求已确认的 v1 内容；需求第 8 节的范围外功能（HLS、ASS 渲染、弹幕、同时播放数限制、OAuth 等）不提前实现。“默认”数值可直接采用，改动须在 PR 描述说明。
+2. **工具链**：Cloudflare 资源与本地开发统一用 `cf` CLI，不用 Wrangler、不用 `npx wrangler` 兜底；`cf` 缺能力时记录原因并告知站长。
+3. **安全**：仓库公开。真实账号 ID、资源 ID、API token、Secrets、WebDAV 信息和 R2 内部路径不入库；本地用被忽略的 `.dev.vars` / `.env`，线上用 Worker Secrets。浏览器构建不得引用 Secrets、绑定或对象键。
+4. **原型迁移**：正式工程在 `app/` 等根目录结构中独立维护，不通过 import、软链接、路径别名或共享包依赖 `prototypes/`；按页面或流程把经审查的展示组件、样式和已定稿交互复制过来，不沿用模拟身份、假认证/权限、内存账本和人为等待（需求 6.15）。
+5. **验证门槛**：Better Auth POC、已购发件服务接入和平台实测（需求 6.16）未完成前，不宣称对应功能已验收；本地模拟通过不代表线上复制延迟、限流全局精度或导出耗时已验证。
+6. **对外操作**：推送、创建 PR、合并远程 PR、创建/修改云端资源、设置线上 Secrets 和部署都要站长明确要求。本地提交、任务分支合入本地 `dev` 可自动进行。
+7. **开发服务器**：监听 `0.0.0.0:6120`；启动前检查端口，被占用时复用现有实例，不另起端口、不直接杀进程。
+
+## 2. 技术基线（2026-10-05 本机探针实测）
+
+在临时目录用以下组合完成了端到端探针：`cf dev` 渲染带 D1 查询的 loader；`react-router build --mode staging` 产出 `.cloudflare/output/v0`，`vite preview` 下页面与全部客户端资源返回 200；`cf deploy --prebuilt --mode staging --dry-run` 正确列出 staging 绑定；Workers Vitest 直接读取 `cloudflare.config.ts`，D1 迁移后唯一键与外键生效，并能经 Worker 入口渲染路由。
+
+| 组件 | 版本 / 用法 | 说明 |
+| --- | --- | --- |
+| 运行与包管理 | Node 24、pnpm 12 | 构建脚本需批准 `esbuild`、`workerd` |
+| 框架 | `react-router` / `@react-router/dev` 7.18.4，`future.v8_viteEnvironmentApi: true` | 需求定为 v7；自定义 `app/entry.server.tsx`（`renderToReadableStream`） |
+| Cloudflare 集成 | `cf` 1.0.0-beta.12（项目 devDependency）、`@cloudflare/vite-plugin` 2.0 beta、Vite 8 | 配置文件为 `cloudflare.config.ts`，没有 Wrangler 配置 |
+| 测试 | `vitest` 4.1、`@cloudflare/vitest-plugin`（`experimental.newConfig`） | 读取 `cloudflare.config.ts`，`mode` 为 `test`；D1 迁移在 setup 中应用 |
+| 类型 | `.cloudflare/types/index.d.ts`（Vite 插件自动生成，`Env` 由配置推断） | `react-router typegen && tsc` 作为类型检查 |
+
+已知限制与处理（均须在 README 运行说明中写明）：
+
+- **v7 与 Build Output 目录不一致**：Vite 插件 2.0 把客户端产物强制输出到 `.cloudflare/output/v0/workers/default/assets`，React Router v7 仍从 `build/client` 读写 manifest。用一个小 Vite 插件在构建时双向同步，待 [remix-run/react-router#15480](https://github.com/remix-run/react-router/pull/15480) 进入 v7 后删除。官方插件声明正式支持的是 React Router v8；是否升级 v8 属于需求变更，须站长决定（见第 5 节未决事项）。
+- **`cf build` 不向 React Router 转发 `--mode`**：staging / prod 构建改用 `react-router build --mode <mode>`，部署用 `cf deploy --prebuilt --mode <mode>`（mode 须与构建一致）。本地开发直接 `cf dev`（mode 为 `development`）。
+- **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；staging / prod 的真实 ID 由被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
+- **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `staging` / `production`）返回完整配置；Worker 名、D1、R2、Rate Limiting namespace 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 staging / prod。
+- **Secrets**：以 `bindings.secret()` 声明，本地开发与测试从被忽略的 `.dev.vars` 读取并提供 `.dev.vars.example` 占位样例；缺失时 `cf` 仅警告，服务端读取处须自行拒绝空值。线上 Secrets 由站长授权后用 `cf workers secrets update` 或部署时 `--secrets-file` 写入。
+
+## 3. 第二阶段：工程基础
+
+目标：形成可以承载后续所有功能的正式工程——能本地开发、类型检查、构建、按环境 dry-run 部署和运行 Workers 集成测试；数据库结构和约束一次落地并有测试；认证库是否可用有结论；前端基础样式与站点外壳从原型迁入。
+
+### T2.1 建立并确认 `PLAN.md`
+
+- [x] 根据需求、原型 README 与工具链探针编写本文件，同步 README 阶段清单。
+- 验收：本文件与需求、AGENTS.md 和 README 无冲突；未决事项列明。
+
+### T2.2 正式工程骨架
+
+- [x] 在仓库根目录建立 React Router v7 + Workers 正式工程（`app/`、`workers/`、`cloudflare.config.ts`、`vite.config.ts`、`react-router.config.ts`、`tsconfig.json`、`vitest.config.ts`），`public/` 作为公开静态资源。
+- [x] `pnpm dev`（`cf dev`，`0.0.0.0:6120`）、`pnpm typecheck`、`pnpm build`（及 `build:staging` / `build:production`）、`pnpm test` 均可运行；`.gitignore` 覆盖 `node_modules`、`build`、`.cloudflare`、`.react-router`、`.dev.vars*`、`.env` 和 `.env.*`，保留 `.dev.vars.example` 与 `.env.example`。
+  - 进展：`typecheck`、`test`、`build` 及两环境占位构建 / dry-run 均已通过。正式工程已在集成工作树 `.worktree/dev` 常驻监听 `0.0.0.0:6120`，本机和局域网请求 `/about` 返回 200；复用该实例，不另起服务。
+- [x] 公共响应约定先落地并有测试：所有动态响应带 `X-Robots-Tag: noindex`、`Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff`；HTML 默认 `Cache-Control: private, no-store`；`GET /robots.txt` 返回 `User-agent: *` 与 `Disallow: /`；静态资源经 `public/_headers` 带 noindex（需求 6.1、6.1.1）。静态资源头在 staging 部署后另行核对。
+- 验收：上述命令全部通过；Workers Vitest 中请求 `/`、`/robots.txt`、不存在的路径，断言状态码与安全头；不依赖 `prototypes/`。
+
+### T2.3 环境、绑定与 Secrets
+
+- [x] `cloudflare.config.ts` 声明需求 6.9.1 的逻辑绑定：`DB`、`MEDIA_BUCKET`、`AUTH_RATE_LIMITER`、`PLAYBACK_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER`，配置 `APP_ENV`、`APP_ORIGIN`、`WEBAUTHN_RP_ID`、`TURNSTILE_SITE_KEY`，以及 Secrets `PLAYBACK_HMAC_KEY`、`TOTP_ENCRYPTION_KEY`、`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`WEBDAV_URL`、`WEBDAV_USERNAME`、`WEBDAV_PASSWORD`。发件人地址、发件域名和邮件 API 基础地址等发件配置项待站长提供已购服务的 API 文档后在第三阶段加入，不预先猜写。
+- [x] staging / prod 两套资源名与 namespace 独立；资源 ID、账号 ID 只从本机 `.env` 读取，提供 `.env.example` 与 `.dev.vars.example` 占位文件；缺失或混用时构建失败。
+- [x] 集中默认配置（需求 6.9.1 “集中默认配置”整行，含全部限流数值、会话期限、TOTP 参数、额度、分页和 token 时长）落在一个服务端模块（`app/lib/settings.server.ts`）并有单测核对数值。
+- [ ] **阻塞（待站长授权）**：用 `cf d1 create`、`cf r2 buckets create` 创建 staging / prod 的 D1 与私有 R2，确定 Rate Limiting namespace，写入线上 Secrets，并决定 staging 的访问域名；Cron 表达式 `0 20 * * *` 在备份任务实现时再加入。
+- 验收：`cf deploy --prebuilt --mode staging --dry-run` 与 `--mode production` 列出各自独立的绑定；仓库内 `git grep` 不出现真实 ID 或密钥。
+
+### T2.4 Better Auth 最小 POC（需求 6.3.1、6.16）
+
+- [x] 在独立分支完成 Better Auth 1.7.7 最小 POC，对需求 6.3.1 的 scrypt、注册 / 恢复原子性、Cookie / 会话、通行密钥、TOTP、恢复码与管理员证明逐项核对，明确区分 workerd 实测与发布源码审查。29 项测试和类型检查通过；测试包含复现库缺陷的断言，绿色不代表兼容性通过。
+- [x] 输出逐项通过 / 差距报告：分支 `spike/auth-poc-report`，提交 `4fc3bc4`，文件 `spikes/better-auth/REPORT.md`。可用 `git show spike/auth-poc-report:spikes/better-auth/REPORT.md` 阅读；POC 保持独立，不接入正式工程。
+- [ ] **阻塞（待站长决定）**：采用或替代认证方案。**全部满足才采用；有差距则报告站长决定，不绕过门槛自研，也不让库默认行为覆盖需求规则。** 真实 WebAuthn 仪式及 staging 平台成本尚未验证，不能标为通过。
+- 验收：POC 的 Workers Vitest 用例与报告；结论写入本文件第 5 节。
+
+### T2.5 D1 迁移、约束与测试夹具
+
+- [x] 按需求 6.2.1 与 6.2 的约束编写初始迁移（按领域拆为 `0001_catalog.sql` 至 `0005_discussions.sql`）：作品、季、可播放单元、媒体、字幕、成员与“已占用邮箱”唯一键集合、邮箱验证凭证、发信记录、会话、邀请码、恢复码、重置链接、TOTP、通行密钥、认证挑战、限流计数、观看进度、收藏、片单与条目、评论、回复、赞踩；外键、`CHECK`、部分唯一索引和需求列出的查询索引一并建立。认证库内部表待 T2.4 结论后以增量迁移调整。
+- [x] Workers Vitest 覆盖需求 7.1“数据关系”行：电影唯一 / 季集唯一 / 同作品外键、片单目标互斥与同目标唯一、赞踩目标互斥与唯一、跨列邮箱占用冲突、媒体与字幕对象键唯一、孤立记录被拒。另覆盖单一未消费验证 / 重置凭证、bootstrap 码、邀请码消费人唯一、批次回滚、讨论直接删除级联与封禁保留讨论。
+- [x] 补齐 PR #21 评审发现的邀请码来源一致性约束（需求 6.2.2）：消费成员的 `invited_by_user_id` 必须与邀请码 `issuer_user_id` 一致，包含 bootstrap 的空邀请人；采用增量迁移，覆盖插入、消费更新、关系改写、REPLACE、延迟外键与失败批次回滚。
+- [x] 测试夹具只用虚构成员和自生成媒体：`test/fixtures/catalog.ts` 工厂函数生成虚构作品、季、集与成员；`scripts/gen-test-media.mjs` 用 ffmpeg 生成数秒的 H.264 + AAC faststart MP4（输出目录被忽略，不入库），自行编写的中英 VTT 随代码提交到 `test/fixtures/subtitles/`。
+- 验收：`cf d1 migrations apply <占位ID> --local` 在本地状态应用成功；`pnpm test` 中约束用例全部通过。
+
+### T2.6 前端基础迁移
+
+- [x] 从原型迁入设计 token、全局样式（Tailwind v4）、字体（Noto Sans SC、Geist Mono、Antonio）、`components/ui` 基础组件、主题（跟随系统 / 浅色 / 深色）与站点外壳（顶栏、页脚、内容列宽切换、手机底部胶囊），以及 404 页和关于页（含 `contact@startrekchina.org` 版权下架联系方式）。
+- [x] 外壳只依赖 props / loader 数据，不引入原型的模拟身份、PROTO 控制台和内存数据；受保护入口在访客态不出现。
+- 进展：样式 / 字体、页面外壳、主题三档与 D 键、SSR 防闪烁、手机菜单胶囊展示组件、回到顶部、关于页 / 404 已迁入；访客不传成员导航、不显示胶囊和受保护链接。关于页补齐邮箱验证 / 三条恢复路径、修正邀请连带方向并展示下架联系邮箱。成员胶囊的真实数据与权限接入随认证阶段验收。`pnpm typecheck`、`pnpm test` 83 项、`pnpm build` 通过；SSR 首次 Vite 编译约 14–20 秒，测试先预热再按原 5 秒请求阈值验证。集成后的浏览器验收及截图见 [前端基础验收记录](docs/screenshots/phase2/README.md)。
+- 验收：类型检查、构建通过；用浏览器在 1440×1000 与 360×800、浅色与深色下对照原型截图验收关于页和 404，保存截图。
+
+### 第二阶段完成定义
+
+T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面结论且站长已决定采用或替代方案；README 写明本地启动、测试、构建、迁移和 dry-run 部署命令。
+
+## 4. 后续阶段（顺序与验收入口）
+
+每个阶段开工前把对应条目细化为本文件中的可验收任务，验收以需求第 7 节和 7.1 为准。
+
+1. **第三阶段 邀请、账号与管理**：注册（邀请码原子消费、邮箱必填、待验证账号）、登录 / 退出与服务端访问控制、CSRF、D1 精确限流与 Turnstile；已购发件服务接入（**阻塞：需站长提供 API 文档与本机配置**）、邮箱验证与找回、改邮箱；通行密钥、TOTP、会话管理、改密、恢复码与三条恢复路径；邀请码管理、成员与邀请链、额度、角色、封禁 / 解封与管理员 TOTP 再验证。
+2. **第四阶段 片库与播放闭环**：离线导入 CLI（manifest / TMDB、MP4 与 faststart 预检、VTT、R2 / D1 幂等挂接）；访客入口、成员首页、片库、作品与选集接入真实数据；ArtPlayer、播放 token、续期、R2 Range 与字幕授权，两小时连续播放验证。
+3. **第五阶段 观看进度、片单与讨论**：进度上报与 `expectedRevision`、继续观看与下一集；收藏、片单与队列展开；评论、回复、赞踩与管理员删除。
+4. **第六阶段 运维与上线验收**：每日备份（导出、R2、加密 WebDAV、回读校验、保留清理）与手动恢复演练；staging 端到端验收与平台实测（15 分钟 Cron 窗口、Time Travel 隔离、限流、scrypt、日志脱敏）；预算核对与部署、恢复文档，发布 v1。
+
+## 5. 未决事项与风险
+
+| 事项 | 状态 | 处理 |
+| --- | --- | --- |
+| React Router v7 与 `@cloudflare/vite-plugin` 2.0 beta 的产物目录不一致 | 已用同步插件绕过，构建 / 预览 / dry-run 已验证 | 需求定 v7，暂不升级。若站长同意升级 v8（官方支持组合），需同步修改需求 6.1 与 README 技术栈 |
+| `cf` 与 Vite 插件 2.0 均为 beta | 风险 | 锁定精确版本；升级单独提交并重跑全部验证 |
+| staging / prod 云端资源、Secrets、staging 域名 | 阻塞，待站长授权 | 骨架先以 dry-run 验证；授权后创建并记录（不入库真实 ID） |
+| PR #21 合并前核实 Cloudflare Builds / Git 自动部署 | 2026-10-13 经 `cf` 只读核验，当前账号未发现关联本仓库的自动部署配置 | 已核查全部 42 个 Worker 的 Builds 触发器及 14 个 Pages 项目的 Git 来源；合并前再次确认配置未变，合并不构成上线授权，`deploy:*` 仍须站长明确要求 |
+| 邀请来源约束与后续成员表迁移衔接 | 当前成员模型的修复已合入本地 `dev`（`6ccec7a`），实现及本地自检通过；实际开发库与云端迁移待执行 | `member_profiles` 护栏、两个普通/bootstrap 旧表升级及共 28 项新回归通过，隔离本地库的 14 个迁移通过；经站长确认修正一行既有测试夹具，原断言保留，全量 219 项及类型检查通过，构建成功结果仍适用。`dev` 的 0008 衔接迁移在 0009 重建前退役本 PR 的反向旧表触发器，0013 建立新表约束。两套修复分别适用旧 `users` 与当前 `member_profiles`，不能直接把本 PR 的 0008 旧表迁移应用到已退役 `users` 的数据库 |
+| Better Auth 是否满足需求规则 | POC 未通过采用门槛，报告已完成，待站长决定 | D1 注册 / 恢复不原子、session bearer 明文、续期超出绝对上限、TOTP 可重放且无独立密钥 / AAD、恢复码可逆；建议 B：允许按既定规则替代认证实现，复用成熟 WebAuthn 库。A 为保留库并替换多数核心流程；C 为降低规则，不建议。未获决定前不实施替代方案 |
+| 已购发件服务的 API 文档与配置 | 阻塞，第三阶段前需要 | 站长提供后接入，测试用本地模拟服务 |
+| 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | 待 staging 资源 | 第六阶段执行，不以本地结果代替 |
+
+## 6. 进展与验证记录
+
+- 2026-10-13：按站长要求将当前成员模型的邀请来源修复提交为 `6ccec7a`，快进合入本地 `dev`；包含增量约束、旧表重建衔接、28 项新增回归及经确认的一行既有夹具修正。全量 219 项、类型检查通过，构建及隔离本地库 14 个迁移的成功结果仍适用；本 PR 保留适用于 `users` 的独立 0008 修复，不引入后续认证或播放功能。未应用运行中的开发库或云端迁移，未部署。
+- 2026-10-13：在 PR #21 头提交 `224a387` 复现邀请码来源不一致缺陷；三个新增 Workers D1 用例中，邀请人与消费成员不匹配的普通 / bootstrap 记录均被旧迁移接受，测试按预期失败。延迟外键的先消费 / 后创建成员顺序也复现三个不一致组合，补充成员 INSERT 的反向校验。新增 `0008_invitation_source_guard.sql`，在邀请码 INSERT、邀请人 / 消费人 UPDATE 及成员 INSERT 前做 NULL 安全的跨表校验，不改写已有迁移。新增 20 项针对性用例及完整 `pnpm test`（3 个文件、103 项）、`pnpm typecheck`、`pnpm build` 和 `git diff --check` 通过；覆盖有效原子注册、关系改写、REPLACE、延迟外键和失败批次回滚。测试在本地 Workers D1 应用全部 8 个迁移，未应用云端迁移或部署；本轮只补数据层约束，不表示注册业务已接入。
+- 2026-10-13：溯源确认初始缺口来自 `04a6deb` 的数据库迁移。`dev` 基础节点 `5b24c38`、PR 头 `224a387` 与当前本地 / 远端 `dev`（`3ccb29e`）的 `0002_accounts.sql` 文件哈希一致。当前 `dev` 的 `0010_registration_ownership.sql` 在注册完成时核对来源；另在隔离内存 SQLite 中应用其全部 12 个迁移、开启外键，三个普通 / bootstrap 错配组合仍可直接写入，确认数据层护栏仍需按 `member_profiles` 模型同步补齐。本轮未修改 `dev` 工作树。
+
+- 2026-10-13：处理 PR #21 评审意见。核实 `feat/pr1-engineering-public-foundation` 工作树与远端头提交 `5b24c38` 一致后，暂时禁用顶栏登录按钮，避免跳转到尚未实现的 `/login`；`.gitignore` 新增 `.env.*` 并保留 `.env.example`。`pnpm typecheck`、`pnpm test`（3 个文件、83 项）、`pnpm build` 和 `git diff --check` 通过；直接请求构建后的 Worker，首页 / 关于页 / 404 均输出禁用的原生登录按钮且无 `/login` 链接。`git check-ignore --no-index` 确认 `.env`、`.env.staging`、`.env.production`、`.env.local`、`.dev.vars*` 被忽略，两个 example 文件保留。未重跑浏览器截图验收，历史记录已注明适用版本。
+- 2026-10-13：使用 `cf` 只读核查当前账号全部 42 个 Worker 的 Builds 触发器和 14 个 Pages 项目的 Git 来源，未发现关联 `startrekchina/video-site` 的自动部署配置。`stcn-video-site-staging` 现有触发器关联旧仓库 `STCN-Video`，仅匹配 `dev`；未修改云端配置。README 补充合并前再次核实自动部署设置，合并 `main` 不构成上线授权。
+
+- 2026-10-06：T2.4 形成书面差距结论，独立分支 `spike/auth-poc-report` 提交 `4fc3bc4`。workerd 测试 6 个文件 29 项及类型检查通过，实测注册 / 恢复部分提交、明文会话、滚动续期、并发 TOTP 重放和可逆恢复码；报告列出全部 A1–A7 / B1–B10 证据、未运行项目与 A/B/C 选项。待站长决定，未合入 POC、未实现正式认证。
+- 2026-10-06：T2.5 修复及 T2.6 前端基础合入本地 `dev`。集成工作树重新执行 `pnpm typecheck`、`pnpm test`（83 项）、`pnpm build`、`pnpm db:migrate:local`（7 个迁移）通过。正式 `pnpm dev` 常驻监听 `0.0.0.0:6120`，局域网访问 `/about` 返回 200。浏览器完成关于页 / 404 的 1440×1000、360×800、浅 / 深色八视图验收；验证三档主题、系统切换、刷新持久化、D 键与输入时忽略、1152 / 768 px 列宽、回到顶部及访客导航，无横向溢出或捕获的客户端异常。截图和边界见 `docs/screenshots/phase2/README.md`。
+- 2026-10-06：确认 D1 任务分支无独有提交、工作树无未提交 / 未跟踪文件及运行进程后，移除 `.worktree/d1-schema` 和已合入的两条 D1 任务分支。原 `.worktree/frontend-foundation`、`.worktree/auth-poc` 及 `.worktree/development-roadmap` 带有先前未提交内容，保留；原型工作树保留参考用途。`spike/auth-poc-report` 及其工作树保留供认证决策复核，集成工作树继续运行服务。
+
+- 2026-10-06：修复 T2.5 复核发现的 P1：SQLite `INSERT OR REPLACE` 会绕过 UPDATE 触发器，可改写邀请来源并遗留邮箱占用。增量迁移 `0007_users_insert_guard.sql` 在 INSERT 前拒绝与既有成员 ID 或用户名键冲突的插入；成员变更必须使用 UPDATE。新增两种 REPLACE 语法、ID / 用户名冲突、邮箱占用保留与失败批次回滚回归用例。`pnpm test` 82 项、`pnpm typecheck`、`pnpm build` 通过；本地 `cf` 应用全部 7 个迁移成功。未改写旧迁移。
+
+- 2026-10-05：完成工具链探针（见第 2 节），建立本计划。
+- 2026-10-06：T2.2 / T2.3 骨架完成。`pnpm typecheck` 通过；`pnpm test` 2 个文件 5 项通过（首页、robots.txt、404 的状态码与安全头；集中配置数值；测试环境绑定）；`pnpm build` 通过；以占位 `.env` 执行 `build:staging` / `build:production` 后 `cf deploy --prebuilt --dry-run` 分别列出独立的 Worker、D1、R2 与 Rate Limiting 绑定，缺少 `.env` 时构建明确失败。T2.4 的两次子代理执行均中途失败、未产出结果，POC 改为重新组织执行。
+- 2026-10-06：T2.5 迁移步骤完成。`pnpm install --frozen-lockfile` 成功且未改变依赖或 lockfile；`pnpm db:migrate:local`（`cf d1 migrations apply 00000000-0000-4000-8000-000000000000 --local --persist-to .cloudflare/state`）5 个迁移全部成功，再次运行返回 `[]`。存储时间统一为 UTC 毫秒；邮箱占用集合由触发器同步并以唯一键阻止跨列冲突；季/集使用复合外键。`pnpm typecheck`、`pnpm test`（已有 5 项）、`pnpm build` 均通过；约束用例和媒体夹具尚待后续步骤，不勾选对应项。
+- 2026-10-06：T2.5 约束测试步骤完成。初次测试发现新版 Workers Vitest 未自动隔离文件内用例，setup 改为每条用例 `reset()` 后 `applyD1Migrations()`；重新执行通过。直接删除被引用邮箱占用记录在本地 D1 产生 deferred 外键回滚日志，以增量迁移 `0006_email_claim_guard.sql` 提前拒绝删除，未改写已应用迁移；本地应用成功，完整测试无该异常。`pnpm typecheck`、`pnpm test`（3 个文件 79 项，其中 schema 74 项）、`pnpm build` 均通过。媒体夹具尚未完成，不勾选。
+- 2026-10-06：T2.5 夹具步骤完成，三项待办全部通过本地验收。schema 用例复用虚构数据工厂；`node scripts/gen-test-media.mjs` 连续两次成功。`ffprobe -v error -show_entries stream=codec_name,codec_type -show_entries format=duration -of json test/fixtures/media/signal-test.mp4` 确认 `h264` / `aac`、4 秒；Node 检查顶层 MP4 box 顺序为 `ftyp, moov, free, mdat`（faststart），大小 152,508 字节；`git check-ignore test/fixtures/media/signal-test.mp4` 命中。两份 VTT 经 `ffprobe` 识别为 `webvtt`。最终 `pnpm typecheck`、`pnpm test`（3 个文件 79 项，其中 schema 74 项）、`pnpm build` 全通过；`pnpm db:migrate:local` 返回 `[]`。未新增依赖、未创建云端资源、未启动或关闭 6120 服务。T2.4 认证库结论与 staging 平台验证仍保留原有门槛，本地测试不代替它们。

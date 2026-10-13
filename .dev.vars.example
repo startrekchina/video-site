@@ -1,0 +1,12 @@
+# Local-only Worker secrets for `cf dev` and tests. Copy to `.dev.vars`; never commit real values.
+# Production and staging secrets live in Worker Secrets, one independent set per environment.
+PLAYBACK_HMAC_KEY=local-dev-playback-hmac-key
+TOTP_ENCRYPTION_KEY=local-dev-totp-encryption-key
+# Cloudflare's documented always-pass Turnstile test secret.
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+EMAIL_API_KEY=local-dev-email-api-key
+CLOUDFLARE_API_TOKEN=local-dev-cloudflare-api-token
+BACKUP_ENCRYPTION_KEY=local-dev-backup-encryption-key
+WEBDAV_URL=https://webdav.invalid/backups/
+WEBDAV_USERNAME=local-dev
+WEBDAV_PASSWORD=local-dev
