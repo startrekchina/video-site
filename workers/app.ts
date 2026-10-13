@@ -1,3 +1,4 @@
+import { createRequestIdentity, type RequestIdentity } from "../app/lib/member.server";
 import { createRequestHandler } from "react-router";
 import { APIError } from "better-auth/api";
 import { authHttp } from "../app/lib/auth-http.server";
@@ -10,6 +11,7 @@ import { mediaSyncCron, syncMedia } from "../app/lib/media-sync.server";
 declare module "react-router" {
   export interface AppLoadContext {
     cloudflare: { env: Env; ctx: ExecutionContext };
+    identity: RequestIdentity;
   }
 }
 
@@ -28,7 +30,7 @@ export default {
   async scheduled(controller, env) {
     if (controller.cron === mediaSyncCron) await syncMedia(env);
   },
-  async fetch(request, env, ctx) {
+  async fetch(request: Request, env, ctx) {
     const path = new URL(request.url).pathname;
     const auth = path.startsWith("/api/auth/") || path === "/auth/register" || path === "/account/email-confirm";
     const account = path.startsWith("/account/sessions");
@@ -36,6 +38,7 @@ export default {
     const admin = path.startsWith("/admin/members/");
     const playback = path.startsWith("/playback/") || path.startsWith("/media/") || path.startsWith("/subtitles/");
     const requestId = crypto.randomUUID();
+    const identity = createRequestIdentity(request, env);
     let input: Request = request;
     if (account || invites || admin) {
       const inputHeaders = new Headers(request.headers); inputHeaders.set("X-Site-Request-Id", requestId);
@@ -44,9 +47,9 @@ export default {
     let response: Response;
     let code: string | undefined;
     try {
-      response = auth ? await authHttp(input, env) : account ? await accountHttp(input, env)
-        : invites ? await invitationsHttp(input, env) : admin ? await adminHttp(input, env) : playback ? await playbackHttp(input, env, ctx)
-        : await requestHandler(request, { cloudflare: { env, ctx } });
+      response = auth ? await authHttp(input, env, identity) : account ? await accountHttp(input, env, identity)
+        : invites ? await invitationsHttp(input, env, identity) : admin ? await adminHttp(input, env, identity) : playback ? await playbackHttp(input, env, ctx, identity)
+        : await requestHandler(request, { cloudflare: { env, ctx }, identity });
     } catch (error) {
       const native = error instanceof APIError;
       code = native ? error.body?.code ?? "REQUEST_REJECTED" : "INTERNAL_ERROR";
@@ -54,7 +57,7 @@ export default {
       response = Response.json(auth ? { code, message } : { error: { code, message }, requestId },
         { status: native ? error.statusCode : 500, headers: native ? error.headers : undefined });
     }
-    const headers = new Headers(response.headers);
+    const headers = identity.headers(response.headers);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
     headers.set("Cache-Control", "private, no-store");
     headers.set("X-Request-Id", requestId);

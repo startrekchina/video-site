@@ -51,7 +51,7 @@ function TreeNode({ member, depth }: { member: TreeMember; depth: number }) {
 }
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
-  const current = await pageMember(request, env);
+  const current = await pageMember(request, env, context.identity);
   if (current.member.role !== "admin") throw data({ message: "需要管理员权限。" }, { status: 403, headers: current.headers });
   const csrf = await csrfData(request, env);
   for (const cookie of csrf.headers.getSetCookie()) current.headers.append("Set-Cookie", cookie);
@@ -59,7 +59,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const tab = query.get("tab") === "invites" ? "invites" : query.get("tab") === "tree" ? "tree" : "members";
   async function read<T>(path: string) {
     const url = new URL("/admin/members/" + path, request.url); url.search = query.toString();
-    const result = await (await adminHttp(new Request(url, { headers: request.headers }), env)).json() as { data: T };
+    const result = await (await adminHttp(new Request(url, { headers: request.headers }), env, context.identity)).json() as { data: T };
     return result.data;
   }
   const stats = await read<Stats>("stats");

@@ -18,10 +18,10 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 type InviteData = { invitations: Invitation[]; total: number; occupied: number; unlimited: boolean };
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
-  const current = await pageMember(request, env);
+  const current = await pageMember(request, env, context.identity);
   const csrf = await csrfData(request, env);
   for (const cookie of csrf.headers.getSetCookie()) current.headers.append("Set-Cookie", cookie);
-  const response = await invitationsHttp(new Request(new URL("/invites/data", request.url), { headers: request.headers }), env);
+  const response = await invitationsHttp(new Request(new URL("/invites/data", request.url), { headers: request.headers }), env, context.identity);
   const result = await response.json() as { data: InviteData };
   return data({ ...result.data, csrfToken: csrf.csrfToken, now: Date.now() }, { headers: current.headers });
 }

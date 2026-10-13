@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-工程基础及第三阶段邀请、账号与管理已完成阶段验收。第四阶段片库、资料占位/自动关联、播放、121 分钟长时验证及 12 项原型偏离修复复验通过，**真实手机搜索/切季、触屏拖动、字幕和全屏反馈仍待完成**；下一项技术收尾为 [T4.5 请求级身份复用与 D1 往返优化](docs/plan/authentication.md#t45-请求级身份与-d1-往返优化)，尚未实施，不改变实时授权规则。第五阶段进度、片单与讨论及第六阶段备份/恢复待实施，production 尚未发布。
+工程基础及第三阶段邀请、账号与管理已完成阶段验收。第四阶段片库、资料占位/自动关联、播放、121 分钟长时验证及 12 项原型偏离修复复验通过，**真实手机搜索/切季、触屏拖动、字幕和全屏反馈仍待完成**；当前技术收尾为 [T4.5 请求级身份复用与 D1 往返优化](docs/plan/authentication.md#t45-请求级身份与-d1-往返优化)，核心实现和本地自动化自检已通过，staging 性能与安全复验仍待完成，不改变实时授权规则。第五阶段进度、片单与讨论及第六阶段备份/恢复待实施，production 尚未发布。
 
 staging 已部署第四阶段及 12 个迁移；production 只有独立资源/密钥准备记录和构建验证，正式上线须待主要功能与 staging 验收通过并取得站长授权。当前阶段、模块状态、依赖及阻塞以[核心计划](PLAN.md)为准，具体任务只在模块计划维护，本页不复制开发清单。
 
@@ -24,7 +24,7 @@ staging 已部署第四阶段及 12 个迁移；production 只有独立资源/�
 
 - [前端参考原型](prototypes/frontend-v1/README.md)：独立启动、定稿交互及已知缺陷；正式工程不依赖原型目录。
 - [导入与自动关联](docs/import-media.md)：资料初始化、本机预检、固定媒体命名及定时扫描使用。
-- [第三阶段验收](docs/screenshots/phase3/README.md)、[第四阶段验收](docs/screenshots/phase4/README.md)、[设计修复](docs/screenshots/design-fixes-20261007/README.md)、[导航性能](docs/performance-navigation-20261007.md)：实际结果与验证边界。
+- [第三阶段验收](docs/screenshots/phase3/README.md)、[第四阶段验收](docs/screenshots/phase4/README.md)、[设计修复](docs/screenshots/design-fixes-20261007/README.md)、[导航性能](docs/performance-navigation-20261007.md)、[请求级身份与 D1 优化](docs/performance-request-identity-20261013.md)：实际结果与验证边界。
 - [海报素材](public/assets/posters/star-trek/README.md)、[单集剧照](public/assets/stills/star-trek/README.md)：素材与命名说明。
 - [文档整理记录](docs/documentation-restructure-20261011.md)：旧章节迁移与检查；[旧计划归档](docs/archive/plan-20261007.md)和[认证 POC](spikes/better-auth/REPORT.md)仅为历史证据，不作为当前待办或选型阻塞。
 
@@ -50,7 +50,7 @@ pnpm db:migrate:local            # 先应用 D1 迁移，状态与 cf dev 共用
 pnpm dev                         # cf dev，监听 0.0.0.0:6120
 ```
 
-启动前检查 6120 端口，已有实例则复用。当前服务在 802b 任务工作树监听 `0.0.0.0:6120`；`/login`、`/register`、`/forgot-password`、`/reset-password`、`/verify-email`、`/verify-pending` 是公开账号流程。`/` 对访客展示登舰入口，对成员展示片库首页；`/series`、`/movies`、`/title/:id`、`/watch/:id`、`/account`、`/invites` 是成员页，`/admin` 仅正常管理员可用。权限由页面和 JSON 接口分别校验，访客受保护页面跳回登录并保留返回目标。`/about` 保持公开；播放授权、媒体与字幕入口分别为 `/playback/:id/authorize`、`/media/:id`、`/subtitles/:id`，不暴露私有存储地址。
+启动前检查 6120 端口，已有实例则复用。2026-10-13 性能修复验证服务在 `perf/request-identity` 工作树监听 `0.0.0.0:6120`；`/login`、`/register`、`/forgot-password`、`/reset-password`、`/verify-email`、`/verify-pending` 是公开账号流程。`/` 对访客展示登舰入口，对成员展示片库首页；`/series`、`/movies`、`/title/:id`、`/watch/:id`、`/account`、`/invites` 是成员页，`/admin` 仅正常管理员可用。权限由页面和 JSON 接口分别校验，访客受保护页面跳回登录并保留返回目标。`/about` 保持公开；播放授权、媒体与字幕入口分别为 `/playback/:id/authorize`、`/media/:id`、`/subtitles/:id`，不暴露私有存储地址。
 
 已有 `.dev.vars` 需补入至少 32 字符的 `BETTER_AUTH_SECRET`，与播放/备份密钥独立；旧 `TOTP_ENCRYPTION_KEY` 不再声明。测试只用 `.dev.vars.example` 的虚构占位值，不读取本机真实 Secrets。原生认证表由 `cf` 版本化迁移管理，不在请求中自动迁移；D1 的原生 DATE 列实测存 ISO 8601 文本，与旧业务表 UTC 毫秒列分别处理。
 

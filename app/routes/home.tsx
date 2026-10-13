@@ -8,7 +8,7 @@ import { WorkGrid } from "@/components/site/media";
 import { Panel, PanelFooterLink, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel";
 import type { Route } from "./+types/home";
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const current = await currentMember(request, context.cloudflare.env);
+  const current = await currentMember(request, context.cloudflare.env, context.identity);
   if (!current) return data({ works: null, stage: null });
   const works = await catalog(context.cloudflare.env.DB, current.member.user_id, "", { home: true });
   const stage = homeStages(works);

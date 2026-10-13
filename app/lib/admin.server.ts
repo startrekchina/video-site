@@ -1,5 +1,5 @@
 import { APIError } from "better-auth/api";
-import { requireMember } from "./member.server";
+import { createRequestIdentity, requireMember } from "./member.server";
 import { checkCsrf, readJson } from "./security.server";
 import { actorSql, occupiedSql } from "./invitations.server";
 import { deliverMail, reserveMail } from "./mail.server";
@@ -12,8 +12,8 @@ const adminSql = `${actorSql} AND EXISTS (SELECT 1 FROM member_profiles AS a JOI
   WHERE a.user_id = ? AND a.role = 'admin' AND u.twoFactorEnabled = 1 AND t.verified = 1
     AND s.id = ? AND s.createdAt > ?)`;
 
-export async function adminHttp(request: Request, env: Env) {
-  const current = await requireMember(request, env);
+export async function adminHttp(request: Request, env: Env, identity = createRequestIdentity(request, env)) {
+  const current = await requireMember(request, env, identity);
   if (current.member.role !== "admin") throw new APIError("FORBIDDEN", { code: "FORBIDDEN", message: "需要管理员权限。" });
   const path = new URL(request.url).pathname;
   const now = Date.now();

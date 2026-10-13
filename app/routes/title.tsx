@@ -13,7 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { Episode } from "@/lib/catalog";
 import type { Route } from "./+types/title";
 export async function loader({ request, params, context }: Route.LoaderArgs) {
-  const current = await pageMember(request, context.cloudflare.env);
+  const current = await pageMember(request, context.cloudflare.env, context.identity);
   const [works, summary] = await Promise.all([catalog(context.cloudflare.env.DB, current.member.user_id, "", { workId: params.id }), catalogSummary(context.cloudflare.env.DB)]);
   const work = works[0];
   if (!work) throw new Response(null, { status: 404 });

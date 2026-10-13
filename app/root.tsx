@@ -35,7 +35,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const current = await currentMember(request, context.cloudflare.env);
+  const current = await currentMember(request, context.cloudflare.env, context.identity);
   return data({ member: current ? { username: current.member.displayUsername || current.member.username, role: current.member.role } : null,
     catalog: current ? await catalogSummary(context.cloudflare.env.DB) : null }, { headers: current?.headers });
 }
