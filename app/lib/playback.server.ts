@@ -1,5 +1,5 @@
 import { APIError } from "better-auth/api";
-import { requireMember } from "./member.server";
+import { createRequestIdentity, memberForSession, requireMember } from "./member.server";
 import { checkCsrf, readJson } from "./security.server";
 import { settings } from "./settings.server";
 
@@ -38,35 +38,39 @@ export async function verifyPlayback(env: Env, token: string, now = Math.floor(D
   return payload;
 }
 
-async function liveMember(request: Request, env: Env) {
-  const current = await requireMember(request, env);
-  const now = new Date().toISOString();
-  const active = await env.DB.withSession("first-primary").prepare(`SELECT s.id FROM session s JOIN "user" u ON u.id = s.userId
-    JOIN member_profiles p ON p.user_id = u.id WHERE s.id = ? AND s.userId = ? AND s.expiresAt > ?
-    AND u.emailVerified = 1 AND p.registration_state = 'completed' AND p.status = 'active'`).bind(current.session.id, current.member.user_id, now).first();
-  if (!active) return fail("UNAUTHORIZED", "AUTH_REQUIRED", "会话已失效，请重新登录。");
-  return current;
-}
-async function quota(env: Env, userId: string) {
+const liveSession = `SELECT s.id FROM session s JOIN "user" u ON u.id = s.userId
+  JOIN member_profiles p ON p.user_id = u.id WHERE s.id = ? AND s.userId = ? AND s.expiresAt > ?
+  AND u.emailVerified = 1 AND p.registration_state = 'completed' AND p.status = 'active'`;
+async function quota(env: Env, current: Awaited<ReturnType<typeof requireMember>>, unitId: string, fileId: string) {
+  const userId = current.member.user_id;
   const now = Date.now(), counter = `playback:${userId}`;
   const result = await env.DB.prepare(`INSERT INTO rate_limit_counters (key, operation, occurred_at, count, expires_at)
     SELECT ?, 'playback', ?, 1, ? WHERE (SELECT coalesce(sum(count), 0) FROM rate_limit_counters WHERE key = ? AND operation = 'playback' AND occurred_at > ?) < ?
-    ON CONFLICT(key, operation, occurred_at) DO UPDATE SET count = count + 1`).bind(counter, now, now + 60000, counter, now - 60000, settings.rateLimits.playbackTokenPerMember.perMinute).run();
+    AND EXISTS (${liveSession}) AND EXISTS (SELECT 1 FROM media_files WHERE id = ? AND playable_unit_id = ? AND format = 'mp4')
+    ON CONFLICT(key, operation, occurred_at) DO UPDATE SET count = count + 1`).bind(counter, now, now + 60000, counter, now - 60000, settings.rateLimits.playbackTokenPerMember.perMinute,
+      current.session.id, userId, new Date(now).toISOString(), fileId, unitId).run();
   if (!result.meta.changes) {
+    try { await memberForSession(env, current.session); }
+    catch (error) { if (error instanceof APIError) return fail("UNAUTHORIZED", "AUTH_REQUIRED", "会话已失效，请重新登录。"); throw error; }
+    if (!await env.DB.prepare("SELECT id FROM media_files WHERE id = ? AND playable_unit_id = ? AND format = 'mp4'").bind(fileId, unitId).first()) return fail("NOT_FOUND", "MEDIA_MISSING", "暂无可播放片源。");
     const earliest = await env.DB.prepare("SELECT min(occurred_at) AS n FROM rate_limit_counters WHERE key = ? AND operation = 'playback' AND occurred_at > ?").bind(counter, now - 60000).first<number>("n");
     throw new APIError("TOO_MANY_REQUESTS", { code: "PLAYBACK_RATE_LIMITED", message: "签发过于频繁，请稍后重试。" }, { "Retry-After": String(Math.max(1, Math.ceil(((earliest ?? now) + 60000 - now) / 1000))) });
   }
 }
-export async function authorizePlayback(request: Request, env: Env, unitId: string, responseHeaders?: Headers): Promise<Authorization> {
-  const current = await liveMember(request, env);
-  current.headers.forEach((value, name) => responseHeaders?.append(name, value));
-  const files = await env.DB.withSession("first-primary").prepare("SELECT id FROM media_files WHERE playable_unit_id = ? AND format = 'mp4'").bind(unitId).all<{ id: string }>();
+export async function authorizePlayback(request: Request, env: Env, unitId: string, responseHeaders?: Headers, identity = createRequestIdentity(request, env)): Promise<Authorization> {
+  const current = await requireMember(request, env, identity);
+  for (const cookie of current.headers.getSetCookie()) responseHeaders?.append("Set-Cookie", cookie);
+  const db = env.DB.withSession("first-primary");
+  const [files, tracks] = await db.batch<{ id: string }>([
+    db.prepare("SELECT id FROM media_files WHERE playable_unit_id = ? AND format = 'mp4'").bind(unitId),
+    db.prepare("SELECT id, language, display_name FROM subtitle_tracks WHERE playable_unit_id = ? AND format = 'vtt' ORDER BY language, track_key").bind(unitId),
+  ]);
   if (files.results.length !== 1) return fail("NOT_FOUND", "MEDIA_MISSING", "暂无可播放片源。");
-  await quota(env, current.member.user_id);
+  const fileId = files.results[0].id;
+  await quota(env, current, unitId, fileId);
   const iat = Math.floor(Date.now() / 1000), exp = iat + settings.playbackTokenTtl;
-  const token = await signPlayback(env, { v: 1, kid: "1", environment: env.APP_ENV, purpose: "playback", userId: current.member.user_id, sessionId: current.session.id, playableUnitId: unitId, mediaFileId: files.results[0].id, iat, exp });
-  const tracks = await env.DB.prepare("SELECT id, language, display_name FROM subtitle_tracks WHERE playable_unit_id = ? AND format = 'vtt' ORDER BY language, track_key").bind(unitId).all<{ id: string; language: string; display_name: string }>();
-  return { url: `/media/${files.results[0].id}?token=${token}`, expiresAt: exp * 1000, tracks: tracks.results.map(track => ({ id: track.id, language: track.language, displayName: track.display_name, url: `/subtitles/${track.id}?token=${token}` })) };
+  const token = await signPlayback(env, { v: 1, kid: "1", environment: env.APP_ENV, purpose: "playback", userId: current.member.user_id, sessionId: current.session.id, playableUnitId: unitId, mediaFileId: fileId, iat, exp });
+  return { url: `/media/${fileId}?token=${token}`, expiresAt: exp * 1000, tracks: (tracks.results as { id: string; language: string; display_name: string }[]).map(track => ({ id: track.id, language: track.language, displayName: track.display_name, url: `/subtitles/${track.id}?token=${token}` })) };
 }
 
 function rangeRequest(header: string, total: number) {
@@ -108,7 +112,7 @@ export function deadlineStream(source: ReadableStream<Uint8Array>, length: numbe
   return stream.readable;
 }
 
-export async function playbackHttp(request: Request, env: Env, ctx: ExecutionContext) {
+export async function playbackHttp(request: Request, env: Env, ctx: ExecutionContext, identity = createRequestIdentity(request, env)) {
   const url = new URL(request.url), issuing = /^\/playback\/([^/]+)\/authorize$/u.exec(url.pathname);
   if (issuing) {
     if (request.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
@@ -116,19 +120,23 @@ export async function playbackHttp(request: Request, env: Env, ctx: ExecutionCon
     const body = await readJson(request); await checkCsrf(request, env, body.csrfToken);
     if (Object.keys(body).some(key => key !== "csrfToken")) return fail("BAD_REQUEST", "INVALID_INPUT", "签发参数无效。");
     const headers = new Headers();
-    return Response.json(await authorizePlayback(request, env, issuing[1], headers), { headers });
+    return Response.json(await authorizePlayback(request, env, issuing[1], headers, identity), { headers });
   }
   const match = /^\/(media|subtitles)\/([^/]+)$/u.exec(url.pathname);
   if (!match) return fail("NOT_FOUND", "NOT_FOUND", "资源不存在。");
-  const current = await liveMember(request, env);
+  const current = await requireMember(request, env, identity);
   if (url.searchParams.getAll("token").length !== 1 || [...url.searchParams.keys()].some(key => key !== "token")) return fail("FORBIDDEN", "PLAYBACK_INVALID", "播放凭证无效。");
   const payload = await verifyPlayback(env, url.searchParams.get("token")!);
   if (payload.userId !== current.member.user_id || payload.sessionId !== current.session.id) return fail("FORBIDDEN", "PLAYBACK_INVALID", "播放凭证不属于当前会话。");
-  const authorizedMedia = await env.DB.withSession("first-primary").prepare("SELECT id FROM media_files WHERE id = ? AND playable_unit_id = ? AND format = 'mp4'").bind(payload.mediaFileId, payload.playableUnitId).first();
-  if (!authorizedMedia) return fail("FORBIDDEN", "PLAYBACK_INVALID", "播放片源已失效。");
-  const table = match[1] === "media" ? "media_files" : "subtitle_tracks";
-  const file = await env.DB.withSession("first-primary").prepare(`SELECT id, playable_unit_id, format, object_key, byte_length, r2_etag FROM ${table} WHERE id = ?`).bind(match[2]).first<{ id: string; playable_unit_id: string; format: string; object_key: string; byte_length: number; r2_etag: string | null }>();
-  if (!file || file.playable_unit_id !== payload.playableUnitId || (match[1] === "media" ? file.id !== payload.mediaFileId || file.format !== "mp4" : file.format !== "vtt")) return fail("FORBIDDEN", "PLAYBACK_INVALID", "播放凭证不能访问此资源。");
+  const media = match[1] === "media", target = media ? "m" : "t";
+  const file = await env.DB.withSession("first-primary").prepare(`SELECT ${target}.id, ${target}.playable_unit_id, ${target}.format,
+      ${target}.object_key, ${target}.byte_length, ${target}.r2_etag FROM (${liveSession}) AS active
+    LEFT JOIN media_files m ON m.id = ? AND m.playable_unit_id = ? AND m.format = 'mp4'
+    ${media ? "" : "LEFT JOIN subtitle_tracks t ON t.id = ? AND t.playable_unit_id = m.playable_unit_id AND t.format = 'vtt'"}`)
+    .bind(current.session.id, current.member.user_id, new Date().toISOString(), payload.mediaFileId, payload.playableUnitId, ...(media ? [] : [match[2]]))
+    .first<{ id: string | null; playable_unit_id: string; format: string; object_key: string; byte_length: number; r2_etag: string | null }>();
+  if (!file) return fail("UNAUTHORIZED", "AUTH_REQUIRED", "会话已失效，请重新登录。");
+  if (file.id !== match[2] || file.playable_unit_id !== payload.playableUnitId || (media ? file.id !== payload.mediaFileId || file.format !== "mp4" : file.format !== "vtt")) return fail("FORBIDDEN", "PLAYBACK_INVALID", "播放凭证不能访问此资源。");
   if (!["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
   const metadata = await env.MEDIA_BUCKET.head(file.object_key);
   if (!metadata || file.r2_etag && metadata.etag !== file.r2_etag) { console.info(JSON.stringify({ event: "media_missing", resourceId: file.id })); return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。"); }

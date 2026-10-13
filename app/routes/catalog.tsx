@@ -13,7 +13,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Route } from "./+types/catalog";
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const current = await pageMember(request, context.cloudflare.env), url = new URL(request.url);
+  const current = await pageMember(request, context.cloudflare.env, context.identity), url = new URL(request.url);
   const query = singleParameter(url, "q") ?? "";
   const kind = url.pathname === "/search" ? "search" : url.pathname === "/movies" ? "movie" : "series";
   const { works, totals } = await catalogCards(context.cloudflare.env.DB, current.member.user_id, query, kind === "search" ? null : kind);

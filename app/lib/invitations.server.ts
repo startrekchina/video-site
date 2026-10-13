@@ -1,5 +1,5 @@
 import { APIError } from "better-auth/api";
-import { requireMember } from "./member.server";
+import { createRequestIdentity, requireMember } from "./member.server";
 import { checkCsrf, readJson } from "./security.server";
 import { sha256 } from "./registration.server";
 import { settings } from "./settings.server";
@@ -18,8 +18,8 @@ async function invitationCode(env: Env, userId: string, operationId: string) {
   return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function invitationsHttp(request: Request, env: Env) {
-  const current = await requireMember(request, env);
+export async function invitationsHttp(request: Request, env: Env, identity = createRequestIdentity(request, env)) {
+  const current = await requireMember(request, env, identity);
   const userId = current.member.user_id;
   const now = Date.now();
   const path = new URL(request.url).pathname;

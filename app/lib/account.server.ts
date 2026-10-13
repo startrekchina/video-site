@@ -1,10 +1,9 @@
 import { APIError } from "better-auth/api";
-import { createAuth } from "./auth.server";
-import { requireMember } from "./member.server";
-import { checkCsrf, readJson } from "./security.server";
+import { createRequestIdentity, requireMember } from "./member.server";
+import { checkCsrf, privateCookie, readJson } from "./security.server";
 
-export async function accountHttp(request: Request, env: Env) {
-  const current = await requireMember(request, env);
+export async function accountHttp(request: Request, env: Env, identity = createRequestIdentity(request, env)) {
+  const current = await requireMember(request, env, identity);
   const path = new URL(request.url).pathname;
   if (request.method === "GET" && path === "/account/sessions") {
     const rows = await env.DB.prepare(`SELECT id, createdAt, updatedAt, expiresAt, userAgent FROM session
@@ -18,7 +17,9 @@ export async function accountHttp(request: Request, env: Env) {
   await checkCsrf(request, env, body.csrfToken);
   const token = await env.DB.prepare("SELECT token FROM session WHERE id = ? AND userId = ?").bind(match[1], current.member.user_id).first<string>("token");
   if (!token) throw new APIError("NOT_FOUND", { code: "NOT_FOUND", message: "会话不存在。" });
-  const result = await createAuth(env).api.revokeSession({ headers: request.headers, body: { token }, returnHeaders: true });
-  for (const cookie of result.headers.getSetCookie()) current.headers.append("Set-Cookie", cookie);
-  return Response.json({ data: { revoked: true }, requestId: request.headers.get("X-Site-Request-Id") ?? crypto.randomUUID() }, { headers: current.headers });
+  const result = await identity.auth().api.revokeSession({ headers: request.headers, body: { token }, returnHeaders: true });
+  identity.invalidate();
+  if (match[1] === current.session.id) result.headers.append("Set-Cookie", privateCookie(env, "session", "", 0));
+  const headers = identity.headers(result.headers);
+  return Response.json({ data: { revoked: true }, requestId: request.headers.get("X-Site-Request-Id") ?? crypto.randomUUID() }, { headers });
 }

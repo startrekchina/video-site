@@ -1,0 +1,1265 @@
+{
+  "baseline": "0fa22842b6503e9b4020500b7dd833703dd3aa96",
+  "implementation": "perf/request-identity",
+  "sourceSha256": "c29f0e8e226699efbea77311dfb122dd679364bd248093e1357fd4a687f3521d",
+  "runtime": "local workerd; APP_ENV=development; Better Auth 1.7.7; schema validation disabled as in runtime",
+  "sampleCountPerScenario": 1,
+  "fixtureScale": {
+    "works": 3,
+    "seasons": 2,
+    "units": 2,
+    "media": 1,
+    "subtitleTracks": 1
+  },
+  "notes": [
+    "HTTP response creation time only; not browser TTFB or staging latency.",
+    "Statements are classified without recording SQL or parameters. first() and raw() do not expose execution metadata.",
+    "Intervals may overlap. Neither summed waits nor batch statement counts represent elapsed request latency.",
+    "Full timelines retained for a playback SSR request and a Range request; other scenarios retain summary counts.",
+    "Additional final-only samples cover an unverified member, administrator quota write and self-session revocation; no matched before samples are claimed for those three."
+  ],
+  "scenarios": [
+    {
+      "label": "/",
+      "before": {
+        "label": "/",
+        "requestId": "389b3652-836d-422e-8e9a-5b42976b9d07",
+        "roundTrips": 8,
+        "sql": 11,
+        "sessions": 2,
+        "headersMs": 47,
+        "bytes": 35530
+      },
+      "after": {
+        "label": "/",
+        "requestId": "c519e3b7-11fd-463f-9388-b1b7679c281c",
+        "roundTrips": 5,
+        "sql": 8,
+        "sessions": 1,
+        "headersMs": 41,
+        "bytes": 35529
+      }
+    },
+    {
+      "label": "/.data",
+      "before": {
+        "label": "/.data",
+        "requestId": "f7a67799-e670-4be5-a503-a97011012c34",
+        "roundTrips": 8,
+        "sql": 11,
+        "sessions": 2,
+        "headersMs": 15,
+        "bytes": 1378
+      },
+      "after": {
+        "label": "/.data",
+        "requestId": "1692b9fd-efc6-4a2e-869b-c65825e95f7e",
+        "roundTrips": 5,
+        "sql": 8,
+        "sessions": 1,
+        "headersMs": 11,
+        "bytes": 1378
+      }
+    },
+    {
+      "label": "/series",
+      "before": {
+        "label": "/series",
+        "requestId": "7e8b6abf-7426-439a-beba-0bd474cb6ada",
+        "roundTrips": 8,
+        "sql": 10,
+        "sessions": 2,
+        "headersMs": 25,
+        "bytes": 40076
+      },
+      "after": {
+        "label": "/series",
+        "requestId": "a4bc94f4-55db-47e4-bf4c-940c302bf5b1",
+        "roundTrips": 5,
+        "sql": 7,
+        "sessions": 1,
+        "headersMs": 20,
+        "bytes": 40075
+      }
+    },
+    {
+      "label": "/series.data",
+      "before": {
+        "label": "/series.data",
+        "requestId": "58a86a32-727c-409f-8528-f3c253617498",
+        "roundTrips": 8,
+        "sql": 10,
+        "sessions": 2,
+        "headersMs": 19,
+        "bytes": 1132
+      },
+      "after": {
+        "label": "/series.data",
+        "requestId": "6d357f97-e74b-4b4d-9c53-f3dba58e8080",
+        "roundTrips": 5,
+        "sql": 7,
+        "sessions": 1,
+        "headersMs": 10,
+        "bytes": 1132
+      }
+    },
+    {
+      "label": "/movies",
+      "before": {
+        "label": "/movies",
+        "requestId": "13e224aa-9c83-4e0d-946c-87bd73a8105d",
+        "roundTrips": 8,
+        "sql": 10,
+        "sessions": 2,
+        "headersMs": 20,
+        "bytes": 39065
+      },
+      "after": {
+        "label": "/movies",
+        "requestId": "c60ae2e2-fda2-4a03-aef3-06e323f5a940",
+        "roundTrips": 5,
+        "sql": 7,
+        "sessions": 1,
+        "headersMs": 19,
+        "bytes": 39064
+      }
+    },
+    {
+      "label": "/movies.data",
+      "before": {
+        "label": "/movies.data",
+        "requestId": "20bf8b9f-afbe-432f-be89-7bc845da9123",
+        "roundTrips": 8,
+        "sql": 10,
+        "sessions": 2,
+        "headersMs": 14,
+        "bytes": 1045
+      },
+      "after": {
+        "label": "/movies.data",
+        "requestId": "233a4190-552b-437a-b340-4eeca4adf6e8",
+        "roundTrips": 5,
+        "sql": 7,
+        "sessions": 1,
+        "headersMs": 10,
+        "bytes": 1045
+      }
+    },
+    {
+      "label": "/title/series",
+      "before": {
+        "label": "/title/series",
+        "requestId": "7c387fe4-ea6a-4070-b5c4-c44d8b3c09e1",
+        "roundTrips": 9,
+        "sql": 13,
+        "sessions": 2,
+        "headersMs": 22,
+        "bytes": 41675
+      },
+      "after": {
+        "label": "/title/series",
+        "requestId": "bd967d77-387c-49dd-880e-53258d08e930",
+        "roundTrips": 6,
+        "sql": 10,
+        "sessions": 1,
+        "headersMs": 18,
+        "bytes": 41674
+      }
+    },
+    {
+      "label": "/title/series.data",
+      "before": {
+        "label": "/title/series.data",
+        "requestId": "d989fb58-b9fd-4711-b2b9-b88a7c8eb81e",
+        "roundTrips": 9,
+        "sql": 13,
+        "sessions": 2,
+        "headersMs": 15,
+        "bytes": 1507
+      },
+      "after": {
+        "label": "/title/series.data",
+        "requestId": "35de56d3-7c90-496b-a0a7-d5ccff0ac72f",
+        "roundTrips": 6,
+        "sql": 10,
+        "sessions": 1,
+        "headersMs": 10,
+        "bytes": 1507
+      }
+    },
+    {
+      "label": "/watch/episode-unit",
+      "before": {
+        "label": "/watch/episode-unit",
+        "requestId": "5669d487-995a-4414-ad69-5b8d2b7157e7",
+        "calls": [
+          {
+            "method": "all",
+            "statements": [
+              "session"
+            ],
+            "start": 2,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 5
+          },
+          {
+            "method": "all",
+            "statements": [
+              "session"
+            ],
+            "start": 2,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 5
+          },
+          {
+            "method": "all",
+            "statements": [
+              "auth"
+            ],
+            "start": 5,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 7
+          },
+          {
+            "method": "all",
+            "statements": [
+              "auth"
+            ],
+            "start": 5,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 8
+          },
+          {
+            "method": "first",
+            "statements": [
+              "member"
+            ],
+            "start": 8,
+            "end": 10
+          },
+          {
+            "method": "first",
+            "statements": [
+              "member"
+            ],
+            "start": 8,
+            "end": 10
+          },
+          {
+            "method": "batch",
+            "statements": [
+              "catalog",
+              "catalog"
+            ],
+            "start": 10,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 6,
+                "rows_written": 0
+              },
+              {
+                "duration": 0,
+                "rows_read": 4,
+                "rows_written": 0
+              }
+            ],
+            "end": 13
+          },
+          {
+            "method": "batch",
+            "statements": [
+              "catalog",
+              "catalog",
+              "media"
+            ],
+            "start": 10,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 7,
+                "rows_written": 0
+              },
+              {
+                "duration": 0,
+                "rows_read": 7,
+                "rows_written": 0
+              },
+              {
+                "duration": 0,
+                "rows_read": 9,
+                "rows_written": 0
+              }
+            ],
+            "end": 13
+          },
+          {
+            "method": "all",
+            "statements": [
+              "session"
+            ],
+            "start": 14,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 15
+          },
+          {
+            "method": "all",
+            "statements": [
+              "auth"
+            ],
+            "start": 15,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 17
+          },
+          {
+            "method": "first",
+            "statements": [
+              "member"
+            ],
+            "start": 17,
+            "end": 18
+          },
+          {
+            "method": "first",
+            "statements": [
+              "member"
+            ],
+            "start": 18,
+            "end": 19
+          },
+          {
+            "method": "all",
+            "statements": [
+              "media"
+            ],
+            "start": 19,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 20
+          },
+          {
+            "method": "run",
+            "statements": [
+              "quota"
+            ],
+            "start": 20,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 2,
+                "rows_written": 3
+              }
+            ],
+            "end": 22
+          },
+          {
+            "method": "all",
+            "statements": [
+              "media"
+            ],
+            "start": 22,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 2,
+                "rows_written": 0
+              }
+            ],
+            "end": 23
+          }
+        ],
+        "roundTrips": 15,
+        "sql": 18,
+        "sessions": 3,
+        "headersMs": 32,
+        "bytes": 41214
+      },
+      "after": {
+        "label": "/watch/episode-unit",
+        "requestId": "acc8d8bc-dda1-4648-9ee3-63eb0ed6c852",
+        "calls": [
+          {
+            "method": "all",
+            "statements": [
+              "session"
+            ],
+            "start": 1,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 3
+          },
+          {
+            "method": "all",
+            "statements": [
+              "auth"
+            ],
+            "start": 3,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 4
+          },
+          {
+            "method": "first",
+            "statements": [
+              "member"
+            ],
+            "start": 5,
+            "end": 6
+          },
+          {
+            "method": "batch",
+            "statements": [
+              "catalog",
+              "catalog"
+            ],
+            "start": 6,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 6,
+                "rows_written": 0
+              },
+              {
+                "duration": 0,
+                "rows_read": 4,
+                "rows_written": 0
+              }
+            ],
+            "end": 8
+          },
+          {
+            "method": "batch",
+            "statements": [
+              "catalog",
+              "catalog",
+              "media"
+            ],
+            "start": 6,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 7,
+                "rows_written": 0
+              },
+              {
+                "duration": 0,
+                "rows_read": 7,
+                "rows_written": 0
+              },
+              {
+                "duration": 0,
+                "rows_read": 9,
+                "rows_written": 0
+              }
+            ],
+            "end": 8
+          },
+          {
+            "method": "batch",
+            "statements": [
+              "media",
+              "media"
+            ],
+            "start": 8,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              },
+              {
+                "duration": 0,
+                "rows_read": 2,
+                "rows_written": 0
+              }
+            ],
+            "end": 10
+          },
+          {
+            "method": "run",
+            "statements": [
+              "member"
+            ],
+            "start": 10,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 6,
+                "rows_written": 3
+              }
+            ],
+            "end": 11
+          }
+        ],
+        "roundTrips": 7,
+        "sql": 11,
+        "sessions": 1,
+        "headersMs": 19,
+        "bytes": 41213
+      }
+    },
+    {
+      "label": "/watch/episode-unit.data",
+      "before": {
+        "label": "/watch/episode-unit.data",
+        "requestId": "49312144-8a4e-4841-98ec-799363ed9f63",
+        "roundTrips": 15,
+        "sql": 18,
+        "sessions": 3,
+        "headersMs": 27,
+        "bytes": 2526
+      },
+      "after": {
+        "label": "/watch/episode-unit.data",
+        "requestId": "95c42934-ef45-4d52-b9d9-fbf1a93e6f36",
+        "roundTrips": 7,
+        "sql": 11,
+        "sessions": 1,
+        "headersMs": 12,
+        "bytes": 2526
+      }
+    },
+    {
+      "label": "watch-only-data",
+      "before": {
+        "label": "watch-only-data",
+        "requestId": "eb6a40de-c00b-4276-9fde-a8ed466f5e61",
+        "roundTrips": 11,
+        "sql": 13,
+        "sessions": 2,
+        "headersMs": 19,
+        "bytes": 2056
+      },
+      "after": {
+        "label": "watch-only-data",
+        "requestId": "21358216-9039-484f-99a2-3df61161ee5a",
+        "roundTrips": 6,
+        "sql": 9,
+        "sessions": 1,
+        "headersMs": 11,
+        "bytes": 2056
+      }
+    },
+    {
+      "label": "media-GET",
+      "before": {
+        "label": "media-GET",
+        "requestId": "638c4ea7-c7c6-4174-8d85-358cc9750297",
+        "roundTrips": 6,
+        "sql": 6,
+        "sessions": 1,
+        "headersMs": 13,
+        "bytes": 20
+      },
+      "after": {
+        "label": "media-GET",
+        "requestId": "beb145b8-87d4-4dfc-b0db-ea5e24128e17",
+        "roundTrips": 4,
+        "sql": 4,
+        "sessions": 1,
+        "headersMs": 10,
+        "bytes": 20
+      }
+    },
+    {
+      "label": "media-HEAD",
+      "before": {
+        "label": "media-HEAD",
+        "requestId": "67adc560-3713-48ff-8b97-c3601d5d6011",
+        "roundTrips": 6,
+        "sql": 6,
+        "sessions": 1,
+        "headersMs": 11,
+        "bytes": 0
+      },
+      "after": {
+        "label": "media-HEAD",
+        "requestId": "a9ff7d7f-2c41-4026-9b63-d214af320b3d",
+        "roundTrips": 4,
+        "sql": 4,
+        "sessions": 1,
+        "headersMs": 7,
+        "bytes": 0
+      }
+    },
+    {
+      "label": "range",
+      "before": {
+        "label": "range",
+        "requestId": "39448c96-923c-47d7-957d-4895cb4451a3",
+        "calls": [
+          {
+            "method": "all",
+            "statements": [
+              "session"
+            ],
+            "start": 1,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 3
+          },
+          {
+            "method": "all",
+            "statements": [
+              "auth"
+            ],
+            "start": 3,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 4
+          },
+          {
+            "method": "first",
+            "statements": [
+              "member"
+            ],
+            "start": 4,
+            "end": 5
+          },
+          {
+            "method": "first",
+            "statements": [
+              "member"
+            ],
+            "start": 5,
+            "end": 6
+          },
+          {
+            "method": "first",
+            "statements": [
+              "media"
+            ],
+            "start": 7,
+            "end": 8
+          },
+          {
+            "method": "first",
+            "statements": [
+              "media"
+            ],
+            "start": 8,
+            "end": 9
+          }
+        ],
+        "roundTrips": 6,
+        "sql": 6,
+        "sessions": 1,
+        "headersMs": 11,
+        "bytes": 4
+      },
+      "after": {
+        "label": "range",
+        "requestId": "f4fa229b-121b-4c72-b078-827243932b69",
+        "calls": [
+          {
+            "method": "all",
+            "statements": [
+              "session"
+            ],
+            "start": 2,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 4
+          },
+          {
+            "method": "all",
+            "statements": [
+              "auth"
+            ],
+            "start": 4,
+            "meta": [
+              {
+                "duration": 0,
+                "rows_read": 1,
+                "rows_written": 0
+              }
+            ],
+            "end": 5
+          },
+          {
+            "method": "first",
+            "statements": [
+              "member"
+            ],
+            "start": 5,
+            "end": 7
+          },
+          {
+            "method": "first",
+            "statements": [
+              "member"
+            ],
+            "start": 7,
+            "end": 8
+          }
+        ],
+        "roundTrips": 4,
+        "sql": 4,
+        "sessions": 1,
+        "headersMs": 10,
+        "bytes": 4
+      }
+    },
+    {
+      "label": "subtitle",
+      "before": {
+        "label": "subtitle",
+        "requestId": "90a2ccaa-bc48-43d3-9ea7-25ca565635c8",
+        "roundTrips": 6,
+        "sql": 6,
+        "sessions": 1,
+        "headersMs": 11,
+        "bytes": 8
+      },
+      "after": {
+        "label": "subtitle",
+        "requestId": "54fc0ada-c02c-4b89-aca7-65924e7380d1",
+        "roundTrips": 4,
+        "sql": 4,
+        "sessions": 1,
+        "headersMs": 8,
+        "bytes": 8
+      }
+    },
+    {
+      "label": "get-session",
+      "before": {
+        "label": "get-session",
+        "requestId": "a6e84fec-ad39-4b4e-bfe7-9724d150a1b8",
+        "roundTrips": 7,
+        "sql": 7,
+        "sessions": 2,
+        "headersMs": 14,
+        "bytes": 575
+      },
+      "after": {
+        "label": "get-session",
+        "requestId": "73704286-0cc4-4207-a6b6-50a0b289020a",
+        "roundTrips": 5,
+        "sql": 5,
+        "sessions": 1,
+        "headersMs": 10,
+        "bytes": 575
+      }
+    },
+    {
+      "label": "authorize-renew",
+      "before": {
+        "label": "authorize-renew",
+        "requestId": "8d15827e-f287-49d6-ab6a-498ac018a1f3",
+        "roundTrips": 7,
+        "sql": 7,
+        "sessions": 1,
+        "headersMs": 11,
+        "bytes": 891
+      },
+      "after": {
+        "label": "authorize-renew",
+        "requestId": "b3e09741-4d1c-4ac1-b602-b032cccef0c8",
+        "roundTrips": 5,
+        "sql": 6,
+        "sessions": 1,
+        "headersMs": 8,
+        "bytes": 891
+      }
+    },
+    {
+      "label": "no-source",
+      "before": {
+        "label": "no-source",
+        "requestId": "30b4f191-a599-4ab6-9421-7ff90ba8489f",
+        "roundTrips": 8,
+        "sql": 11,
+        "sessions": 2,
+        "headersMs": 13,
+        "bytes": 1501
+      },
+      "after": {
+        "label": "no-source",
+        "requestId": "fde70d75-ac59-41de-b846-81f964ef3fa9",
+        "roundTrips": 5,
+        "sql": 8,
+        "sessions": 1,
+        "headersMs": 9,
+        "bytes": 1501
+      }
+    },
+    {
+      "label": "invites",
+      "before": {
+        "label": "invites",
+        "requestId": "9243e1c5-9ef9-4587-9b31-d8aed2583997",
+        "roundTrips": 12,
+        "sql": 13,
+        "sessions": 3,
+        "headersMs": 20,
+        "bytes": 836
+      },
+      "after": {
+        "label": "invites",
+        "requestId": "22f90949-249e-457d-804d-5254a30c754c",
+        "roundTrips": 6,
+        "sql": 7,
+        "sessions": 1,
+        "headersMs": 11,
+        "bytes": 836
+      }
+    },
+    {
+      "label": "admin",
+      "before": {
+        "label": "admin",
+        "requestId": "90efbade-bfa6-4084-a62f-cd923d0a779e",
+        "roundTrips": 15,
+        "sql": 16,
+        "sessions": 4,
+        "headersMs": 30,
+        "bytes": 1592
+      },
+      "after": {
+        "label": "admin",
+        "requestId": "f1cb7249-d5da-4fa0-9e3c-6c96cdd20bfa",
+        "roundTrips": 6,
+        "sql": 7,
+        "sessions": 1,
+        "headersMs": 10,
+        "bytes": 1592
+      }
+    },
+    {
+      "label": "guest",
+      "before": {
+        "label": "guest",
+        "requestId": "63821ec7-b32c-4558-b1b1-98a3045e356a",
+        "roundTrips": 0,
+        "sql": 0,
+        "sessions": 0,
+        "headersMs": 13,
+        "bytes": 101474
+      },
+      "after": {
+        "label": "guest",
+        "requestId": "6c0c8e46-5182-491f-8f8c-0e763237f2ac",
+        "roundTrips": 0,
+        "sql": 0,
+        "sessions": 0,
+        "headersMs": 12,
+        "bytes": 101473
+      }
+    },
+    {
+      "label": "invalid-cookie",
+      "before": {
+        "label": "invalid-cookie",
+        "requestId": "ca44d4af-edae-4312-b644-e008ae474dca",
+        "roundTrips": 0,
+        "sql": 0,
+        "sessions": 0,
+        "headersMs": 2,
+        "bytes": 0
+      },
+      "after": {
+        "label": "invalid-cookie",
+        "requestId": "a892ad44-0d86-4721-8ad6-46f5ab203551",
+        "roundTrips": 0,
+        "sql": 0,
+        "sessions": 0,
+        "headersMs": 2,
+        "bytes": 0
+      }
+    },
+    {
+      "label": "rolling-watch",
+      "before": {
+        "label": "rolling-watch",
+        "requestId": "f69c62f2-8129-4a22-85fd-2fe3fdb26e20",
+        "roundTrips": 17,
+        "sql": 20,
+        "sessions": 3,
+        "headersMs": 29,
+        "bytes": 2535
+      },
+      "after": {
+        "label": "rolling-watch",
+        "requestId": "f018b579-6062-43f2-99ec-95bc425c419e",
+        "roundTrips": 8,
+        "sql": 12,
+        "sessions": 1,
+        "headersMs": 14,
+        "bytes": 2535
+      }
+    },
+    {
+      "label": "revoked",
+      "before": {
+        "label": "revoked",
+        "requestId": "fc58294f-2b64-4ed8-af6c-9f06ca1f591a",
+        "roundTrips": 2,
+        "sql": 2,
+        "sessions": 2,
+        "headersMs": 5,
+        "bytes": 0
+      },
+      "after": {
+        "label": "revoked",
+        "requestId": "30ef2211-805c-4b6a-8465-0a842d234535",
+        "roundTrips": 1,
+        "sql": 1,
+        "sessions": 1,
+        "headersMs": 4,
+        "bytes": 0
+      }
+    }
+  ],
+  "additionalFinalScenarios": [
+    {
+      "label": "unverified",
+      "requestId": "fc8762ae-1a85-46df-af41-20ca37e1453e",
+      "calls": [
+        {
+          "method": "all",
+          "statements": [
+            "session"
+          ],
+          "start": 2,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 3
+        },
+        {
+          "method": "all",
+          "statements": [
+            "auth"
+          ],
+          "start": 3,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 5
+        },
+        {
+          "method": "first",
+          "statements": [
+            "member"
+          ],
+          "start": 5,
+          "end": 6
+        }
+      ],
+      "roundTrips": 3,
+      "sql": 3,
+      "sessions": 1,
+      "headersMs": 8,
+      "bytes": 0
+    },
+    {
+      "label": "admin-write",
+      "requestId": "b0925608-667a-40e0-acbc-6c4fbebd4bd4",
+      "calls": [
+        {
+          "method": "all",
+          "statements": [
+            "session"
+          ],
+          "start": 1,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 2
+        },
+        {
+          "method": "all",
+          "statements": [
+            "auth"
+          ],
+          "start": 2,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 3
+        },
+        {
+          "method": "first",
+          "statements": [
+            "member"
+          ],
+          "start": 3,
+          "end": 5
+        },
+        {
+          "method": "first",
+          "statements": [
+            "auth"
+          ],
+          "start": 5,
+          "end": 7
+        },
+        {
+          "method": "run",
+          "statements": [
+            "quota"
+          ],
+          "start": 7,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 2,
+              "rows_written": 3
+            }
+          ],
+          "end": 8
+        },
+        {
+          "method": "run",
+          "statements": [
+            "member"
+          ],
+          "start": 8,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 8,
+              "rows_written": 1
+            }
+          ],
+          "end": 9
+        }
+      ],
+      "roundTrips": 6,
+      "sql": 6,
+      "sessions": 1,
+      "headersMs": 10,
+      "bytes": 97
+    },
+    {
+      "label": "self-revoke",
+      "requestId": "22f86518-eef0-4be2-a816-03647392b5de",
+      "calls": [
+        {
+          "method": "all",
+          "statements": [
+            "session"
+          ],
+          "start": 1,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 3
+        },
+        {
+          "method": "all",
+          "statements": [
+            "auth"
+          ],
+          "start": 3,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 4
+        },
+        {
+          "method": "first",
+          "statements": [
+            "member"
+          ],
+          "start": 4,
+          "end": 6
+        },
+        {
+          "method": "first",
+          "statements": [
+            "other"
+          ],
+          "start": 6,
+          "end": 7
+        },
+        {
+          "method": "all",
+          "statements": [
+            "session"
+          ],
+          "start": 8,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 9
+        },
+        {
+          "method": "all",
+          "statements": [
+            "auth"
+          ],
+          "start": 9,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 10
+        },
+        {
+          "method": "all",
+          "statements": [
+            "session"
+          ],
+          "start": 11,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 12
+        },
+        {
+          "method": "all",
+          "statements": [
+            "auth"
+          ],
+          "start": 12,
+          "meta": [
+            {
+              "duration": 1,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 13
+        },
+        {
+          "method": "all",
+          "statements": [
+            "session"
+          ],
+          "start": 14,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 0
+            }
+          ],
+          "end": 15
+        },
+        {
+          "method": "all",
+          "statements": [
+            "other"
+          ],
+          "start": 15,
+          "meta": [
+            {
+              "duration": 0,
+              "rows_read": 1,
+              "rows_written": 1
+            }
+          ],
+          "end": 17
+        }
+      ],
+      "roundTrips": 10,
+      "sql": 10,
+      "sessions": 4,
+      "headersMs": 17,
+      "bytes": 76
+    }
+  ]
+}

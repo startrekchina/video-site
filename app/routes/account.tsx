@@ -22,7 +22,7 @@ import { LineNav } from "@/components/ui/line-nav";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
-  const current = await pageMember(request, env);
+  const current = await pageMember(request, env, context.identity);
   const csrf = await csrfData(request, env);
   for (const cookie of csrf.headers.getSetCookie()) current.headers.append("Set-Cookie", cookie);
   const sessions = await env.DB.prepare("SELECT id, createdAt, updatedAt, userAgent FROM session WHERE userId = ? AND expiresAt > ? ORDER BY createdAt DESC")

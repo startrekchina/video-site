@@ -13,21 +13,64 @@ export async function memberById(env: Env, id: string, verified = true) {
   }
   return member;
 }
-export async function currentMember(request: Request, env: Env) {
-  const result = await createAuth(env).api.getSession({ headers: request.headers, returnHeaders: true });
-  if (!result.response) return null;
-  try {
-    const member = await memberById(env, result.response.user.id);
-    return { member, session: result.response.session, headers: result.headers };
-  } catch (error) { if (error instanceof APIError) return null; throw error; }
+type NativeSession = Pick<ReturnType<typeof createAuth>["$Infer"]["Session"], "session">;
+type Identity = { member: Member; session: NativeSession["session"] };
+
+export async function memberForSession(env: Env, session: NativeSession["session"]) {
+  const member = await env.DB.withSession("first-primary").prepare(`SELECT p.*, u.username, u.displayUsername, u.email, u.emailVerified, u.twoFactorEnabled
+    FROM member_profiles p JOIN "user" u ON u.id = p.user_id JOIN session s ON s.userId = u.id
+    WHERE p.user_id = ? AND s.id = ? AND s.expiresAt > ? AND p.registration_state = 'completed'
+      AND p.status = 'active' AND u.emailVerified = 1`).bind(session.userId, session.id, new Date().toISOString()).first<Member>();
+  if (!member) throw new APIError("FORBIDDEN", { code: "MEMBERSHIP_REQUIRED", message: "账号尚未完成验证或已被停用。" });
+  return member;
 }
-export async function requireMember(request: Request, env: Env) {
-  const member = await currentMember(request, env);
+
+export function createRequestIdentity(request: Request, env: Env) {
+  let pending: Promise<Identity | null> | undefined, auth: ReturnType<typeof createAuth> | undefined;
+  const cookies = new Map<string, string>();
+  const capture = (headers: Headers) => { for (const cookie of headers.getSetCookie()) cookies.set(cookie.split("=")[0], cookie); };
+  const headers = (response = new Headers()) => {
+    const result = new Headers(response), merged = new Map(cookies);
+    // A native new/cleared cookie wins over an earlier rolling renewal.
+    for (const cookie of response.getSetCookie()) merged.set(cookie.split("=")[0], cookie);
+    result.delete("Set-Cookie"); for (const cookie of merged.values()) result.append("Set-Cookie", cookie);
+    return result;
+  };
+  const nativeAuth = () => auth ??= createAuth(env);
+  async function resolve(session: NativeSession | null) {
+    if (!session) return null;
+    return { member: await memberForSession(env, session.session), session: session.session };
+  }
+  return {
+    auth: nativeAuth, headers,
+    invalidate() { pending = undefined; },
+    // Only server-owned native results may populate this request's identity.
+    accept(session: NativeSession | null, responseHeaders: Headers) {
+      capture(responseHeaders); return pending = resolve(session);
+    },
+    current() {
+      return pending ??= (async () => {
+        const result = await nativeAuth().api.getSession({ headers: request.headers, returnHeaders: true });
+        capture(result.headers); return resolve(result.response);
+      })();
+    },
+  };
+}
+export type RequestIdentity = ReturnType<typeof createRequestIdentity>;
+
+export async function currentMember(request: Request, env: Env, identity = createRequestIdentity(request, env)) {
+  try {
+    const current = await identity.current();
+    return current ? { ...current, headers: identity.headers() } : null;
+  } catch (error) { if (error instanceof APIError && error.body?.code === "MEMBERSHIP_REQUIRED") return null; throw error; }
+}
+export async function requireMember(request: Request, env: Env, identity = createRequestIdentity(request, env)) {
+  const member = await currentMember(request, env, identity);
   if (!member) throw new APIError("UNAUTHORIZED", { code: "AUTH_REQUIRED", message: "请先登录。" });
   return member;
 }
-export async function pageMember(request: Request, env: Env) {
-  const current = await currentMember(request, env);
+export async function pageMember(request: Request, env: Env, identity = createRequestIdentity(request, env)) {
+  const current = await currentMember(request, env, identity);
   if (!current) {
     const url = new URL(request.url);
     throw redirect(`/login?next=${encodeURIComponent(safeNext(url.pathname + url.search, env.APP_ORIGIN))}`);
