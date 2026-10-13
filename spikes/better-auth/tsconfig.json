@@ -1,0 +1,17 @@
+{
+  "include": ["**/*.ts", ".cloudflare/types/**/*.d.ts"],
+  "exclude": ["node_modules", ".cloudflare/output"],
+  "compilerOptions": {
+    "lib": ["ES2024", "WebWorker"],
+    "types": ["node", "@cloudflare/vitest-plugin/types"],
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true
+  }
+}

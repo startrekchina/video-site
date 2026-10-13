@@ -136,7 +136,7 @@ export default function AboutPage() {
           ))}
         </dl>
         <p className="screen-line-top p-4 text-pretty text-muted-foreground [&_strong]:font-medium [&_strong]:text-foreground">
-          我们<strong>不收集</strong>手机号和真实姓名，不使用第三方统计或广告。连续认证失败时会要求 Cloudflare Turnstile 人机验证。数据库备份另有加密副本。
+          我们<strong>不收集</strong>手机号和真实姓名，不使用第三方统计或广告。注册、密码登录、申请验证邮件和邮箱找回均有人机验证与频率限制。数据库备份另有加密副本。
         </p>
       </Section>
 
@@ -145,23 +145,19 @@ export default function AboutPage() {
       <Section id="recovery" title="找回账号">
         <ol className="divide-y divide-line">
           <li className="flex flex-col gap-1 p-4">
-            <span className="font-medium">忘记密码</span>
+            <span className="font-medium">忘记密码，通过注册邮箱找回</span>
             <span className="text-pretty text-muted-foreground">
-              用注册时拿到的任意一个恢复码，自己重设密码。
-              <Link to="/recover" className="link-underline ml-1 text-foreground">
-                使用恢复码
-              </Link>
-            </span>
-          </li>
-          <li className="flex flex-col gap-1 p-4">
-            <span className="font-medium">通过注册邮箱找回</span>
-            <span className="text-pretty text-muted-foreground">向注册邮箱申请一次性重置链接。邮箱找回保留已有通行密钥和二步验证器。
+              向注册邮箱申请重置链接，1 小时内有效。重设密码后需要重新登录；已有通行密钥、二步验证器和未用备用码保留，二步验证仍然需要完成。
               <Link to="/forgot-password" className="link-underline ml-1 text-foreground">邮箱找回密码</Link>
             </span>
           </li>
           <li className="flex flex-col gap-1 p-4">
-            <span className="font-medium">恢复码和邮箱都不可用</span>
-            <span className="text-pretty text-muted-foreground">请邀请你的人转告管理员。管理员会生成一个一次性重置链接，24 小时内有效，并清除二步验证器和通行密钥。三种恢复方式都撤销旧会话、旧恢复码与旧重置链接；恢复后请正常登录并手动生成新的恢复码。</span>
+            <span className="font-medium">遗失二步验证器</span>
+            <span className="text-pretty text-muted-foreground">开启二步验证时请妥善保存备用码。遗失验证器后，可用正确密码加一个未用备用码登录；每个备用码只能使用一次。备用码不能重设密码。已绑定通行密钥也可用于登录。</span>
+          </li>
+          <li className="flex flex-col gap-1 p-4">
+            <span className="font-medium">所有登录与找回方式都不可用</span>
+            <span className="text-pretty text-muted-foreground">邮箱、密码、验证器、备用码及通行密钥均不可用时，本站不承诺网页自助或管理员一键恢复。管理员不签发账号重置链接，也不会清除你的认证设备。</span>
           </li>
         </ol>
       </Section>
