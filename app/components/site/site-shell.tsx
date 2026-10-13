@@ -55,7 +55,7 @@ export function SiteShell({ children, memberNavigation }: { children: ReactNode;
             <Navigation items={memberNavigation ?? guestNavigation} />
           </nav>
           <div className="flex items-center gap-2">
-            {!memberNavigation && pathname !== "/login" && <Button variant="secondary" size="sm" nativeButton={false} render={<Link to="/login" />}>登录</Button>}
+            {!memberNavigation && <Button variant="secondary" size="sm" disabled title="登录功能将在后续阶段开放">登录</Button>}
             <Button variant="ghost" size="icon-sm" aria-label="切换深浅色" title="切换深浅色（D）" onClick={toggleTheme}>
               {theme === "dark" ? <SunMediumIcon /> : <MoonStarIcon />}
             </Button>

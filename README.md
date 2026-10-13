@@ -93,7 +93,7 @@ pnpm db:migrate:local            # 先应用 D1 迁移，状态与 cf dev 共用
 pnpm dev                         # cf dev，监听 0.0.0.0:6120
 ```
 
-启动前检查 6120 端口，已有实例则复用。工程基础验收时服务运行于集成工作树 `.worktree/dev`；`/about` 是公开关于页，未知路径显示 404，`/` 暂为工程首页。登录、注册、恢复及成员功能按后续阶段实现，不以展示链接表示已完成。浏览器截图与核对见 [验收记录](docs/screenshots/phase2/README.md)。
+启动前检查 6120 端口，已有实例则复用。工程基础验收时服务运行于集成工作树 `.worktree/dev`；`/about` 是公开关于页，未知路径显示 404，`/` 暂为工程首页。登录、注册、恢复及成员功能按后续阶段实现；当前顶栏登录按钮暂时禁用，认证页面接入后再启用。浏览器截图与核对见 [验收记录](docs/screenshots/phase2/README.md)。
 
 | 命令 | 作用 |
 | --- | --- |
@@ -105,6 +105,8 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 | `cf deploy --prebuilt --mode staging --dry-run` | 检查 staging 构建产物与绑定，不上传 |
 
 `cloudflare.config.ts` 按 mode（`development`、`test`、`staging`、`production`）返回各自独立的 Worker、D1、R2 和 Rate Limiting 配置。真实的账号 ID、D1 ID 和站点 Key 只放在被忽略的 `.env`，线上 Secrets 由站长授权后写入 Worker Secrets；`deploy:staging` / `deploy:production` 脚本只在站长明确要求时运行。
+
+合并到 `main` 不构成上线授权。仓库中没有部署工作流；2026-10-13 经 `cf` 只读核查当前账号全部 42 个 Worker 的 Builds 触发器及 14 个 Pages 项目的 Git 来源，未发现关联本仓库的自动部署配置。合并前仍须确认 Cloudflare Dashboard 未为 `main` 启用 Workers Builds / Git 自动部署，避免核验后配置变化。
 
 测试数据工厂 `test/fixtures/catalog.ts` 只创建虚构成员、作品、季和集。需要媒体夹具时，安装 PATH 上可用的 ffmpeg 后运行 `node scripts/gen-test-media.mjs`：生成 4 秒 H.264 + AAC、faststart 的 MP4 到被忽略的 `test/fixtures/media/`，可重复生成。自行编写的中英文 VTT 在 `test/fixtures/subtitles/` 中随代码提交；约束测试不依赖生成的 MP4。
 

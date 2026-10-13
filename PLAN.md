@@ -48,7 +48,7 @@
 ### T2.2 正式工程骨架
 
 - [x] 在仓库根目录建立 React Router v7 + Workers 正式工程（`app/`、`workers/`、`cloudflare.config.ts`、`vite.config.ts`、`react-router.config.ts`、`tsconfig.json`、`vitest.config.ts`），`public/` 作为公开静态资源。
-- [x] `pnpm dev`（`cf dev`，`0.0.0.0:6120`）、`pnpm typecheck`、`pnpm build`（及 `build:staging` / `build:production`）、`pnpm test` 均可运行；`.gitignore` 覆盖 `node_modules`、`build`、`.cloudflare`、`.react-router`、`.dev.vars*`、`.env*`。
+- [x] `pnpm dev`（`cf dev`，`0.0.0.0:6120`）、`pnpm typecheck`、`pnpm build`（及 `build:staging` / `build:production`）、`pnpm test` 均可运行；`.gitignore` 覆盖 `node_modules`、`build`、`.cloudflare`、`.react-router`、`.dev.vars*`、`.env` 和 `.env.*`，保留 `.dev.vars.example` 与 `.env.example`。
   - 进展：`typecheck`、`test`、`build` 及两环境占位构建 / dry-run 均已通过。正式工程已在集成工作树 `.worktree/dev` 常驻监听 `0.0.0.0:6120`，本机和局域网请求 `/about` 返回 200；复用该实例，不另起服务。
 - [x] 公共响应约定先落地并有测试：所有动态响应带 `X-Robots-Tag: noindex`、`Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff`；HTML 默认 `Cache-Control: private, no-store`；`GET /robots.txt` 返回 `User-agent: *` 与 `Disallow: /`；静态资源经 `public/_headers` 带 noindex（需求 6.1、6.1.1）。静态资源头在 staging 部署后另行核对。
 - 验收：上述命令全部通过；Workers Vitest 中请求 `/`、`/robots.txt`、不存在的路径，断言状态码与安全头；不依赖 `prototypes/`。
@@ -102,11 +102,15 @@ T2.2、T2.3（除云端资源阻塞项）、T2.5、T2.6 勾选；T2.4 有书面�
 | React Router v7 与 `@cloudflare/vite-plugin` 2.0 beta 的产物目录不一致 | 已用同步插件绕过，构建 / 预览 / dry-run 已验证 | 需求定 v7，暂不升级。若站长同意升级 v8（官方支持组合），需同步修改需求 6.1 与 README 技术栈 |
 | `cf` 与 Vite 插件 2.0 均为 beta | 风险 | 锁定精确版本；升级单独提交并重跑全部验证 |
 | staging / prod 云端资源、Secrets、staging 域名 | 阻塞，待站长授权 | 骨架先以 dry-run 验证；授权后创建并记录（不入库真实 ID） |
+| PR #21 合并前核实 Cloudflare Builds / Git 自动部署 | 2026-10-13 经 `cf` 只读核验，当前账号未发现关联本仓库的自动部署配置 | 已核查全部 42 个 Worker 的 Builds 触发器及 14 个 Pages 项目的 Git 来源；合并前再次确认配置未变，合并不构成上线授权，`deploy:*` 仍须站长明确要求 |
 | Better Auth 是否满足需求规则 | POC 未通过采用门槛，报告已完成，待站长决定 | D1 注册 / 恢复不原子、session bearer 明文、续期超出绝对上限、TOTP 可重放且无独立密钥 / AAD、恢复码可逆；建议 B：允许按既定规则替代认证实现，复用成熟 WebAuthn 库。A 为保留库并替换多数核心流程；C 为降低规则，不建议。未获决定前不实施替代方案 |
 | 已购发件服务的 API 文档与配置 | 阻塞，第三阶段前需要 | 站长提供后接入，测试用本地模拟服务 |
 | 平台实测（备份时限、Time Travel 隔离、限流、scrypt、日志） | 待 staging 资源 | 第六阶段执行，不以本地结果代替 |
 
 ## 6. 进展与验证记录
+
+- 2026-10-13：处理 PR #21 评审意见。核实 `feat/pr1-engineering-public-foundation` 工作树与远端头提交 `5b24c38` 一致后，暂时禁用顶栏登录按钮，避免跳转到尚未实现的 `/login`；`.gitignore` 新增 `.env.*` 并保留 `.env.example`。`pnpm typecheck`、`pnpm test`（3 个文件、83 项）、`pnpm build` 和 `git diff --check` 通过；直接请求构建后的 Worker，首页 / 关于页 / 404 均输出禁用的原生登录按钮且无 `/login` 链接。`git check-ignore --no-index` 确认 `.env`、`.env.staging`、`.env.production`、`.env.local`、`.dev.vars*` 被忽略，两个 example 文件保留。未重跑浏览器截图验收，历史记录已注明适用版本。
+- 2026-10-13：使用 `cf` 只读核查当前账号全部 42 个 Worker 的 Builds 触发器和 14 个 Pages 项目的 Git 来源，未发现关联 `startrekchina/video-site` 的自动部署配置。`stcn-video-site-staging` 现有触发器关联旧仓库 `STCN-Video`，仅匹配 `dev`；未修改云端配置。README 补充合并前再次核实自动部署设置，合并 `main` 不构成上线授权。
 
 - 2026-10-06：T2.4 形成书面差距结论，独立分支 `spike/auth-poc-report` 提交 `4fc3bc4`。workerd 测试 6 个文件 29 项及类型检查通过，实测注册 / 恢复部分提交、明文会话、滚动续期、并发 TOTP 重放和可逆恢复码；报告列出全部 A1–A7 / B1–B10 证据、未运行项目与 A/B/C 选项。待站长决定，未合入 POC、未实现正式认证。
 - 2026-10-06：T2.5 修复及 T2.6 前端基础合入本地 `dev`。集成工作树重新执行 `pnpm typecheck`、`pnpm test`（83 项）、`pnpm build`、`pnpm db:migrate:local`（7 个迁移）通过。正式 `pnpm dev` 常驻监听 `0.0.0.0:6120`，局域网访问 `/about` 返回 200。浏览器完成关于页 / 404 的 1440×1000、360×800、浅 / 深色八视图验收；验证三档主题、系统切换、刷新持久化、D 键与输入时忽略、1152 / 768 px 列宽、回到顶部及访客导航，无横向溢出或捕获的客户端异常。截图和边界见 `docs/screenshots/phase2/README.md`。
