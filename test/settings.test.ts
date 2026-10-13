@@ -6,9 +6,9 @@ it("keeps the confirmed defaults from requirements 6.9.1", () => {
   expect(settings).toMatchObject({
     inviteQuota: 2,
     invitationTtl: 30 * 86400,
-    recoveryCodeCount: 10,
-    resetLinkTtl: 86400,
-    emailVerificationTtl: 86400,
+    backupCodeCount: 10,
+    resetLinkTtl: 3600,
+    emailVerificationTtl: 3600,
     completionThreshold: 0.9,
     progressReportInterval: 15,
     backupRetention: 30 * 86400,
@@ -18,15 +18,12 @@ it("keeps the confirmed defaults from requirements 6.9.1", () => {
     playbackTokenTtl: 1800,
     playbackTokenRenewBefore: 300,
     playbackTokenRenewRetryDelays: [5, 15, 30],
-    session: { absoluteLifetime: 180 * 86400, idleTimeout: 30 * 86400, lastActiveWriteInterval: 86400 },
-    totp: { digits: 6, step: 30, window: 1, challengeTtl: 300, challengeMaxAttempts: 10 },
+    session: { expiresIn: 30 * 86400, updateAge: 86400, freshAge: 300 },
+    totp: { digits: 6, step: 30, window: 1, challengeTtl: 300, challengeMaxAttempts: 5 },
     rateLimits: {
-      authPerOperation: { perMinute: 10, per15Minutes: 30 },
-      turnstileAfterFailures: 5,
-      turnstileClearAfter: 900,
+      auth: { window: 10, max: 100 },
       playbackTokenPerMember: { perMinute: 30 },
       adminHighImpactPerAdmin: { perMinute: 30 },
-      verificationTokenConsume: { perMinute: 10, per15Minutes: 30 },
       memberEmail: { minInterval: 60, perHour: 5 },
     },
   });
@@ -40,4 +37,5 @@ it("exposes the declared bindings in the test environment", () => {
   expect(typeof env.MEDIA_BUCKET.get).toBe("function");
   expect(typeof env.AUTH_RATE_LIMITER.limit).toBe("function");
   expect(env.PLAYBACK_HMAC_KEY).toBeTruthy();
+  expect(env.BETTER_AUTH_SECRET.length).toBeGreaterThanOrEqual(32);
 });
