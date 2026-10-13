@@ -13,10 +13,10 @@ export default async function handleRequest(
   const userAgent = request.headers.get("user-agent");
 
   const body = await renderToReadableStream(<ServerRouter context={routerContext} url={request.url} />, {
-    onError(error: unknown) {
+    onError() {
       responseStatusCode = 500;
       // Errors during the initial shell render are rethrown and logged by React Router.
-      if (shellRendered) console.error(error);
+      if (shellRendered) console.error(JSON.stringify({ route: "page", status: 500, code: "SSR_RENDER_FAILED" }));
     },
   });
   shellRendered = true;
@@ -25,4 +25,8 @@ export default async function handleRequest(
 
   responseHeaders.set("Content-Type", "text/html; charset=utf-8");
   return new Response(body, { headers: responseHeaders, status: responseStatusCode });
+}
+
+export function handleError() {
+  console.error(JSON.stringify({ route: "page", status: 500, code: "PAGE_REQUEST_FAILED" }));
 }
