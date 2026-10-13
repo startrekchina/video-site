@@ -21,6 +21,8 @@ export default defineConfig({
   ],
   resolve: { tsconfigPaths: true },
   test: {
+    // Native password hashing and ten Worker module graphs otherwise compete for the same CPU.
+    maxWorkers: 2,
     include: ["test/**/*.test.ts", "app/**/*.test.ts", "workers/**/*.test.ts"],
     setupFiles: ["./test/setup.ts"],
   },

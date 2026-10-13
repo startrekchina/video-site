@@ -24,7 +24,7 @@ export async function sendEmail(env: EmailEnv, message: EmailMessage): Promise<E
   const timer = setTimeout(() => controller.abort(), settings.emailRequestTimeout * 1000);
   try {
     const response = await fetch(new URL("/api/v1/send/message", base), {
-      method: "POST", redirect: "error", signal: controller.signal,
+      method: "POST", redirect: "manual", signal: controller.signal,
       headers: { "Content-Type": "application/json", "X-Server-API-Key": env.EMAIL_API_KEY },
       body: JSON.stringify({ to: [message.to], from: env.EMAIL_FROM, reply_to: env.EMAIL_REPLY_TO, subject: message.subject, plain_body: message.text }),
     });
