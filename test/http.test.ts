@@ -42,7 +42,12 @@ describe("worker responses", () => {
       const html = await account.text(); expect(html).toContain("管理登录方式、二步验证和登录会话。"); expect(html).toContain("Nova");
       expect(html).not.toMatch(/"password"|"token"|"secret"|backupCodes\":/);
       const forbidden = await exports.default.fetch("http://localhost:6120/admin", { headers: { Cookie: cookie } });
-      expect(forbidden.status).toBe(403); expectSecurityHeaders(forbidden); expect(await forbidden.text()).toContain("访问受限");
+      expect(forbidden.status).toBe(403); expectSecurityHeaders(forbidden);
+      const forbiddenHtml = await forbidden.text(); expect(forbiddenHtml).toContain("访问受限"); expect(forbiddenHtml).toContain('aria-label="账号菜单"'); expect(forbiddenHtml).toContain("Nova");
+      const missing = await exports.default.fetch("http://localhost:6120/missing-star", { headers: { Cookie: cookie } });
+      expect(missing.status).toBe(404); expectSecurityHeaders(missing); expect(await missing.text()).toContain('aria-label="账号菜单"');
+      const about = await exports.default.fetch("http://localhost:6120/about", { headers: { Cookie: cookie } });
+      expect(await about.text()).not.toContain("我有邀请码");
     } finally { vi.unstubAllGlobals(); }
   });
   it("exposes the guarded native session endpoint", async () => {
