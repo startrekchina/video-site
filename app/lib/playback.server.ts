@@ -54,7 +54,7 @@ async function quota(env: Env, current: Awaited<ReturnType<typeof requireMember>
     catch (error) { if (error instanceof APIError) return fail("UNAUTHORIZED", "AUTH_REQUIRED", "会话已失效，请重新登录。"); throw error; }
     if (!await env.DB.prepare("SELECT id FROM media_files WHERE id = ? AND playable_unit_id = ? AND format = 'mp4'").bind(fileId, unitId).first()) return fail("NOT_FOUND", "MEDIA_MISSING", "暂无可播放片源。");
     const earliest = await env.DB.prepare("SELECT min(occurred_at) AS n FROM rate_limit_counters WHERE key = ? AND operation = 'playback' AND occurred_at > ?").bind(counter, now - 60000).first<number>("n");
-    throw new APIError("TOO_MANY_REQUESTS", { code: "PLAYBACK_RATE_LIMITED", message: "签发过于频繁，请稍后重试。" }, { "Retry-After": String(Math.max(1, Math.ceil(((earliest ?? now) + 60000 - now) / 1000))) });
+    throw new APIError("TOO_MANY_REQUESTS", { code: "PLAYBACK_RATE_LIMITED", message: "播放请求过于频繁，请稍后重试。" }, { "Retry-After": String(Math.max(1, Math.ceil(((earliest ?? now) + 60000 - now) / 1000))) });
   }
 }
 export async function authorizePlayback(request: Request, env: Env, unitId: string, responseHeaders?: Headers, identity = createRequestIdentity(request, env)): Promise<Authorization> {

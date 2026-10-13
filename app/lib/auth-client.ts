@@ -14,9 +14,9 @@ const messages: Record<string, string> = {
   SESSION_NOT_FRESH: "请重新登录后再执行此敏感操作。",
   INVITATION_INVALID: "邀请码无效。", INVITATION_EXPIRED: "邀请码已过期。", INVITATION_USED: "邀请码已被使用。",
   INVITATION_REVOKED: "邀请码已作废。", INVITATION_RESERVED: "邀请码正在注册中，请稍后重试。",
-  QUOTA_EXHAUSTED: "邀请额度不足，请核对当前占用。", TRUST_DEVICE_DISABLED: "本站不支持跳过二步验证。",
+  QUOTA_EXHAUSTED: "邀请额度不足，无法继续生成邀请码。", TRUST_DEVICE_DISABLED: "本站不支持跳过二步验证。",
   USER_VERIFICATION_REQUIRED: "请使用支持指纹、面容或设备 PIN 验证的通行密钥。",
-  INVALID_TWO_FACTOR_COOKIE: "二步挑战已失效，请重新登录。", INVALID_CODE: "验证码或备用码不正确。",
+  INVALID_TWO_FACTOR_COOKIE: "二步验证已超时，请重新登录。", INVALID_CODE: "验证码或备用码不正确。",
   ADMIN_CHANGE_REJECTED: "目标状态已变化，或操作受到管理员保护。",
 };
 export function authError(error: { code?: string; message?: string }, retry?: string | null) {

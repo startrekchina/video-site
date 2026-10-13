@@ -43,7 +43,7 @@ export default function InvitesPage({ loaderData: invites }: Route.ComponentProp
   }
   return <Page narrow>
     <PageHeading><PageHeadingTagline>邀请</PageHeadingTagline><PageHeadingTitle>把档案馆分享给信得过的朋友。</PageHeadingTitle>
-      <PageHeadingDescription>邀请码只能用一次，默认 30 天内有效。你邀请的人出问题时，你也可能被连带处理。</PageHeadingDescription></PageHeading><div className="h-4" />
+      <PageHeadingDescription>邀请码单次有效，默认 30 天内有效。请仅邀请信得过的朋友，受邀成员的违规行为可能会影响邀请人账号。</PageHeadingDescription></PageHeading><div className="h-4" />
     <div className="screen-line-top screen-line-bottom grid grid-cols-2">
       <div className="flex flex-col gap-1 px-4 py-3"><div className="text-sm text-muted-foreground">剩余额度</div><div className="font-mono text-3xl font-medium tabular-nums">{invites.unlimited ? "∞" : left}</div></div>
       <div className="flex flex-col gap-1 border-l border-line px-4 py-3"><div className="text-sm text-muted-foreground">已邀请</div><div className="font-mono text-3xl font-medium tabular-nums">{invites.invitations.filter(invite => invite.used_at).length}</div></div>
@@ -58,7 +58,7 @@ export default function InvitesPage({ loaderData: invites }: Route.ComponentProp
       {!invites.invitations.length ? <Empty className="rounded-none py-12"><EmptyHeader><EmptyMedia variant="icon"><TicketIcon /></EmptyMedia><EmptyTitle>还没有发出邀请码</EmptyTitle><EmptyDescription>生成后把注册链接通过私信发给朋友即可。</EmptyDescription></EmptyHeader></Empty>
         : <><InviteList invitations={invites.invitations} now={invites.now} codes={codes} busy={action.busy} revoke={id => void action.run(async () => {
           await call("/invites/" + id + "/revoke", { csrfToken: invites.csrfToken }); revalidator.revalidate(); action.setMessage("邀请码已作废，未用额度已释放。");
-        })} /><p className="screen-line-top px-4 py-3 text-xs text-muted-foreground">原码只在本次生成后显示，请及时复制保存。已使用的邀请码永久占用额度，未使用码作废或过期释放。</p></>}
+        })} /><p className="screen-line-top px-4 py-3 text-xs text-muted-foreground">邀请码仅在本次生成后显示一次，请及时复制保存。已使用的邀请码将计入额度，未使用码作废或过期后会自动返还额度。</p></>}
     </Panel>
     <Dialog open={!!created} onOpenChange={value => { if (!value) { setCreated(null); action.clear(); } }}><DialogContent>
       <DialogHeader><DialogTitle>邀请码已生成</DialogTitle><DialogDescription>有效至 {created && new Date(created.expiresAt).toLocaleString("zh-CN")}。请通过私信把注册链接发给朋友。</DialogDescription></DialogHeader>

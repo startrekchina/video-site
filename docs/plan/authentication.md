@@ -38,10 +38,17 @@
 - 注册 autoSignIn=false、requireEmailVerification=true、sendOnSignUp=false，业务完成后发信；邮箱验证 autoSignInAfterVerification=false，链接 1 小时。重置 revokeSessionsOnPasswordReset=true；改邮箱 enabled=true、updateEmailWithoutVerification=false，确认额外要求本人会话。
 - session.expiresIn=30 天、updateAge=1 天、freshAge=300；关闭 cookieCache/secondaryStorage。twoFactorCookieMaxAge=300；原生 scrypt N=16384/r=16/p=1，库原生盐/哈希和认证加密，不复用播放/备份密钥。
 - 通行密钥请求 UV，并在 afterVerification 拒绝 userVerified=false；只设置 userVerification 不代表服务端强制。origin/RP 固定本环境，不重写 WebAuthn。
+
+### 本地认证验收边界
+
+- **Turnstile 测试桩**：本地官方 Turnstile 测试服务返回 `example.com` 且没有 `action`。仅在 `development` 环境且 Site Key / Secret 均等于官方 always-pass 配对时接受对应测试响应；`test`、`staging` 和 `production` 仍严格校验本站 hostname 与 auth action。客户端保留窄卡片，在容器小于 300px 时切换官方 compact 控件并预留其高度。
+- **局域网验收配置**：局域网验收须将本地 `.env` 中的 `APP_ORIGIN` 配为实际访问 origin；RP ID 随该 origin 的 hostname 生成，来源校验不因调试而放宽。通行密钥还需浏览器认可的安全上下文（HTTPS 或 localhost）。
+- **测试并发与资源调度**：本地测试并发设为两路，避免原生密码哈希与 Worker 模块图同时争用 CPU。HTTP suite 单独预热 SSR 编译，允许最多 60 秒；普通单请求保留 5 秒测试阈值。模拟发信不向真实服务发送邮件，浏览器验收仅使用虚构本地账号。
+- **失败边界**：注册、改邮箱和重置失败可能留下部分原生状态，相关故障注入与重试行为见集成测试与 [B 6.4.1](../detailed-requirements.md#641-原生流程的失败边界)。
 - rateLimit 开启 D1 database storage、可信 Cloudflare IP，参数按 B 6.3.2；captcha 传 x-captcha-response 并核 allowedHostnames/expectedAction。包装 HTTP 先验来源/IP/Turnstile，不假定 auth.api 内调会执行 onRequest 插件。
 - Postal HTTPS fetch：POST /api/v1/send/message，Content-Type application/json 与 X-Server-API-Key；映射 to/from/reply_to/subject/plain_body（接口也支持 html_body，当前传输仅纯文本）。同时检查 HTTP 与 JSON status，只取必要 data.message_id；服务接受不等于送达。
 - 传输最多一次、10 秒、manual 重定向且拒绝非 2xx，不自动补发；失败/超时捕获脱敏，超时记未确认，不回滚注册或封禁。验证用途共用邮箱摘要配额，找回另计，D1 条件写入计入首次/失败/超时；通知不受站内发送上限，仍受上游限制。
-- 本环境发件子域及 From/Reply-To/API 地址从本机/平台配置；staging 测试发件人与 production 区分，Reply-To 同收信地址；域名及 SPF/DKIM/DMARC 由站长维护。异步发信纳入请求生命周期，不留未等待 Promise。详细运行限制见根 README。
+- 本环境发件子域及 From/Reply-To/API 地址从本机/平台配置；staging 测试发件人与 production 区分，Reply-To 同收信地址；域名及 SPF/DKIM/DMARC 由站长维护。异步发信纳入请求生命周期，不留未等待 Promise。部署与日志限制见[运维说明](operations.md#695-远程数据库迁移与运维工程细节)。
 
 ### 6.2.1 认证与邀请存储映射
 

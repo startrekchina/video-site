@@ -41,8 +41,8 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
   const second = login && step !== "password";
   const title = second ? "二步验证" : login ? "登录" : register ? inviteStep ? "创建账号" : "使用邀请码注册" : reset ? "重设密码" : verified ? "邮箱验证" : resend ? "等待邮箱验证" : "找回密码";
   const description = verified ? (params.has("error") ? "验证链接无效或已过期，请重新申请邮件。" : "邮箱已验证，请正常登录。")
-    : resend ? (params.get("delivery") && params.get("delivery") !== "accepted" ? "注册已完成，但验证邮件发送失败或结果未确认。请按配额重新发送。"
-      : "注册结果已保留。请打开邮件链接完成验证；服务接受发送请求不代表邮件已经送达。")
+    : resend ? (params.get("delivery") && params.get("delivery") !== "accepted" ? "注册已完成，但验证邮件发送遇到问题或暂未确认。若未收到，可稍后重新发送。"
+      : "账号注册已成功。请查收邮件并点击链接完成验证；若未收到，请检查垃圾箱或稍后重试。")
     : second ? "打开验证器应用，输入 6 位动态码，或使用一个未用备用码。"
     : login ? "星际舰队档案馆是邀请制的私人观看站，仅对受邀成员开放。"
     : register ? inviteStep ? "用户名注册后不可修改，其他成员能看到它。注册完成后需要验证邮箱。" : "本站只对受邀成员开放。请输入朋友发给你的邀请码。"
@@ -73,7 +73,7 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
       } else {
         await call(`/api/auth/${resend ? "send-verification-email" : "request-password-reset"}`, { email: fields.email,
           ...(resend ? { callbackURL: `${window.location.origin}/verify-email` } : { redirectTo: `${window.location.origin}/reset-password` }) }, captcha);
-        setMessage("如果邮箱符合条件，服务已处理本次发信请求。请检查收件箱和垃圾邮件，未收到可稍后重试。");
+        setMessage("若该邮箱已注册，系统已发出重置或验证邮件。请检查收件箱和垃圾邮件箱，若未收到可稍后重试。");
       }
     } finally { if (needsCaptcha) { setCaptcha(""); setGeneration(value => value + 1); } }
   }
@@ -94,7 +94,7 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
       : <form onSubmit={event => { event.preventDefault(); const form = event.currentTarget; void run(() => submit(form)); }}><FieldGroup>
         {login && !second && <><Button variant="outline" type="button" disabled={busy} onClick={() => void run(async () => { const result = await authClient.signIn.passkey(); if (result?.error) throw new Error(authError(result.error)); if (!result?.data) throw new Error("通行密钥登录未完成。"); window.location.assign(config.next); })}><FingerprintIcon data-icon="inline-start" />使用通行密钥登录</Button><FieldSeparator>或使用密码</FieldSeparator></>}
         {feedback}
-        {register && <><input type="hidden" name="invitationCode" value={inviteCode} /><Alert><TicketIcon /><AlertTitle>使用此邀请码注册</AlertTitle><AlertDescription><span className="break-all font-mono">{inviteCode}</span> · 提交时确认邀请码是否有效。</AlertDescription></Alert></>}
+        {register && <><input type="hidden" name="invitationCode" value={inviteCode} /><Alert><TicketIcon /><AlertTitle>使用此邀请码注册</AlertTitle><AlertDescription><span className="break-all font-mono">{inviteCode}</span> · 将在提交注册时核验有效性。</AlertDescription></Alert></>}
         {(login && !second || register) && <Field id="username" name="username" label="用户名" required minLength={3} maxLength={30} pattern="[A-Za-z0-9_.]+" autoComplete="username webauthn" help={register ? "3–30 位字母、数字、下划线或点号" : undefined} />}
         {!login && !reset && <Field id="email" name="email" type="email" label="注册邮箱" required maxLength={320} autoComplete="email" />}
         {login && !second ? <FieldContainer><div className="flex items-center justify-between"><FieldLabel htmlFor="password">密码</FieldLabel><Link to="/forgot-password" className="text-sm text-muted-foreground hover:text-foreground">忘记密码？</Link></div><Input id="password" name="password" type="password" required autoComplete="current-password" maxLength={128} /></FieldContainer>
@@ -105,7 +105,7 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
         <StatusButton type="submit" status={busy ? "loading" : "idle"} disabled={needsCaptcha && !captcha}>{second ? "验证并登录" : login ? "登录" : register ? "创建账号" : reset ? "保存新密码" : "发送邮件"}</StatusButton>
         {second && <Button type="button" variant="ghost" onClick={() => setStep(step === "totp" ? "backup" : "totp")}>{step === "totp" ? "改用备用码" : "改用动态码"}</Button>}
         {register && <Button type="button" variant="ghost" disabled={busy} onClick={() => setInviteStep(false)}>换一个邀请码</Button>}
-        {reset && <p className="text-xs text-muted-foreground">提交失败不表示密码一定未变；链接已消费时，请重新申请邮件。</p>}
+        {reset && <p className="text-xs text-muted-foreground">若保存失败或重置链接已失效，请重新申请重置邮件。</p>}
       </FieldGroup></form>}
   </AuthFrame>;
 }

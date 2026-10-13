@@ -86,7 +86,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
         setDialog(null); action.setMessage("密码已修改，其他会话已退出。");
       } else if (dialog === "email") {
         await call("/api/auth/change-email", { newEmail: fields.newEmail, callbackURL: window.location.origin + "/verify-email" });
-        setDialog(null); action.setMessage("已处理验证邮件请求。确认新邮箱前，当前邮箱保持不变；请在本人登录会话中打开邮件链接。");
+        setDialog(null); action.setMessage("验证邮件已发送。确认新邮箱前，当前邮箱保持不变；请在当前登录会话中打开邮件链接完成确认。");
       } else if (dialog === "totp-enable") {
         const result = await call<{ totpURI: string; backupCodes: string[] }>("/api/auth/two-factor/enable", { password: fields.password });
         setSetup(result); setDialog("totp-verify");
@@ -118,7 +118,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
       <Row icon={<ShieldCheckIcon />} title={<span className="flex flex-wrap items-center gap-2">二步验证（TOTP）{account.totp ? <Tag className="text-success">已开启</Tag> : <Tag>未开启</Tag>}</span>}
         meta={account.totp ? "密码登录时需要验证器中的动态码或备用码" : "给密码登录增加一层保护"}
         action={account.totp ? <Button variant="ghost" size="sm" className="text-destructive" onClick={() => open("totp-disable")}>解绑</Button> : <Button size="sm" onClick={() => open("totp-enable")}>开启</Button>} />
-      {account.totp && <Row icon={<FingerprintIcon />} title="二步验证备用码" meta={"还剩 " + account.backupCodesLeft + " / " + account.backupCodeTotal + " 个可用；只能替代第二因素"}
+      {account.totp && <Row icon={<FingerprintIcon />} title="二步验证备用码" meta={"还剩 " + account.backupCodesLeft + " / " + account.backupCodeTotal + " 个可用；用于在遗失验证器时替代动态验证码"}
         action={<Button variant="outline" size="sm" onClick={() => open("backup")}>重新生成</Button>} />}
     </ul></Panel><Separator />
     <Panel id="passkeys" className="scroll-mt-16"><PanelHeader><PanelTitle>通行密钥<PanelTitleSup>({account.passkeys.length})</PanelTitleSup></PanelTitle>
@@ -139,7 +139,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
       })}>退出其他会话</Button>}</PanelHeader>
       <ul className="divide-y divide-line">{account.sessions.map(session => <Row key={session.id} icon={/iPhone|iPad|Android/.test(session.userAgent ?? "") ? <SmartphoneIcon /> : <LaptopIcon />}
         title={<span className="flex flex-wrap items-center gap-2">{device(session.userAgent)}{session.current && <Tag>当前</Tag>}</span>}
-        meta={"会话更新于 " + new Date(session.updatedAt).toLocaleString("zh-CN")}
+        meta={"最近活跃于 " + new Date(session.updatedAt).toLocaleString("zh-CN")}
         action={!session.current && <Button variant="ghost" size="sm" className="text-destructive" disabled={action.busy} onClick={() => void action.run(async () => { await revoke(session.id); revalidator.revalidate(); })}>退出</Button>} />)}</ul>
       <div className="screen-line-top flex justify-center py-4"><Button variant="ghost" size="sm" disabled={action.busy} onClick={() => void action.run(async () => { await call("/api/auth/sign-out", {}); window.location.assign("/login"); })}>退出当前账号</Button></div>
     </Panel>
@@ -151,7 +151,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
           : dialog === "totp-disable" ? "确认当前密码后解绑验证器。"
           : dialog === "totp-verify" ? "在验证器应用中手动添加下方密钥，然后输入 6 位动态码。"
           : dialog === "backup" ? "旧的备用码将全部作废。新的码只在本次流程显示，请离线保存。"
-          : dialog === "codes" ? "每个码只能替代一次登录第二因素，不能重设密码。请存放在密码管理器或离线位置。"
+          : dialog === "codes" ? "每个备用码仅可使用一次（用于在遗失验证器时替代动态验证码登录），不能重设密码。请存放在密码管理器或安全离线位置。"
           : "删除后，无法再用此通行密钥登录。其他登录方式保持有效。"}
       </DialogDescription></DialogHeader>
       {action.feedback}

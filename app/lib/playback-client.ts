@@ -11,7 +11,7 @@ export function startRenewal(initial: Authorization, request: (signal: AbortSign
   const schedule = () => {
     clearTimeout(renewalTimer); clearTimeout(expiryTimer);
     renewalTimer = setTimeout(() => void renew(), renewalDelay(current.expiresAt));
-    expiryTimer = setTimeout(() => { paused(); errorMessage("播放凭证已到期，请手动重试。"); }, Math.max(0, current.expiresAt - Date.now()));
+    expiryTimer = setTimeout(() => { paused(); errorMessage("播放授权已到期，请点击重试。"); }, Math.max(0, current.expiresAt - Date.now()));
   };
   const renew = async () => {
     if (running || controller.signal.aborted) return;
@@ -28,7 +28,7 @@ export function startRenewal(initial: Authorization, request: (signal: AbortSign
       const wait = retryDelay(status, attempts);
       if (status === 401 || status === 403) { paused(); clearTimeout(expiryTimer); errorMessage("登录已失效或无权播放，请重新登录。"); }
       else if (wait !== null && Date.now() + wait < current.expiresAt) { attempts++; renewalTimer = setTimeout(() => void renew(), wait); }
-      else errorMessage("续期失败，播放凭证到期后暂停。可以手动重试。");
+      else errorMessage("连接出现波动，播放暂停时可点击重试。");
     } finally { running = false; }
   };
   schedule();
@@ -36,8 +36,8 @@ export function startRenewal(initial: Authorization, request: (signal: AbortSign
 }
 export async function fetchAuthorization(unitId: string, csrfToken: string, signal: AbortSignal): Promise<Authorization> {
   const response = await fetch(`/playback/${encodeURIComponent(unitId)}/authorize`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csrfToken }), signal });
-  if (!response.ok) throw Object.assign(new Error(response.status === 401 || response.status === 403 ? "登录已失效或账号无权播放，请重新登录。" : "播放凭证暂时无法续期。"), { status: response.status });
+  if (!response.ok) throw Object.assign(new Error(response.status === 401 || response.status === 403 ? "登录已失效或账号无权播放，请重新登录。" : "播放连接暂时无法恢复。"), { status: response.status });
   const value: Authorization = await response.json();
-  if (!Number.isFinite(value.expiresAt) || value.expiresAt <= Date.now() || !value.url.startsWith("/media/") || !Array.isArray(value.tracks)) throw Object.assign(new Error("播放凭证响应无效。"), { status: 503 });
+  if (!Number.isFinite(value.expiresAt) || value.expiresAt <= Date.now() || !value.url.startsWith("/media/") || !Array.isArray(value.tracks)) throw Object.assign(new Error("播放服务响应异常，请刷新后重试。"), { status: 503 });
   return value;
 }

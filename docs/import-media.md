@@ -13,7 +13,7 @@ node scripts/import-media.mjs catalog --environment staging --execute
 
 第一条只读取 TMDB 并报告数量，第二条先获取并验证完整资料，再通过项目 cf CLI 对 D1 执行一个原子批次。重复执行更新双语资料，保留已有作品/季/单元 ID、媒体实际时长、进度及讨论。TMDB 没有时长时保存 null；没有媒体的占位不获得播放授权。
 
-执行写入前，目标数据库须已应用 `0012_catalog_placeholders.sql` 或后续迁移；按 README 的目标环境迁移命令操作，不能把本地迁移完成视为云端已迁移。
+执行写入前，目标数据库须已应用 `0012_catalog_placeholders.sql` 或后续迁移；按[运维说明](plan/operations.md#695-远程数据库迁移与运维工程细节)中的目标环境迁移命令操作，不能把本地迁移完成视为云端已迁移。
 
 目标必须显式为 `staging` 或 `prod`。必需配置为目标环境的 `STAGING_D1_DATABASE_ID` / `STAGING_MEDIA_BUCKET_NAME` 或 `PRODUCTION_D1_DATABASE_ID` / `PRODUCTION_MEDIA_BUCKET_NAME`，执行时还须具备该环境构建配置和 cf 登录。缺配置、身份歧义、另一环境资源共用、TMDB 失败都会停止；不能默认写 prod。
 
