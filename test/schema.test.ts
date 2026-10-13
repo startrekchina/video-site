@@ -21,10 +21,11 @@ const episode = (id: string, workId = "series", seasonId: string | null = "seaso
     id, kind: "episode", work_id: workId, season_id: seasonId,
     episode_number: number, tmdb_id: 930001, duration_seconds: 4,
   });
-const user = (id: string, username = id, emailKey = `${id}@example.test`) => insert("users", {
+const user = (id: string, username = id, emailKey = `${id}@example.test`, invitedBy: string | null = null) => insert("users", {
   id, username, username_key: username.toLowerCase(), email: emailKey, email_key: emailKey,
   email_verified_at: now, password_hash: "fictional-hash-not-for-authentication",
-  role: "member", status: "active", invite_quota: settings.inviteQuota, created_at: now,
+  role: "member", status: "active", invited_by_user_id: invitedBy,
+  invite_quota: settings.inviteQuota, created_at: now,
 });
 const item = (id: string, workId: string | null, unitId: string | null, position: number) =>
   insert("playlist_items", {
@@ -339,6 +340,115 @@ describe("email and credential constraints", () => {
       0, "multi_device", 1, now);
     await passkey("first", "nova").run();
     await expect(passkey("second", "quinn").run()).rejects.toThrow(/UNIQUE constraint/);
+  });
+});
+
+describe("invitation chain constraints", () => {
+  beforeEach(async () => {
+    await user("river", "River", "river@example.test", "nova").run();
+  });
+
+  it.each([
+    ["quinn", "river"], ["nova", "quinn"], [null, "river"],
+  ])("rejects a consumed invitation with mismatched issuer %s and member %s", async (issuer, member) => {
+    await expect(invitation("mismatch", member, issuer).run())
+      .rejects.toThrow(/Invitation issuer does not match member inviter/);
+    expect(await count("invitations")).toBe(0);
+  });
+
+  it.each([
+    ["quinn", "river"], ["nova", "quinn"], [null, "river"],
+  ])("rejects consumption with mismatched issuer %s and member %s", async (issuer, member) => {
+    await invitation("pending", null, issuer).run();
+    await expect(env.DB.prepare("UPDATE invitations SET used_by_user_id = ?, used_at = ? WHERE id = ?")
+      .bind(member, now, "pending").run()).rejects.toThrow(/Invitation issuer does not match member inviter/);
+    expect(await env.DB.prepare("SELECT used_by_user_id, used_at FROM invitations WHERE id = ?")
+      .bind("pending").first()).toEqual({ used_by_user_id: null, used_at: null });
+  });
+
+  it.each(["INSERT OR REPLACE", "REPLACE"])("rejects %s with a mismatched issuer without losing the invitation", async (verb) => {
+    await invitation("issued", "river", "nova").run();
+    await expect(env.DB.prepare(`${verb} INTO invitations
+      (id, code_hash, issuer_user_id, used_by_user_id, operation_id, created_at, expires_at, used_at)
+      SELECT id, code_hash, ?, used_by_user_id, operation_id, created_at, expires_at, used_at
+      FROM invitations WHERE id = ?`).bind("quinn", "issued").run())
+      .rejects.toThrow(/Invitation issuer does not match member inviter/);
+    expect(await env.DB.prepare("SELECT issuer_user_id, used_by_user_id FROM invitations WHERE id = ?")
+      .bind("issued").first()).toEqual({ issuer_user_id: "nova", used_by_user_id: "river" });
+  });
+
+  it.each(["quinn", null])("rejects changing a consumed invitation's issuer to %s", async (issuer) => {
+    await invitation("issued", "river", "nova").run();
+    await expect(env.DB.prepare("UPDATE invitations SET issuer_user_id = ? WHERE id = ?")
+      .bind(issuer, "issued").run()).rejects.toThrow(/Invitation issuer does not match member inviter/);
+    expect(await env.DB.prepare("SELECT issuer_user_id FROM invitations WHERE id = ?")
+      .bind("issued").first()).toEqual({ issuer_user_id: "nova" });
+  });
+
+  it("rejects changing a consumed invitation to a member with a different inviter", async () => {
+    await invitation("issued", "river", "nova").run();
+    await expect(env.DB.prepare("UPDATE invitations SET used_by_user_id = ? WHERE id = ?")
+      .bind("quinn", "issued").run()).rejects.toThrow(/Invitation issuer does not match member inviter/);
+    expect(await env.DB.prepare("SELECT used_by_user_id FROM invitations WHERE id = ?")
+      .bind("issued").first()).toEqual({ used_by_user_id: "river" });
+  });
+
+  it.each(["nova", null])("allows atomic registration with matching issuer %s", async (issuer) => {
+    await invitation("registration", null, issuer).run();
+    await env.DB.batch([
+      user("sage", "Sage", "sage@example.test", issuer),
+      env.DB.prepare("UPDATE invitations SET used_by_user_id = ?, used_at = ? WHERE id = ?")
+        .bind("sage", now, "registration"),
+    ]);
+    expect(await env.DB.prepare(`SELECT i.issuer_user_id, i.used_by_user_id, u.invited_by_user_id
+      FROM invitations i JOIN users u ON u.id = i.used_by_user_id WHERE i.id = ?`)
+      .bind("registration").first()).toEqual({
+        issuer_user_id: issuer, used_by_user_id: "sage", invited_by_user_id: issuer,
+      });
+  });
+
+  it.each(["quinn", null])("rolls back member creation and email claims when issuer %s mismatches", async (issuer) => {
+    await invitation("registration", null, issuer).run();
+    await expect(env.DB.batch([
+      user("sage", "Sage", "sage@example.test", "nova"),
+      env.DB.prepare("UPDATE invitations SET used_by_user_id = ?, used_at = ? WHERE id = ?")
+        .bind("sage", now, "registration"),
+    ])).rejects.toThrow(/Invitation issuer does not match member inviter/);
+    expect(await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind("sage").first()).toBeNull();
+    expect(await env.DB.prepare("SELECT email_key FROM email_claims WHERE user_id = ?")
+      .bind("sage").first()).toBeNull();
+    expect(await env.DB.prepare("SELECT used_by_user_id, used_at FROM invitations WHERE id = ?")
+      .bind("registration").first()).toEqual({ used_by_user_id: null, used_at: null });
+  });
+
+  it.each([
+    ["quinn", "nova"], ["nova", null], [null, "nova"],
+  ])("rejects a deferred invitation with mismatched issuer %s and inviter %s", async (issuer, inviter) => {
+    await invitation("registration", null, issuer).run();
+    await expect(env.DB.batch([
+      env.DB.prepare("PRAGMA defer_foreign_keys = ON"),
+      env.DB.prepare("UPDATE invitations SET used_by_user_id = ?, used_at = ? WHERE id = ?")
+        .bind("sage", now, "registration"),
+      user("sage", "Sage", "sage@example.test", inviter),
+    ])).rejects.toThrow(/Invitation issuer does not match member inviter/);
+    expect(await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind("sage").first()).toBeNull();
+    expect(await env.DB.prepare("SELECT used_by_user_id, used_at FROM invitations WHERE id = ?")
+      .bind("registration").first()).toEqual({ used_by_user_id: null, used_at: null });
+  });
+
+  it.each(["nova", null])("allows a deferred invitation with matching issuer %s", async (issuer) => {
+    await invitation("registration", null, issuer).run();
+    await env.DB.batch([
+      env.DB.prepare("PRAGMA defer_foreign_keys = ON"),
+      env.DB.prepare("UPDATE invitations SET used_by_user_id = ?, used_at = ? WHERE id = ?")
+        .bind("sage", now, "registration"),
+      user("sage", "Sage", "sage@example.test", issuer),
+    ]);
+    expect(await env.DB.prepare(`SELECT i.issuer_user_id, i.used_by_user_id, u.invited_by_user_id
+      FROM invitations i JOIN users u ON u.id = i.used_by_user_id WHERE i.id = ?`)
+      .bind("registration").first()).toEqual({
+        issuer_user_id: issuer, used_by_user_id: "sage", invited_by_user_id: issuer,
+      });
   });
 });
 
