@@ -47,7 +47,8 @@
 - **局域网验收配置**：局域网验收须将本地 `.env` 中的 `APP_ORIGIN` 配为实际访问 origin；RP ID 随该 origin 的 hostname 生成，来源校验不因调试而放宽。通行密钥还需浏览器认可的安全上下文（HTTPS 或 localhost）。
 - **测试并发与资源调度**：本地测试并发设为两路，避免原生密码哈希与 Worker 模块图同时争用 CPU。HTTP suite 单独预热 SSR 编译，允许最多 60 秒；普通单请求保留 5 秒测试阈值。模拟发信不向真实服务发送邮件，浏览器验收仅使用虚构本地账号。
 - **失败边界**：注册、改邮箱和重置失败可能留下部分原生状态，相关故障注入与重试行为见集成测试与 [B 6.4.1](../detailed-requirements.md#641-原生流程的失败边界)。
-- **注册尝试选择**：已完成尝试的 Cookie 在身份或邀请码改变时启动新尝试，相同输入保留原令牌与密码校验，实现幂等重放；未完成原生身份继续绑定原尝试，不能因输入变化认领或改写旧账号。
+- **注册尝试选择**：已完成尝试的 Cookie 在身份或邀请码改变时启动新尝试，相同输入保留原令牌与密码校验，实现幂等重放；失败且尚未创建原生用户时，更换身份或邀请码也可开始新尝试。已创建的未完成原生身份继续绑定原尝试，不能因输入变化认领或改写旧账号。
+- **注册重试验证**（2026-10-14）：建号前失败后仅更换邀请码的 HTTP/D1 回归在本地 `dev` 单独通过；PR #23 的认证 HTTP/注册专项 34 项、类型检查及 development 构建通过。未重跑全量回归或云端验收。
 - rateLimit 开启 D1 database storage、可信 Cloudflare IP，参数按 B 6.3.2；captcha 传 x-captcha-response 并核 allowedHostnames/expectedAction。包装 HTTP 先验来源/IP/Turnstile，不假定 auth.api 内调会执行 onRequest 插件。
 - Postal HTTPS fetch：POST /api/v1/send/message，Content-Type application/json 与 X-Server-API-Key；映射 to/from/reply_to/subject/plain_body（接口也支持 html_body，当前传输仅纯文本）。同时检查 HTTP 与 JSON status，只取必要 data.message_id；服务接受不等于送达。
 - 传输最多一次、10 秒、manual 重定向且拒绝非 2xx，不自动补发；失败/超时捕获脱敏，超时记未确认，不回滚注册或封禁。验证用途共用邮箱摘要配额，找回另计，D1 条件写入计入首次/失败/超时；通知不受站内发送上限，仍受上游限制。

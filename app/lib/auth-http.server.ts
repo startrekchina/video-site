@@ -29,10 +29,10 @@ export function createSiteAuth(env: Env, identity: RequestIdentity) {
             .bind(await sha256(attemptToken)).first<{ state: string; expected_user_id: string; identity_key: string; code_hash: string }>();
           const identity = typeof ctx.body?.username === "string" && typeof ctx.body?.email === "string"
             ? await sha256(JSON.stringify([ctx.body.username.toLowerCase(), ctx.body.email.toLowerCase()])) : "";
+          const codeHash = typeof ctx.body?.invitationCode === "string" ? await sha256(ctx.body.invitationCode) : "";
           if (previous?.state === "completed") {
-            const codeHash = typeof ctx.body?.invitationCode === "string" ? await sha256(ctx.body.invitationCode) : "";
             if (previous.identity_key !== identity || previous.code_hash !== codeHash) attemptToken = undefined;
-          } else if (previous?.state === "failed" && previous.identity_key !== identity) {
+          } else if (previous?.state === "failed" && (previous.identity_key !== identity || previous.code_hash !== codeHash)) {
             // An unfinished native identity still belongs to its original attempt.
             const exists = await env.DB.prepare('SELECT id FROM "user" WHERE id = ?').bind(previous.expected_user_id).first();
             if (!exists) attemptToken = undefined;
