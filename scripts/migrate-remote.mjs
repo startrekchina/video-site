@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, writeFileSync, mkdtempSync, unlinkSync, rmdirSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, unlinkSync, rmdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -18,6 +18,7 @@ function main() {
   process.loadEnvFile(".env");
   const database = process.env[`${mode.toUpperCase()}_D1_DATABASE_ID`];
   if (!database || !/^[a-f0-9-]{36}$/i.test(database) || database === process.env[`${mode === "staging" ? "PRODUCTION" : "STAGING"}_D1_DATABASE_ID`]) throw new Error("目标数据库未配置或环境未隔离。");
+  mkdirSync(resolve(".cloudflare"), { recursive: true });
   const directory = mkdtempSync(resolve(".cloudflare/remote-migrations-"));
   const names = readdirSync("migrations").filter(name => /^\d{4}_[\w-]+\.sql$/.test(name));
   try {

@@ -14,6 +14,7 @@
 - [x] T3.2 二步/备用码、通行密钥 UV、本人会话管理、改密及本人改邮箱完成；站长确认真实 TOTP/备用码、电脑撤销手机会话、通行密钥登录有效。
 - [x] T3.3 幂等邀请、额度/角色/封禁/单个解封、邀请链和首管本机提升完成；多层关系及其他成员操作弹窗的桌面/手机浅深色复核通过。
 - [x] 邀请来源数据层补强的实现与本地自检：增量约束及旧表重建衔接完整；经开发者确认修正一行既有夹具，原断言保留。新增 28 项包含在全量 219 项中全部通过，类型检查、构建和隔离本地库 14 个迁移通过；未做运行中的开发库或云端迁移，staging 验收待完成。
+- [x] 主题 3 PR #23 审查回归修复及本地同步：完成后连续注册、仅更换邀请码与封禁/解封时保留过期码三项新增场景在本地 dev 通过，远程迁移工具 4 项通过；PR 工作树受影响的 43 项 Workers 用例、类型检查与 development 构建通过。封禁增量迁移待授权应用到运行环境，不重跑全量或平台验收。
 
 证据：[第三阶段记录](../screenshots/phase3/README.md)、[新基线截图](../screenshots/phase2-better-auth/README.md)、[历史过程](../archive/plan-20261007.md)。认证平台 8 次 HTTP 检查、最多 2 路并发，6 条样本 CPU P99 83.573 ms、isolate memory P99 19,952,700 bytes，错误 0；不是完整容量结论。套餐每小时 3,000/每日 24,000 封已确认，月额度/API 频率未知，不能推断无限。
 
@@ -46,6 +47,7 @@
 - **局域网验收配置**：局域网验收须将本地 `.env` 中的 `APP_ORIGIN` 配为实际访问 origin；RP ID 随该 origin 的 hostname 生成，来源校验不因调试而放宽。通行密钥还需浏览器认可的安全上下文（HTTPS 或 localhost）。
 - **测试并发与资源调度**：本地测试并发设为两路，避免原生密码哈希与 Worker 模块图同时争用 CPU。HTTP suite 单独预热 SSR 编译，允许最多 60 秒；普通单请求保留 5 秒测试阈值。模拟发信不向真实服务发送邮件，浏览器验收仅使用虚构本地账号。
 - **失败边界**：注册、改邮箱和重置失败可能留下部分原生状态，相关故障注入与重试行为见集成测试与 [B 6.4.1](../detailed-requirements.md#641-原生流程的失败边界)。
+- **注册尝试选择**：已完成尝试的 Cookie 在身份或邀请码改变时启动新尝试，相同输入保留原令牌与密码校验，实现幂等重放；未完成原生身份继续绑定原尝试，不能因输入变化认领或改写旧账号。
 - rateLimit 开启 D1 database storage、可信 Cloudflare IP，参数按 B 6.3.2；captcha 传 x-captcha-response 并核 allowedHostnames/expectedAction。包装 HTTP 先验来源/IP/Turnstile，不假定 auth.api 内调会执行 onRequest 插件。
 - Postal HTTPS fetch：POST /api/v1/send/message，Content-Type application/json 与 X-Server-API-Key；映射 to/from/reply_to/subject/plain_body（接口也支持 html_body，当前传输仅纯文本）。同时检查 HTTP 与 JSON status，只取必要 data.message_id；服务接受不等于送达。
 - 传输最多一次、10 秒、manual 重定向且拒绝非 2xx，不自动补发；失败/超时捕获脱敏，超时记未确认，不回滚注册或封禁。验证用途共用邮箱摘要配额，找回另计，D1 条件写入计入首次/失败/超时；通知不受站内发送上限，仍受上游限制。

@@ -194,6 +194,31 @@ it("lets a failed registration correct input and retry without claiming an exist
   expect(links).toHaveLength(1); expect(await count("member_profiles")).toBe(2);
 });
 
+it("starts another registration after a completed attempt in the same browser and preserves replay", async () => {
+  const anti = await csrf();
+  const firstBody = { username: "Nova", email: "nova@example.test", password, invitationCode: await invite(), csrfToken: anti.token };
+  const first = await http("/register", firstBody, anti.cookie); expect(first.status).toBe(200);
+  const firstCookie = cookies(first, anti.cookie);
+  const nextBody = { ...firstBody, username: "Quinn", email: "quinn@example.test", invitationCode: await invite("fictional-next-invitation") };
+  const next = await http("/register", nextBody, firstCookie); expect(next.status).toBe(200);
+  const nextCookie = cookies(next, firstCookie); expect(nextCookie).not.toBe(firstCookie);
+  const replay = await http("/register", nextBody, nextCookie);
+  expect(await replay.json()).toMatchObject({ alreadyCompleted: true });
+  expect(await count("member_profiles")).toBe(2); expect(await count("registration_attempts")).toBe(2); expect(links).toHaveLength(2);
+});
+
+it("validates a changed invitation independently of the completed registration cookie", async () => {
+  const anti = await csrf();
+  const body = { username: "Nova", email: "nova@example.test", password, invitationCode: await invite(), csrfToken: anti.token };
+  const first = await http("/register", body, anti.cookie); expect(first.status).toBe(200);
+  const invitationCode = await invite("fictional-next-invitation");
+  const next = await http("/register", { ...body, invitationCode }, cookies(first, anti.cookie));
+  expect(next.status).toBe(400); expect(await next.json()).not.toMatchObject({ code: "REGISTRATION_ATTEMPT_INVALID" });
+  expect(await count("registration_attempts")).toBe(2); expect(await count("member_profiles")).toBe(1);
+  expect(await env.DB.prepare("SELECT used_by_user_id FROM invitations WHERE code_hash = ?").bind(await sha256(invitationCode)).first())
+    .toEqual({ used_by_user_id: null });
+});
+
 it("binds and verifies TOTP, requires the second factor and consumes backup codes exactly once", async () => {
   await member(); const cookie = await login();
   expect((await http("/two-factor/enable", { password: "Wrong password" }, cookie)).status).not.toBe(200);

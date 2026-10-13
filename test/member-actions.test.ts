@@ -112,6 +112,30 @@ it("atomically cascades through ordinary descendants and stops at another admin;
   await expect(adminPost(target.id, "unban", admin)).rejects.toMatchObject({ statusCode: 409 });
 });
 
+it("preserves expired invitations when banning and unbanning their issuer", async () => {
+  const admin = await setupAdmin(); const target = await member("Root"); const child = await member("Child", true, target.id);
+  await login("Root"); const now = Date.now(); const previousRevocation = now - 60000;
+  const invitation = (id: string, expiresAt: number, revokedAt: number | null = null, consumer: string | null = null) =>
+    env.DB.prepare(`INSERT INTO invitations
+      (id, code_hash, issuer_user_id, operation_id, created_at, expires_at, revoked_at, used_by_user_id, used_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(id, `fictional-${id}`, target.id, id, now - 172800000, expiresAt, revokedAt, consumer, consumer ? now - 100000000 : null);
+  await env.DB.batch([
+    invitation("valid", now + 86400000), invitation("expired", now - 86400000),
+    invitation("used", now - 86400000, null, child.id), invitation("revoked", now + 86400000, previousRevocation),
+  ]);
+  const revokedAt = (id: string) => env.DB.prepare("SELECT revoked_at FROM invitations WHERE id = ?").bind(id).first<number>("revoked_at");
+  expect((await adminPost(target.id, "ban", admin, { cascade: false })).status).toBe(200);
+  const validRevocation = await revokedAt("valid"); expect(validRevocation).toBeGreaterThan(0);
+  expect(await revokedAt("expired")).toBeNull(); expect(await revokedAt("used")).toBeNull();
+  expect(await revokedAt("revoked")).toBe(previousRevocation);
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM session WHERE userId = ?").bind(target.id).first<number>("n")).toBe(0);
+  expect((await adminPost(target.id, "unban", admin)).status).toBe(200);
+  expect(await revokedAt("expired")).toBeNull(); expect(await revokedAt("valid")).toBe(validRevocation);
+  expect(await env.DB.prepare("SELECT used_by_user_id FROM invitations WHERE id = 'used'").first()).toEqual({ used_by_user_id: child.id });
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM session WHERE userId = ?").bind(target.id).first<number>("n")).toBe(0);
+});
+
 it("does not count an unverified admin as a usable replacement for the last verified admin", async () => {
   const admin = await setupAdmin(); const pending = await member("Pending", false); const helper = await setupAdmin("Helper");
   await env.DB.prepare("UPDATE member_profiles SET role = 'admin' WHERE user_id = ?").bind(pending.id).run();
