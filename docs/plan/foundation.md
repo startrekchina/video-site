@@ -14,6 +14,8 @@
 
 文档验证（[PR #19](https://github.com/startrekchina/video-site/pull/19)）：缓存、续期、人机验证及文档职责边界的 8 份文档自检通过，涵盖 132 个本地链接/锚点、既有待办状态、续期默认值和 `git diff --check`；E2E1 与 T4.5 保持待实施。
 
+成熟库优先原则与[项目进展简报](../progress.md)已落实到文档；五章结构、协作称呼、状态依据、入口链接及差异检查通过，未调整功能实现或验收状态。
+
 - [x] T2.1 建立执行计划并同步 README；原建立记录见历史归档。
 - [x] T2.2 工程骨架、公开响应安全头、robots、类型检查、构建和 Workers 测试入口落地。
 - [x] T2.3 本地/staging 配置与 Secrets 可用，staging/production 隔离声明、资源映射及构建/dry-run 通过；production 发布属于 T6.2。
