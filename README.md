@@ -111,7 +111,7 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 
 已有 `.dev.vars` 需补入至少 32 字符的 `BETTER_AUTH_SECRET`，与播放/备份密钥独立；旧 `TOTP_ENCRYPTION_KEY` 不再声明。测试只用 `.dev.vars.example` 的虚构占位值，不读取本机真实 Secrets。原生认证表由 `cf` 版本化迁移管理，不在请求中自动迁移；D1 的原生 DATE 列实测存 ISO 8601 文本，与旧业务表 UTC 毫秒列分别处理。
 
-本地迁移现包含 0011：`0009_member_profiles_invitation_guard.sql` 约束邀请码消费人与成员邀请来源一致，0010 保护注册归属与业务完成，0011 在密码写入时原子撤销旧会话，并在封禁时原子作废未用码及删除会话。邀请码来源护栏不重复安装 `dev` 中等价的 `0013_invitation_source_guard.sql`；已应用迁移不改写。正式注册只开放带 Origin、业务 CSRF、人机验证和原生限流的 `/auth/register`；直接 sign-up、邮箱密码直登、管理员重置及多余库端点关闭。原生多步流程仍可能部分成功，错误不表示密码或凭证状态一定回滚。
+本地迁移包含 `0009_member_profiles_invitation_guard.sql`、0010 和 0011：邀请码消费人与成员邀请来源必须一致，注册归属与业务完成由触发器保护，密码写入撤销旧会话。`0011_member_security_invitation_expiry_guard.sql` 在原 0011 后替换封禁触发器，只作废有效未使用邀请码并原子删除会话；已过期、已用或已作废码保留原记录。该增量迁移尚未应用到运行环境，不改写原 0011，也不批量修改历史 `revoked_at`。邀请码来源护栏不重复安装 `dev` 中等价的 `0013_invitation_source_guard.sql`。正式注册只开放带 Origin、业务 CSRF、人机验证和原生限流的 `/auth/register`；已完成尝试的 Cookie 允许不同身份或邀请码开始新尝试，相同输入保留幂等重放，未完成身份仍绑定原尝试。直接 sign-up、邮箱密码直登、管理员重置及多余库端点关闭。原生多步流程仍可能部分成功，错误不表示密码或凭证状态一定回滚。
 
 | 命令 | 作用 |
 | --- | --- |
@@ -131,7 +131,7 @@ pnpm dev                         # cf dev，监听 0.0.0.0:6120
 
 已授权的云端配置复用既有 Worker，D1 名称/ID 与媒体桶名由 `.env.example` 所列环境变量分别映射；旧 staging 数据库因 schema 不兼容而保留，当前工程使用新库，不对旧库套用迁移。staging 沿用原有自定义域名，production 使用本文确定的正式域名；Custom Domain 由 `worker.domains` 管理，workers.dev 与版本预览入口关闭。
 
-远程迁移使用 `pnpm db:migrate:staging` / `pnpm db:migrate:production`。staging 实测 D1 `/query` 将 0010 触发器内裸 `CASE…END` 错认作触发器结束，整份 0010 回滚；[Cloudflare 问题记录](https://github.com/cloudflare/workers-sdk/issues/4727)描述同类行为。脚本仅在临时副本给该表达式加等价括号，再交给 `cf d1 migrations apply --dir`，由 CLI 正常记录原文件名并执行增量判断；原始文件和本地已应用迁移不改写，临时文件执行后清除。SQLite 验证合法邀请原子完成、过期邀请完整拒绝。不要直接重复失败的原始远程命令，也不使用 Wrangler 兜底。
+远程迁移使用 `pnpm db:migrate:staging` / `pnpm db:migrate:production`，脚本先创建 `.cloudflare` 父目录，干净 checkout 无需先运行开发或构建命令。staging 实测 D1 `/query` 将 0010 触发器内裸 `CASE…END` 错认作触发器结束，整份 0010 回滚；[Cloudflare 问题记录](https://github.com/cloudflare/workers-sdk/issues/4727)描述同类行为。脚本仅在临时副本给该表达式加等价括号，再交给 `cf d1 migrations apply --dir`，由 CLI 正常记录原文件名并执行增量判断；原始文件和本地已应用迁移不改写，临时文件执行后清除。SQLite 验证合法邀请原子完成、过期邀请完整拒绝。不要直接重复失败的原始远程命令，也不使用 Wrangler 兜底。
 
 `bindings.secret()` 在实际部署时要求值齐全。当前声明认证、播放、Turnstile、备份加密与 EMAIL_API_KEY 五项；备份 API Token 和启用的 WebDAV / S3 目标凭证随对应模块再声明，禁止用样例值满足线上检查。服务端站长变量 OWNER_EMAIL 也随备份模块加入，当前尚未声明或校验。邮件配置使用 .env.example 中的 STAGING_EMAIL_* / PRODUCTION_EMAIL_*；API 基础地址必须为 HTTPS origin，发件人域名须匹配 EMAIL_SENDER_DOMAIN。传输只发送纯文本正文、最多等待 10 秒、不跟随重定向或自动重发；业务配额、失败记录和认证回调已接入；验证用途共享邮箱摘要配额，找回单独计数，失败/未确认也计入。staging 实际投递与上游套餐额度见第三阶段验收记录；production 凭证及投递验收按 T6.2 执行。
 

@@ -24,13 +24,19 @@ export function createSiteAuth(env: Env) {
         const request = ctx.request!;
         let attemptToken = cookieValue(request, cookieName(env, "registration"));
         if (attemptToken) {
-          const previous = await env.DB.prepare("SELECT state, expected_user_id, identity_key, invitation_id FROM registration_attempts WHERE id = ?")
-            .bind(await sha256(attemptToken)).first<{ state: string; expected_user_id: string; identity_key: string; invitation_id: string }>();
+          const previous = await env.DB.prepare(`SELECT a.state, a.expected_user_id, a.identity_key, i.code_hash
+            FROM registration_attempts AS a JOIN invitations AS i ON i.id = a.invitation_id WHERE a.id = ?`)
+            .bind(await sha256(attemptToken)).first<{ state: string; expected_user_id: string; identity_key: string; code_hash: string }>();
           const identity = typeof ctx.body?.username === "string" && typeof ctx.body?.email === "string"
             ? await sha256(JSON.stringify([ctx.body.username.toLowerCase(), ctx.body.email.toLowerCase()])) : "";
-          const exists = previous && await env.DB.prepare('SELECT id FROM "user" WHERE id = ?').bind(previous.expected_user_id).first();
-          // Failed attempts with no native identity may safely start over after an input correction.
-          if (previous?.state === "failed" && !exists && previous.identity_key !== identity) attemptToken = undefined;
+          if (previous?.state === "completed") {
+            const codeHash = typeof ctx.body?.invitationCode === "string" ? await sha256(ctx.body.invitationCode) : "";
+            if (previous.identity_key !== identity || previous.code_hash !== codeHash) attemptToken = undefined;
+          } else if (previous?.state === "failed" && previous.identity_key !== identity) {
+            // An unfinished native identity still belongs to its original attempt.
+            const exists = await env.DB.prepare('SELECT id FROM "user" WHERE id = ?').bind(previous.expected_user_id).first();
+            if (!exists) attemptToken = undefined;
+          }
         }
         const result = await registerWithInvitation(env, ctx.body, attemptToken);
         if (result.attemptToken) ctx.setHeader("Set-Cookie", privateCookie(env, "registration", result.attemptToken, 86400));
