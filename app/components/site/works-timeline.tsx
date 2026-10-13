@@ -1,6 +1,6 @@
 import { Link } from "react-router"
 
-import type { WorkCard } from "@/lib/catalog"
+import { formatRuntime, type WorkCard } from "@/lib/catalog"
 import { cn } from "@/lib/utils"
 import {
   TimescaleAge,
@@ -19,11 +19,12 @@ import {
 import { Poster } from "./media"
 
 function Timeline({ works, ...props }: { works: WorkCard[] } & React.ComponentProps<typeof TimescaleRoot>) {
-  const series = works[0]?.kind === "series"
+  const kind = works[0]?.kind
+  const heading = works.some(w => w.kind !== kind) ? "简称 / 序号" : kind === "series" ? "简称" : "序号"
   return (
     <TimescaleRoot {...props}>
       <TimescaleHeader>
-        <TimescaleAge>{series ? "简称" : "序号"}</TimescaleAge>
+        <TimescaleAge>{heading}</TimescaleAge>
         <TimescaleYear>首映</TimescaleYear>
       </TimescaleHeader>
 
@@ -33,7 +34,7 @@ function Timeline({ works, ...props }: { works: WorkCard[] } & React.ComponentPr
           {works.map((w, i) => (
             <TimescaleItem key={w.slug}>
               <TimescaleTick />
-              <TimescaleAge className="font-mono">{series ? w.code : String(i + 1).padStart(2, "0")}</TimescaleAge>
+              <TimescaleAge className="font-mono">{w.kind === "series" ? w.code : String(i + 1).padStart(2, "0")}</TimescaleAge>
               <TimescaleYear className="font-mono">{w.year}</TimescaleYear>
               <TimescaleContent>
                 <Link
@@ -49,7 +50,7 @@ function Timeline({ works, ...props }: { works: WorkCard[] } & React.ComponentPr
                     <span className="font-medium text-balance">{w.titleZh}</span>
                     <span className="text-xs text-muted-foreground">{w.titleEn}</span>
                     <span className="mt-auto font-mono text-xs text-muted-foreground">
-                      {w.kind === "series" ? `${w.seasonCount} 季` : w.runtimeMin ? `${w.runtimeMin} 分钟` : null}
+                      {w.kind === "series" ? `${w.seasonCount} 季` : w.runtimeMin ? formatRuntime(w.runtimeMin) : null}
                     </span>
                   </div>
                 </Link>
