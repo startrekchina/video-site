@@ -194,6 +194,26 @@ it("lets a failed registration correct input and retry without claiming an exist
   expect(links).toHaveLength(1); expect(await count("member_profiles")).toBe(2);
 });
 
+it("starts a new attempt with a replacement invitation after native user creation fails", async () => {
+  const anti = await csrf();
+  const body = { username: "Nova", email: "nova@example.test", password, invitationCode: await invite(), csrfToken: anti.token };
+  await env.DB.exec('CREATE TRIGGER reject_registration BEFORE INSERT ON "user" BEGIN SELECT RAISE(ABORT, \'Injected user creation failure\'); END;');
+  const failed = await http("/register", body, anti.cookie); expect(failed.status).toBeGreaterThanOrEqual(400);
+  const failedCookie = cookies(failed, anti.cookie); expect(failedCookie).not.toBe(anti.cookie);
+  expect(await env.DB.prepare("SELECT state FROM registration_attempts").first<string>("state")).toBe("failed");
+  expect(await count("user")).toBe(0);
+  await env.DB.exec("DROP TRIGGER reject_registration;");
+  const nextBody = { ...body, invitationCode: await invite("fictional-replacement-invitation") };
+  const next = await http("/register", nextBody, failedCookie);
+  expect(next.status).toBe(200); expect(await next.json()).toMatchObject({ status: "pending_verification", alreadyCompleted: false });
+  expect(cookies(next, failedCookie)).not.toBe(failedCookie);
+  expect(await count("registration_attempts")).toBe(2); expect(await count("member_profiles")).toBe(1); expect(links).toHaveLength(1);
+  expect(await env.DB.prepare("SELECT used_by_user_id FROM invitations WHERE code_hash = ?").bind(await sha256(body.invitationCode)).first())
+    .toEqual({ used_by_user_id: null });
+  expect(await env.DB.prepare("SELECT used_by_user_id FROM invitations WHERE code_hash = ?").bind(await sha256(nextBody.invitationCode)).first<string>("used_by_user_id"))
+    .toBe(await env.DB.prepare('SELECT id FROM "user"').first<string>("id"));
+});
+
 it("starts another registration after a completed attempt in the same browser and preserves replay", async () => {
   const anti = await csrf();
   const firstBody = { username: "Nova", email: "nova@example.test", password, invitationCode: await invite(), csrfToken: anti.token };
