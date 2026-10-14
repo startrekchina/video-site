@@ -94048,6 +94048,33 @@
       "markdownDocuments": 10,
       "localLinksAndAnchors": 137,
       "linkFailures": 0
+    },
+    "repair": {
+      "commits": [
+        "d01a01df99dfbb898cbe32366c964733bf5908f5",
+        "7b31a3dbcbb9fe7a4ee9c2fa0f2424d8c9717a8f"
+      ],
+      "branch": "test/staging-revalidation",
+      "pullRequest": 26,
+      "status": "committed_and_pushed_not_merged_or_released",
+      "slowSubtitleRegression": "passed",
+      "targetedTests": {
+        "files": 4,
+        "tests": 62,
+        "result": "passed"
+      },
+      "fullApplicationTests": {
+        "files": 18,
+        "tests": 280,
+        "result": "passed"
+      },
+      "toolTests": {
+        "tests": 23,
+        "result": "passed"
+      },
+      "typecheck": "passed",
+      "developmentBuild": "passed",
+      "stagingRedeployed": false
     }
   }
 }
