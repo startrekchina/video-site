@@ -1,6 +1,5 @@
-import { APIError } from "better-auth/api";
 import stillManifest from "../../public/assets/stills/star-trek/manifest.json";
-import type { Episode, Work, WorkCard } from "./catalog";
+import { resumeTarget, type Episode, type Work, type WorkCard } from "./catalog";
 
 // Deployment configuration, not a browser/admin editing surface.
 export const recommendedStarts = [
@@ -22,14 +21,14 @@ export async function catalogSummary(db: D1Database) {
 }
 
 export function singleParameter(url: URL, name: string) {
-  if (url.searchParams.getAll(name).length > 1) throw new APIError("BAD_REQUEST", { code: "INVALID_INPUT", message: "查询参数重复。" });
+  if (url.searchParams.getAll(name).length > 1) throw Response.json({ code: "INVALID_INPUT", message: "查询参数重复。" }, { status: 400 });
   return url.searchParams.get(name);
 }
 type WorkRow = { id: string; kind: "movie" | "series"; tmdb_id: number; title_zh: string | null; title_en: string | null; overview_zh: string | null; overview_en: string | null; year: number | null; poster_asset: string | null; favorite: number; episode_count?: number; watched_count?: number };
 type SeasonRow = { id: string; work_id: string; season_number: number };
 type UnitRow = { id: string; work_id: string; season_id: string | null; episode_number: number | null; tmdb_id: number; title_zh: string | null; title_en: string | null; overview_zh: string | null; overview_en: string | null; duration_seconds: number | null; playable: number; position_seconds: number | null; completed: number | null; updated_at: number | null; revision: number | null };
 function searchQuery(query: string) {
-  if (query.length > 100) throw new APIError("BAD_REQUEST", { code: "INVALID_INPUT", message: "搜索最多 100 个字符。" });
+  if (query.length > 100) throw Response.json({ code: "INVALID_INPUT", message: "搜索最多 100 个字符。" }, { status: 400 });
   return query.trim();
 }
 function workDto(row: WorkRow) {
@@ -99,7 +98,10 @@ export async function catalog(db: D1Database, userId: string, query = "", target
   });
 }
 export function homeStages(works: Work[]) {
-  const continued = works.flatMap(work => work.units.filter(unit => unit.playable && !unit.completed && unit.positionSeconds > 0).map(unit => ({ work, unit }))).sort((a, b) => b.unit.updatedAt - a.unit.updatedAt);
+  const continued = works.flatMap(work => {
+    const unit = resumeTarget(work);
+    return unit && !unit.completed && unit.positionSeconds > 0 ? [{ work, unit }] : [];
+  }).sort((a, b) => b.unit.updatedAt - a.unit.updatedAt);
   if (continued.length) return { label: "继续观看", items: continued };
   return { label: "推荐起点", items: recommendedStarts.flatMap(start => {
     const work = works.find(work => work.kind === "series" && work.tmdbId === start.tmdbId);
