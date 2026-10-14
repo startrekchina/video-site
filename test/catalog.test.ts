@@ -1,9 +1,99 @@
 import { env, exports } from "cloudflare:workers";
 import { expect, it, vi } from "vitest";
 import { catalog, catalogCards, homeStages, singleParameter } from "@/lib/catalog.server";
+import { resumeTarget } from "@/lib/catalog";
 import { currentMember } from "@/lib/member.server";
 import { seedCatalog } from "./fixtures/catalog";
 import { member, login } from "./fixtures/auth";
+
+async function seedContinuations(userId = "nova") {
+  await seedCatalog(env.DB);
+  await env.DB.batch([
+    ...[
+      ["episode-two", "series", "season", 2, 930002],
+      ["episode-completed", "series", "season", 3, 930003],
+      ["episode-unverified", "series", "season", 4, 930004],
+      ["episode-zero", "series", "season", 5, 930005],
+      ["outpost-unit", "other-series", "other-season", 1, 930006],
+    ].map(([id, work, season, number, tmdb]) => env.DB.prepare(`INSERT INTO playable_units
+      (id,kind,work_id,season_id,episode_number,tmdb_id,duration_seconds,title_en)
+      VALUES (?,'episode',?,?,?,?,4,?)`).bind(id, work, season, number, tmdb, `Fictional ${id}`)),
+    ...["episode-unit", "episode-two", "episode-completed", "episode-unverified", "episode-zero", "outpost-unit", "movie-unit"].map(id =>
+      env.DB.prepare("INSERT INTO media_files VALUES (?,?,'mp4','original',?,4,'hash',4,'h264','aac',100,?)")
+        .bind(`media-${id}`, id, `fictional-private-${id}`, id === "episode-unverified" ? null : "fictional-verified-version")),
+    ...[
+      ["episode-unit", 2, 0, 100], ["episode-two", 1, 0, 300], ["episode-completed", 4, 1, 600],
+      ["episode-unverified", 1, 0, 500], ["episode-zero", 0, 0, 700], ["outpost-unit", 2, 0, 400], ["movie-unit", 2, 0, 200],
+    ].map(([id, position, completed, updated]) => env.DB.prepare("INSERT INTO watch_progress VALUES (?,?,?,?,?,1)").bind(userId, id, position, completed, updated)),
+  ]);
+}
+
+it("keeps the latest playable unfinished unit per work and preserves older unfinished history", async () => {
+  await seedContinuations();
+  const works = await catalog(env.DB, "nova", "", { home: true }), stage = homeStages(works);
+  expect(stage.label).toBe("继续观看");
+  expect(stage.items.map(({ work, unit }) => [work.slug, unit.id])).toEqual([
+    ["other-series", "outpost-unit"], ["series", "episode-two"], ["movie", "movie-unit"],
+  ]);
+  for (const item of stage.items) {
+    const detail = (await catalog(env.DB, "nova", "", { workId: item.work.slug }))[0];
+    expect(resumeTarget(detail)?.id).toBe(item.unit.id);
+  }
+  await env.DB.prepare("UPDATE watch_progress SET completed = 1 WHERE user_id = 'nova' AND playable_unit_id = 'episode-two'").run();
+  expect(homeStages(await catalog(env.DB, "nova", "", { home: true })).items.map(item => item.unit.id))
+    .toEqual(["outpost-unit", "movie-unit", "episode-unit"]);
+  await env.DB.prepare("UPDATE media_files SET r2_etag = NULL WHERE playable_unit_id = 'episode-unit'").run();
+  expect(homeStages(await catalog(env.DB, "nova", "", { home: true })).items.map(item => item.unit.id)).toEqual(["outpost-unit", "movie-unit"]);
+});
+
+it("selects continuation history independently for each member", async () => {
+  await seedContinuations();
+  await env.DB.prepare("INSERT INTO watch_progress VALUES ('quinn','episode-unit',3,0,800,1)").run();
+  expect(homeStages(await catalog(env.DB, "quinn", "", { home: true })).items.map(item => item.unit.id)).toEqual(["episode-unit"]);
+  expect(homeStages(await catalog(env.DB, "nova", "", { home: true })).items.map(item => item.unit.id)).toEqual(["outpost-unit", "episode-two", "movie-unit"]);
+});
+
+it("renders one continuation entry per work on the authenticated homepage", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+  try {
+    const user = await member("Kepler"), cookie = await login("Kepler");
+    await seedContinuations(user.id);
+    const response = await exports.default.fetch("http://localhost:6120/", { headers: { Cookie: cookie } });
+    expect(response.status).toBe(200);
+    const html = (await response.text()).replace(/<!--[\s\S]*?-->/gu, "");
+    expect(html).toContain("继续观看 · 3");
+    expect(html).toContain('href="/watch/outpost-unit"');
+    expect(html).not.toContain("fictional-private-");
+  } finally { vi.unstubAllGlobals(); }
+}, 60000);
+
+it.each(["html", "data"])("returns input errors as HTTP 400 for %s catalog requests", async transport => {
+  await seedCatalog(env.DB);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+  try {
+    await member("Kepler"); const cookie = await login("Kepler");
+    const cases: [string, number][] = [
+      ["/search?q=a&q=b", 400], ["/search?q=a&q=a", 400], ["/search?q=&q=", 400],
+      ["/series?q=a&q=b", 400], ["/movies?q=a&q=b", 400], ["/title/series?season=1&season=2", 400],
+      ...["/search", "/series", "/movies"].map(path => [`${path}?q=${"x".repeat(101)}`, 400] as [string, number]),
+      ["/title/series?season=nope", 400], ["/title/series?season=9", 400], ["/title/missing?season=1&season=2", 404],
+      ["/search?q=Survey", 200], ["/search?q=a", 200], ["/search?q=", 200], ["/search", 200],
+      ["/series?q=", 200], ["/movies?q=", 200], [`/search?q=${"x".repeat(100)}`, 200], ["/title/series?season=1", 200],
+    ];
+    for (const [path, status] of cases) {
+      const url = new URL(path, "http://localhost:6120");
+      if (transport === "data") url.pathname += ".data";
+      const response = await exports.default.fetch(url.href, { headers: { Cookie: cookie } });
+      expect(response.status, path).toBe(status);
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+      expect(response.headers.get("X-Robots-Tag")).toBe("noindex");
+      expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+      expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+      expect(response.headers.get("X-Request-Id")).toBeTruthy();
+      expect(await response.text(), path).not.toMatch(/fictional-private-|object_key|SELECT |APIError|"stack"/u);
+    }
+  } finally { vi.unstubAllGlobals(); }
+}, 60000);
 
 it("keeps episode details out of browsing payloads while preserving them on the selected title", async () => {
   await seedCatalog(env.DB);
@@ -37,7 +127,7 @@ it("returns compact cards with exact member-owned counts and scopes details to a
   expect((await catalog(env.DB, "nova", "", { unitId: "episode-unit" })).map(work => work.slug)).toEqual(["series"]);
   expect(await catalog(env.DB, "nova", "", { unitId: "missing-unit" })).toEqual([]);
   expect((await catalogCards(env.DB, "nova", "%")).works).toEqual([]);
-  await expect(catalogCards(env.DB, "nova", "x".repeat(101))).rejects.toThrow();
+  await expect(catalogCards(env.DB, "nova", "x".repeat(101))).rejects.toMatchObject({ status: 400 });
 });
 
 it("still refreshes sessions and immediately rejects bans and revocation without runtime schema introspection", async () => {
@@ -77,8 +167,8 @@ it("maps named public data, literal bilingual search, seasons, unavailable media
   expect((await catalog(env.DB, "nova", "survey")).map(work => work.slug)).toEqual(["series"]);
   expect(await catalog(env.DB, "nova", "%")).toEqual([]);
   expect(await catalog(env.DB, "nova", "星".repeat(30))).toEqual([]);
-  await expect(catalog(env.DB, "nova", "x".repeat(101))).rejects.toThrow();
-  expect(() => singleParameter(new URL("http://example.test/?q=a&q=b"), "q")).toThrow();
+  await expect(catalog(env.DB, "nova", "x".repeat(101))).rejects.toMatchObject({ status: 400 });
+  expect(() => singleParameter(new URL("http://example.test/?q=a&q=b"), "q")).toThrow(expect.objectContaining({ status: 400 }));
   expect(homeStages(list).items[0].unit.id).toBe("episode-unit");
   const home = await catalog(env.DB, "nova", "", { home: true }), homeWork = home.find(work => work.slug === "series")!;
   expect(homeWork.units.map(unit => unit.id)).toEqual(["episode-unit"]);
@@ -117,7 +207,8 @@ it.each([null, ""])("keeps a video with verified version %s out of play links an
 
 it("protects all catalog pages and their loader requests independently and keeps guest landing free of catalog data", async () => {
   await seedCatalog(env.DB);
-  for (const path of ["/series", "/movies", "/search?q=Survey", "/title/series", "/watch/episode-unit", "/series.data", "/search.data?q=Survey"]) {
+  for (const path of ["/series", "/movies", "/search?q=Survey", "/title/series", "/watch/episode-unit", "/series.data", "/search.data?q=Survey",
+    "/search?q=a&q=b", "/search.data?q=a&q=b", "/title/series?season=1&season=2", "/title/series.data?season=1&season=2"]) {
     const response = await exports.default.fetch(`http://localhost:6120${path}`, { redirect: "manual" });
     expect(path.includes(".data") ? [202] : [302]).toContain(response.status);
     if (response.status === 302) expect(response.headers.get("Location")).toContain("/login?next=");
