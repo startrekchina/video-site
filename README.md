@@ -64,6 +64,8 @@
 
 > 📌 详细的实施细节、技术决策与进展简报，请参阅 [开发总计划 (PLAN.md)](PLAN.md) 与 [项目进展简报 (docs/progress.md)](docs/progress.md)。
 
+staging 的 Workers Builds 已监听 GitHub `dev`，云端测试、构建及当前 D1 迁移通过；Worker 上传受 `cf` strict 阻塞，线上代码仍为 2026-10-07 版本，不代表最新 `dev` 已上线。production 未启用自动发布；配置及阻塞见[运维计划](docs/plan/operations.md)。
+
 ---
 
 ## 快速上手
