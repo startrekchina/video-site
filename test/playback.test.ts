@@ -33,6 +33,100 @@ const http = (url: string, options: RequestInit = {}) => {
 const bytesText = async (response: Response) => new TextDecoder().decode(await response.arrayBuffer());
 const auth = () => authorizePlayback(request("/watch/episode-unit", undefined, cookie), env, "episode-unit");
 
+it("starts video and subtitle verification together and waits for both before charging quota", async () => {
+  const videoStarted = Promise.withResolvers<void>(), videoRead = Promise.withResolvers<void>();
+  const releaseVideo = Promise.withResolvers<void>(), releaseSubtitle = Promise.withResolvers<void>();
+  const read = env.MEDIA_BUCKET.head.bind(env.MEDIA_BUCKET);
+  const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementation(async key => {
+    if (key === "fictional-private-object") {
+      videoStarted.resolve();
+      await releaseVideo.promise;
+      const object = await read(key); videoRead.resolve(); return object;
+    }
+    await releaseSubtitle.promise;
+    return read(key);
+  });
+  let settled = false;
+  const signing = auth().finally(() => { settled = true; });
+  try {
+    await videoStarted.promise;
+    expect(head).toHaveBeenCalledWith("fictional-private-subtitle");
+    releaseVideo.resolve(); await videoRead.promise;
+    expect(settled).toBe(false);
+    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBeNull();
+    releaseSubtitle.resolve();
+    expect((await signing).tracks.map(track => track.id)).toEqual(["zh"]);
+    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(1);
+  } finally {
+    releaseVideo.resolve(); releaseSubtitle.resolve();
+    await signing.catch(() => {}); head.mockRestore();
+  }
+});
+
+it.each(["missing", "outage"])("settles pending subtitles but preserves the %s video error without charging quota", async state => {
+  const videoStarted = Promise.withResolvers<void>(), releaseSubtitle = Promise.withResolvers<void>();
+  const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementation(async key => {
+    if (key === "fictional-private-object") {
+      videoStarted.resolve();
+      if (state === "outage") throw new Error("Fictional video outage");
+      return null;
+    }
+    await releaseSubtitle.promise;
+    throw new Error("Fictional subtitle outage");
+  });
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+  let settled = false;
+  const outcome = auth().then(() => null, error => error).finally(() => { settled = true; });
+  try {
+    await videoStarted.promise;
+    expect(head).toHaveBeenCalledWith("fictional-private-subtitle");
+    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBeNull();
+    expect(settled).toBe(false);
+    releaseSubtitle.resolve();
+    expect(await outcome).toMatchObject({ statusCode: state === "outage" ? 503 : 404, body: { code: state === "outage" ? "MEDIA_UNAVAILABLE" : "MEDIA_MISSING" } });
+    expect(warning).not.toHaveBeenCalled();
+    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBeNull();
+  } finally {
+    releaseSubtitle.resolve(); await outcome; head.mockRestore(); warning.mockRestore();
+  }
+});
+
+it.each(["session", "source"])("rejects %s changes while parallel object checks are pending without charging quota", async target => {
+  const subtitleStarted = Promise.withResolvers<void>(), releaseSubtitle = Promise.withResolvers<void>();
+  const read = env.MEDIA_BUCKET.head.bind(env.MEDIA_BUCKET);
+  const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementation(async key => {
+    if (key === "fictional-private-subtitle") { subtitleStarted.resolve(); await releaseSubtitle.promise; }
+    return read(key);
+  });
+  const outcome = auth().then(() => null, error => error);
+  try {
+    await subtitleStarted.promise;
+    await env.DB.prepare(target === "session" ? "DELETE FROM session" : "UPDATE media_files SET r2_etag = 'fictional-changed-version' WHERE id = 'source'").run();
+    releaseSubtitle.resolve();
+    expect(await outcome).toMatchObject({ statusCode: target === "session" ? 401 : 404 });
+    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBeNull();
+  } finally { releaseSubtitle.resolve(); await outcome; head.mockRestore(); }
+});
+
+it("preserves subtitle order when parallel HEADs finish out of order", async () => {
+  const english = await env.MEDIA_BUCKET.put("fictional-foreign-subtitle", "WEBVTT\n\n");
+  await env.DB.prepare("UPDATE subtitle_tracks SET playable_unit_id = 'episode-unit', r2_etag = ? WHERE id = 'foreign'").bind(english!.etag).run();
+  const englishStarted = Promise.withResolvers<void>(), chineseRead = Promise.withResolvers<void>(), releaseEnglish = Promise.withResolvers<void>();
+  const read = env.MEDIA_BUCKET.head.bind(env.MEDIA_BUCKET);
+  const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementation(async key => {
+    if (key === "fictional-foreign-subtitle") { englishStarted.resolve(); await releaseEnglish.promise; }
+    const object = await read(key);
+    if (key === "fictional-private-subtitle") chineseRead.resolve();
+    return object;
+  });
+  const signing = auth();
+  try {
+    await Promise.all([englishStarted.promise, chineseRead.promise]);
+    releaseEnglish.resolve();
+    expect((await signing).tracks.map(track => track.id)).toEqual(["foreign", "zh"]);
+  } finally { releaseEnglish.resolve(); await signing.catch(() => {}); head.mockRestore(); }
+});
+
 it.each(["initial", "renewal"])("returns sanitized 503 for a video metadata failure during %s signing without charging quota", async phase => {
   if (phase === "renewal") await auth();
   const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
