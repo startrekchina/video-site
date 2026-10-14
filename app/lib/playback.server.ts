@@ -79,13 +79,12 @@ export async function authorizePlayback(request: Request, env: Env, unitId: stri
   const file = files.results[0], fileId = file.id;
   if (!file.r2_etag) return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。");
   const subtitleTracks = tracks.results as (MediaFile & { language: string; display_name: string })[];
-  // Settle all independent HEADs before returning; video errors retain priority.
-  const [video, ...subtitles] = await Promise.allSettled([
-    verifiedObject(env.MEDIA_BUCKET, file),
-    ...subtitleTracks.map(track => verifiedObject(env.MEDIA_BUCKET, track)),
-  ]);
-  if (video.status === "rejected") throw video.reason;
-  if (!video.value) return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。");
+  // Keep optional subtitle checks observed while required video failures return promptly.
+  const videoCheck = verifiedObject(env.MEDIA_BUCKET, file);
+  const subtitleChecks = Promise.allSettled(subtitleTracks.map(track => verifiedObject(env.MEDIA_BUCKET, track)));
+  const video = await videoCheck;
+  if (!video) return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。");
+  const subtitles = await subtitleChecks;
   const availableTracks = subtitleTracks.filter((track, index) => {
     const result = subtitles[index];
     if (result.status === "fulfilled") return result.value !== null;

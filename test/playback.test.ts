@@ -63,6 +63,36 @@ it("starts video and subtitle verification together and waits for both before ch
   }
 });
 
+it.each(["missing", "outage"])("returns a failed video %s without waiting for a slow subtitle check", async state => {
+  const videoStarted = Promise.withResolvers<void>(), subtitleStarted = Promise.withResolvers<void>(), releaseSubtitle = Promise.withResolvers<void>();
+  const read = env.MEDIA_BUCKET.head.bind(env.MEDIA_BUCKET);
+  const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementation(async key => {
+    if (key === "fictional-private-object") {
+      videoStarted.resolve();
+      if (state === "outage") throw new Error("Fictional video outage");
+      return null;
+    }
+    subtitleStarted.resolve();
+    await releaseSubtitle.promise;
+    return read(key);
+  });
+  let settled = false;
+  const outcome = auth().then(() => null, error => error).finally(() => { settled = true; });
+  try {
+    await Promise.all([videoStarted.promise, subtitleStarted.promise]);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(settled).toBe(true);
+    expect(await outcome).toMatchObject({
+      statusCode: state === "outage" ? 503 : 404,
+      body: { code: state === "outage" ? "MEDIA_UNAVAILABLE" : "MEDIA_MISSING" },
+    });
+  } finally {
+    releaseSubtitle.resolve();
+    await outcome;
+    head.mockRestore();
+  }
+});
+
 it.each(["missing", "outage"])("settles pending subtitles but preserves the %s video error without charging quota", async state => {
   const videoStarted = Promise.withResolvers<void>(), releaseSubtitle = Promise.withResolvers<void>();
   const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementation(async key => {
