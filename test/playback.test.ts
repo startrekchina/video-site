@@ -1,7 +1,9 @@
 import { env, exports } from "cloudflare:workers";
+import { createHash } from "node:crypto";
 import { beforeEach, expect, it, vi } from "vitest";
 import { authorizePlayback, deadlineStream, signPlayback, verifyPlayback } from "@/lib/playback.server";
 import { renewalDelay, retryDelay } from "@/lib/playback-client";
+import { syncMedia } from "@/lib/media-sync.server";
 import { seedCatalog } from "./fixtures/catalog";
 import { csrf, login, member, request } from "./fixtures/auth";
 
@@ -16,8 +18,12 @@ beforeEach(async () => {
     env.DB.prepare("INSERT INTO subtitle_tracks VALUES ('zh','episode-unit','zh','vtt','中文','zh','fictional-private-subtitle',8,'hash',NULL)"),
     env.DB.prepare("INSERT INTO subtitle_tracks VALUES ('foreign','movie-unit','en','vtt','English','en','fictional-foreign-subtitle',8,'hash',NULL)"),
   ]);
-  await env.MEDIA_BUCKET.put("fictional-private-object", "0123456789abcdefghij", { httpMetadata: { contentType: "video/mp4", cacheControl: "public" } });
-  await env.MEDIA_BUCKET.put("fictional-private-subtitle", "WEBVTT\n\n");
+  const video = await env.MEDIA_BUCKET.put("fictional-private-object", "0123456789abcdefghij", { httpMetadata: { contentType: "video/mp4", cacheControl: "public" } });
+  const subtitle = await env.MEDIA_BUCKET.put("fictional-private-subtitle", "WEBVTT\n\n");
+  await env.DB.batch([
+    env.DB.prepare("UPDATE media_files SET r2_etag = ? WHERE id = 'source'").bind(video.etag),
+    env.DB.prepare("UPDATE subtitle_tracks SET r2_etag = ? WHERE id = 'zh'").bind(subtitle!.etag),
+  ]);
 });
 const http = (url: string, options: RequestInit = {}) => {
   const headers = new Headers({ Cookie: cookie }); new Headers(options.headers).forEach((value, key) => headers.set(key, value));
@@ -25,6 +31,40 @@ const http = (url: string, options: RequestInit = {}) => {
 };
 const bytesText = async (response: Response) => new TextDecoder().decode(await response.arrayBuffer());
 const auth = () => authorizePlayback(request("/watch/episode-unit", undefined, cookie), env, "episode-unit");
+
+it.each(["video", "subtitle"])("rejects missing or mismatched %s versions for GET, HEAD and Range without metadata", async target => {
+  const authorization = await auth(), video = target === "video";
+  const url = video ? authorization.url : authorization.tracks[0].url;
+  for (const version of [null, "fictional-stale-version"]) {
+    await env.DB.prepare(`UPDATE ${video ? "media_files" : "subtitle_tracks"} SET r2_etag = ?`).bind(version).run();
+    for (const options of [{}, { method: "HEAD" }, { headers: { Range: "bytes=0-1" } }]) {
+      const response = await http(url, options);
+      expect(response.status).toBe(404);
+      expect(response.headers.has("Content-Length")).toBe(false);
+      expect(response.headers.has("Content-Range")).toBe(false);
+      expect(response.headers.has("ETag")).toBe(false);
+      expect(await response.text()).not.toContain("fictional-private");
+    }
+  }
+});
+
+it("keeps legacy media unavailable after a scan conflict and restores it only after validation", async () => {
+  const key = "library/series/920001/S01/E01.mp4";
+  const original = Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0));
+  await env.DB.prepare("UPDATE media_files SET object_key = ?, byte_length = ?, checksum_sha256 = ?, r2_etag = NULL WHERE id = 'source'")
+    .bind(key, original.length, createHash("sha256").update(original).digest("hex")).run();
+  const changed = original.slice(); changed[changed.length - 1] ^= 1;
+  await env.MEDIA_BUCKET.put(key, changed);
+  const { url } = await auth();
+  expect(await syncMedia(env)).toMatchObject({ linked: 0, conflicts: 1 });
+  expect(await env.DB.prepare("SELECT r2_etag FROM media_files WHERE id = 'source'").first("r2_etag")).toBeNull();
+  expect((await http(url)).status).toBe(404);
+  await env.MEDIA_BUCKET.put(key, original);
+  expect(await syncMedia(env)).toMatchObject({ conflicts: 0, failed: 0 });
+  const response = await http(url);
+  expect(response.status).toBe(200);
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(original);
+});
 
 it("binds token to environment, member/session/unit/media, verifies raw bytes and rejects invalid times", async () => {
   const authorization = await auth(), token = new URL(authorization.url, env.APP_ORIGIN).searchParams.get("token")!;

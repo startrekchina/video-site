@@ -54,10 +54,10 @@ export function Player({ unitId, authorization, csrfToken, startSeconds, subtitl
         await art.switchUrl(absolute(next.url));
         if (disposed) return;
         art.seek = position;
-        let autoplayBlocked = false;
+        let autoplayBlocked = false, subtitleFailed = false;
         if (paused) art.pause(); else await art.play().catch(() => { autoplayBlocked = true; });
-        await changeSubtitle();
-        setMessage(autoplayBlocked ? "浏览器未允许自动恢复，请点击播放。" : "");
+        await changeSubtitle().catch(() => { subtitleFailed = true; });
+        setMessage([autoplayBlocked ? "浏览器未允许自动恢复，请点击播放。" : "", subtitleFailed ? "字幕暂时无法加载，请重试。" : ""].filter(Boolean).join(" "));
     };
     retry.current = () => renewal?.retry();
     void import("artplayer").then(({ default: Artplayer }) => {

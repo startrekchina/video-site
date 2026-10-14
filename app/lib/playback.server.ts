@@ -131,7 +131,7 @@ export async function playbackHttp(request: Request, env: Env, ctx: ExecutionCon
   if (!file || file.playable_unit_id !== payload.playableUnitId || (match[1] === "media" ? file.id !== payload.mediaFileId || file.format !== "mp4" : file.format !== "vtt")) return fail("FORBIDDEN", "PLAYBACK_INVALID", "播放凭证不能访问此资源。");
   if (!["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
   const metadata = await env.MEDIA_BUCKET.head(file.object_key);
-  if (!metadata || file.r2_etag && metadata.etag !== file.r2_etag) { console.info(JSON.stringify({ event: "media_missing", resourceId: file.id })); return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。"); }
+  if (!metadata || !file.r2_etag || metadata.etag !== file.r2_etag) { console.info(JSON.stringify({ event: "media_missing", resourceId: file.id })); return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。"); }
   if (metadata.size !== file.byte_length) throw new Error("Media length mismatch");
   const headers = new Headers({ "Content-Type": match[1] === "media" ? "video/mp4" : "text/vtt; charset=utf-8", "Content-Length": String(metadata.size), "Accept-Ranges": "bytes", ETag: metadata.httpEtag, "Last-Modified": metadata.uploaded.toUTCString(), "Cache-Control": "private, no-store", "Content-Encoding": "identity" });
   current.headers.forEach((value, name) => headers.append(name, value));
