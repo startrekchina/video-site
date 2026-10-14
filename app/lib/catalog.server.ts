@@ -62,6 +62,7 @@ export async function catalog(db: D1Database, userId: string, query = "", target
   const matching = `SELECT id FROM works WHERE (? = '' OR instr(lower(coalesce(title_zh, '')), lower(?)) > 0 OR instr(lower(coalesce(title_en, '')), lower(?)) > 0)
     AND (? IS NULL OR id = ?) AND (? IS NULL OR id = (SELECT work_id FROM playable_units WHERE id = ?))`;
   const parameters = [search, search, search, workId, workId, unitId, unitId];
+  const playableMedia = "SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''";
   const database = db.withSession("first-primary");
   const [workRows, seasonRows, unitRows] = await database.batch([
     database.prepare(`SELECT w.id, w.kind, w.tmdb_id, w.title_zh, w.title_en, w.overview_zh, w.overview_en, w.year, w.poster_asset,
@@ -71,11 +72,11 @@ export async function catalog(db: D1Database, userId: string, query = "", target
     FROM works w WHERE w.id IN (${matching}) ORDER BY w.year, w.tmdb_id, w.id`).bind(userId, ...(home ? [userId] : []), ...parameters),
     database.prepare(`SELECT id, work_id, season_number FROM seasons WHERE work_id IN (${matching}) ORDER BY season_number, id`).bind(...parameters),
     database.prepare(`SELECT u.id, u.work_id, u.season_id, u.episode_number, u.tmdb_id, u.title_zh, u.title_en, u.overview_zh, u.overview_en, u.duration_seconds,
-    EXISTS(SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4') AS playable,
+    EXISTS(${playableMedia}) AS playable,
     p.position_seconds, p.completed, p.updated_at, p.revision FROM playable_units u
     LEFT JOIN watch_progress p ON p.playable_unit_id = u.id AND p.user_id = ?
     JOIN works w ON w.id = u.work_id LEFT JOIN seasons s ON s.id = u.season_id WHERE u.work_id IN (${matching})
-    ${home ? `AND (u.kind = 'movie' OR (EXISTS(SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4')
+    ${home ? `AND (u.kind = 'movie' OR (EXISTS(${playableMedia})
       AND ((p.position_seconds > 0 AND p.completed = 0) OR ${recommendedStarts.map(() => "(w.tmdb_id = ? AND w.kind = 'series' AND s.season_number = ? AND u.episode_number = ?)").join(" OR ")})))` : ""}
     ORDER BY u.episode_number, u.id`).bind(userId, ...parameters, ...(home ? recommendedStarts.flatMap(start => [start.tmdbId, start.season, start.episode]) : [])),
   ]);

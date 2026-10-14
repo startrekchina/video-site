@@ -77,3 +77,18 @@ it("keeps video switch failures in bounded renewal retries and pauses at the ori
   expect(state.art.pause).toHaveBeenCalledOnce();
   expect(state.message.mock.calls.at(-1)?.[0]).toContain("到期");
 });
+
+it("turns off a removed subtitle track while keeping the new video expiry and next renewal", async () => {
+  const onSubtitleChange = await mount(), switches = state.art.subtitle.switch.mock.calls.length;
+  const fetch = state.request.mockReset().mockImplementation(async () => ({ ...initial, url: "/media/source?token=renewed", expiresAt: Date.now() + 1800000, tracks: [] }));
+  await vi.advanceTimersByTimeAsync(1500000);
+  expect(onSubtitleChange).toHaveBeenCalledExactlyOnceWith("off");
+  expect(state.art.subtitle.show).toBe(false);
+  expect(state.art.subtitle.switch).toHaveBeenCalledTimes(switches);
+  expect(state.art.setting.update).toHaveBeenLastCalledWith({ name: "subtitle-lang", html: "字幕", selector: [{ html: "关闭", id: "off", default: true }] });
+  expect(state.art.seek).toBe(1234);
+  await vi.advanceTimersByTimeAsync(300000);
+  expect(fetch).toHaveBeenCalledOnce(); expect(state.art.pause).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1200000);
+  expect(fetch).toHaveBeenCalledTimes(2); expect(onSubtitleChange).toHaveBeenCalledOnce();
+});
