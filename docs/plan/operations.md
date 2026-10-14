@@ -6,12 +6,13 @@
 
 承接 A7、B 6.9/6.10/6.16/7，依赖第三至第五阶段主要功能。T6.1 备份与恢复、T6.2 production 发布均待实施。staging 已获历次授权部署第四阶段及 0012；production 只有资源/密钥准备记录和构建/dry-run，不是已发布。
 
-Workers Builds 云端发布链路尚未接通，构建、迁移和部署验收待完成。
+staging 尚未接通当前仓库 `startrekchina/video-site` 的 `dev`；构建、迁移和部署验收待完成，production 不启用自动发布。
 
 ## 任务与验收
 
 - [x] 同步 `main` 的 PR 合并规则、协作约定和验收条件；规则一致性、62 个本地链接/锚点及 `git diff --check` 自检通过。仅验证文档，未调整 GitHub 分支保护或云端发布配置，DEP1 保持待实施。
 - [ ] DEP1 按 [B 6.9.5](../detailed-requirements.md#695-github-分支构建与发布)接通并验收 Workers Builds 分支发布：先完成 staging，production 接通与验收遵守 T6.2 上线门槛；核对 `main` 的 PR 合并与分支保护、现有 cf 工具链兼容性、构建/运行时配置、迁移顺序与失败中止。
+- DEP1 准备：远程迁移脚本支持直接读取云端注入的环境变量，本地存在 `.env` 时仍加载；staging/production 无 `.env` 场景及原有迁移用例共 6 项、类型检查和 development 构建自检通过。云端连接与发布仍待验证，不代表发布链路完成。
 - [ ] T6.1 站长专用备份页/状态/手动创建与重试、加密下载、WebDAV/S3，逐请求 OWNER_EMAIL + 正常管理员门禁；来源和 CSRF 校验不靠隐藏入口。
 - [ ] T6.1 配置完整外部目标后才可启用频率/北京时间设置；共用 D1→私有 R2→加密→所选目标→回读校验，目标失效拒绝，保留各端最后可恢复副本。
 - [ ] T6.1 本地模拟权限、环境、下载可恢复性、部分失败、重试和保留；staging 实测网页执行生命周期/中断重试、全定时流程 15 分钟、存储访问与内存成本。
@@ -104,6 +105,8 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 
 #### 6.9.5 远程数据库迁移与运维工程细节
 
+- **staging 云端构建目标**：仅监听 `startrekchina/video-site` 的 `dev`，关闭其他分支/PR 预览；Node 24、pnpm 12.6.0，使用锁文件安装依赖。构建阶段依次运行 `pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm test:tools && pnpm build:staging`；部署阶段运行 `pnpm db:migrate:staging && pnpm exec cf deploy --prebuilt --mode staging`。任一步失败即停止，不回退本机上传或 Wrangler。首次成功后核对来源 SHA、迁移结果、实际生效版本和受影响入口，不能仅凭保存设置勾选 DEP1。
+- **构建环境**：在 Workers Builds 单独配置 `STAGING_*` 与 Cloudflare 账户标识，资源标识作为构建 Secret 保存，不注入 production 配置。沿用 staging 构建 token；核对其 Worker 部署与目标 D1 迁移权限，缺权限时报告开发者，不默认为可用。运行时认证、播放、邮件等 Secrets 保留在现有 staging Worker，不复制到 Git 或构建日志；构建机不依赖本机 `.env`。
 - **远程迁移执行与 D1 触发器兼容**：远程迁移统一使用 `pnpm db:migrate:staging` 与 `pnpm db:migrate:production`，脚本自行创建 `.cloudflare` 父目录，干净 checkout 无需先开发或构建。针对 Cloudflare D1 `/query` 接口将触发器内裸 `CASE…END` 错认作触发器结束导致回滚的已知问题（参考 [Cloudflare 问题记录 #4727](https://github.com/cloudflare/workers-sdk/issues/4727)），`scripts/migrate-remote.mjs` 会在临时副本中为该表达式补充等价括号，再交由 `cf d1 migrations apply --dir` 执行；CLI 正常记录原文件名并执行增量判断，原始文件和本地已应用迁移不改写，临时文件执行后清除。禁止直接重复失败的原始远程命令，也不使用 Wrangler 兜底。
 - **封禁邀请码状态增量迁移**：`0011_member_security_invitation_expiry_guard.sql` 按完整文件名排在原 0011 后，替换封禁触发器，仅作废有效未使用码并原子撤销会话；已过期、已用及已作废码保留原记录。该迁移待授权应用到运行环境，不改写原 0011，也不批量重置历史 `revoked_at`。
 - **Secrets 与交接文件**：本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，只含原有四项密钥，未包含站长另行配置的 `EMAIL_API_KEY`；仅在获准本机直接部署的例外任务中，可用 `pnpm exec cf deploy --prebuilt --mode staging --secrets-file .dev.vars.staging.secrets.json` 上传文件中的密钥，不作为 Git 集成的常规步骤。
