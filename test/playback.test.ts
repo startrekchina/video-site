@@ -1,7 +1,8 @@
 import { env, exports } from "cloudflare:workers";
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { createHash } from "node:crypto";
 import { beforeEach, expect, it, vi } from "vitest";
-import { authorizePlayback, deadlineStream, signPlayback, verifyPlayback } from "@/lib/playback.server";
+import { authorizePlayback, deadlineStream, playbackHttp, signPlayback, verifyPlayback } from "@/lib/playback.server";
 import { renewalDelay, retryDelay } from "@/lib/playback-client";
 import { syncMedia } from "@/lib/media-sync.server";
 import { seedCatalog } from "./fixtures/catalog";
@@ -32,6 +33,79 @@ const http = (url: string, options: RequestInit = {}) => {
 const bytesText = async (response: Response) => new TextDecoder().decode(await response.arrayBuffer());
 const auth = () => authorizePlayback(request("/watch/episode-unit", undefined, cookie), env, "episode-unit");
 
+it.each(["unverified", "empty-version", "missing", "replaced", "wrong-length"])("rejects %s video before initial or renewal signing without charging quota", async state => {
+  await auth();
+  const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
+  if (state === "unverified" || state === "empty-version") await env.DB.prepare("UPDATE media_files SET r2_etag = ? WHERE id = 'source'").bind(state === "unverified" ? null : "").run();
+  if (state === "missing") await env.MEDIA_BUCKET.delete("fictional-private-object");
+  if (state === "replaced") await env.MEDIA_BUCKET.put("fictional-private-object", "same-length-change!!");
+  if (state === "wrong-length") await env.DB.prepare("UPDATE media_files SET byte_length = 19 WHERE id = 'source'").run();
+  await expect(auth()).rejects.toMatchObject({ statusCode: 404, body: { code: "MEDIA_MISSING" } });
+  const response = await http("/playback/episode-unit/authorize", { method: "POST", headers: { "Content-Type": "application/json", Origin: env.APP_ORIGIN }, body: JSON.stringify({ csrfToken }) });
+  expect(response.status).toBe(404);
+  expect(await response.text()).not.toMatch(/fictional-private|object_key|r2_etag|\?token=/);
+  expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(before);
+});
+
+it.each(["unverified", "empty-version", "missing", "replaced", "wrong-length"])("omits %s subtitles without blocking video authorization or renewal", async state => {
+  const first = await auth();
+  expect(first.tracks.map(track => track.id)).toEqual(["zh"]);
+  if (state === "unverified" || state === "empty-version") await env.DB.prepare("UPDATE subtitle_tracks SET r2_etag = ? WHERE id = 'zh'").bind(state === "unverified" ? null : "").run();
+  if (state === "missing") await env.MEDIA_BUCKET.delete("fictional-private-subtitle");
+  if (state === "replaced") await env.MEDIA_BUCKET.put("fictional-private-subtitle", "WEBVTT\n!");
+  if (state === "wrong-length") await env.DB.prepare("UPDATE subtitle_tracks SET byte_length = 7 WHERE id = 'zh'").run();
+  const next = await auth();
+  expect(next.tracks).toEqual([]);
+  expect((await http(next.url, { method: "HEAD" })).status).toBe(200);
+  const response = await http("/playback/episode-unit/authorize", { method: "POST", headers: { "Content-Type": "application/json", Origin: env.APP_ORIGIN }, body: JSON.stringify({ csrfToken }) });
+  expect(response.status).toBe(200);
+  expect((await response.json() as { tracks: unknown[] }).tracks).toEqual([]);
+  expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(3);
+});
+
+it("keeps video authorization available when optional subtitle metadata cannot be read", async () => {
+  const read = env.MEDIA_BUCKET.head.bind(env.MEDIA_BUCKET);
+  const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementation(async key => {
+    if (key === "fictional-private-subtitle") throw new Error("Fictional subtitle storage outage");
+    return read(key);
+  });
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const authorization = await auth();
+    expect(authorization.tracks).toEqual([]);
+    expect((await http(authorization.url, { method: "HEAD" })).status).toBe(200);
+    expect(warning).toHaveBeenCalledWith(JSON.stringify({ event: "subtitle_unavailable", resourceId: "zh" }));
+  } finally { head.mockRestore(); warning.mockRestore(); }
+});
+
+it.each(["r2_etag", "object_key", "byte_length"])("rejects a %s change between object verification and the signing write without charging quota", async column => {
+  await auth();
+  const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
+  const read = env.MEDIA_BUCKET.head.bind(env.MEDIA_BUCKET);
+  const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementationOnce(async key => {
+    const object = await read(key);
+    await env.DB.prepare(`UPDATE media_files SET ${column} = ? WHERE id = 'source'`).bind(column === "byte_length" ? 19 : "fictional-changed-value").run();
+    return object;
+  });
+  try {
+    await expect(auth()).rejects.toMatchObject({ statusCode: 404, body: { code: "MEDIA_MISSING" } });
+    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(before);
+  } finally { head.mockRestore(); }
+});
+
+it.each(["video", "subtitle"])("rejects a %s replacement between HEAD and GET as unavailable", async target => {
+  const authorization = await auth(), video = target === "video", ctx = createExecutionContext();
+  const read = env.MEDIA_BUCKET.get.bind(env.MEDIA_BUCKET);
+  const get = vi.spyOn(env.MEDIA_BUCKET, "get").mockImplementationOnce(async (key, options) => {
+    await env.MEDIA_BUCKET.put(key, video ? "same-length-change!!" : "WEBVTT\n!");
+    return read(key, options);
+  });
+  try {
+    await expect(playbackHttp(request(video ? authorization.url : authorization.tracks[0].url, undefined, cookie), env, ctx))
+      .rejects.toMatchObject({ statusCode: 404, body: { code: "MEDIA_MISSING" } });
+  } finally { get.mockRestore(); await waitOnExecutionContext(ctx); }
+});
+
 it.each(["video", "subtitle"])("rejects missing or mismatched %s versions for GET, HEAD and Range without metadata", async target => {
   const authorization = await auth(), video = target === "video";
   const url = video ? authorization.url : authorization.tracks[0].url;
@@ -49,13 +123,13 @@ it.each(["video", "subtitle"])("rejects missing or mismatched %s versions for GE
 });
 
 it("keeps legacy media unavailable after a scan conflict and restores it only after validation", async () => {
+  const { url } = await auth();
   const key = "library/series/920001/S01/E01.mp4";
   const original = Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0));
   await env.DB.prepare("UPDATE media_files SET object_key = ?, byte_length = ?, checksum_sha256 = ?, r2_etag = NULL WHERE id = 'source'")
     .bind(key, original.length, createHash("sha256").update(original).digest("hex")).run();
   const changed = original.slice(); changed[changed.length - 1] ^= 1;
   await env.MEDIA_BUCKET.put(key, changed);
-  const { url } = await auth();
   expect(await syncMedia(env)).toMatchObject({ linked: 0, conflicts: 1 });
   expect(await env.DB.prepare("SELECT r2_etag FROM media_files WHERE id = 'source'").first("r2_etag")).toBeNull();
   expect((await http(url)).status).toBe(404);

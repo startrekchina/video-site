@@ -4,6 +4,7 @@ import { checkCsrf, readJson } from "./security.server";
 import { settings } from "./settings.server";
 
 type Payload = { v: number; kid: string; environment: string; purpose: string; userId: string; sessionId: string; playableUnitId: string; mediaFileId: string; iat: number; exp: number };
+type MediaFile = { id: string; object_key: string; byte_length: number; r2_etag: string | null };
 export type Authorization = { url: string; expiresAt: number; tracks: { id: string; language: string; displayName: string; url: string }[] };
 const encoder = new TextEncoder(), prefix = "video-site:playback\0";
 const fail = (status: "UNAUTHORIZED" | "FORBIDDEN" | "BAD_REQUEST" | "NOT_FOUND", code: string, message: string): never => { throw new APIError(status, { code, message }); };
@@ -41,18 +42,25 @@ export async function verifyPlayback(env: Env, token: string, now = Math.floor(D
 const liveSession = `SELECT s.id FROM session s JOIN "user" u ON u.id = s.userId
   JOIN member_profiles p ON p.user_id = u.id WHERE s.id = ? AND s.userId = ? AND s.expiresAt > ?
   AND u.emailVerified = 1 AND p.registration_state = 'completed' AND p.status = 'active'`;
-async function quota(env: Env, current: Awaited<ReturnType<typeof requireMember>>, unitId: string, fileId: string) {
+async function verifiedObject(bucket: R2Bucket, file: Pick<MediaFile, "object_key" | "byte_length" | "r2_etag">) {
+  if (!file.r2_etag) return null;
+  const object = await bucket.head(file.object_key);
+  return object?.etag === file.r2_etag && object.size === file.byte_length ? object : null;
+}
+const sourceVersion = "SELECT id FROM media_files WHERE id = ? AND playable_unit_id = ? AND format = 'mp4' AND r2_etag = ? AND object_key = ? AND byte_length = ?";
+async function quota(env: Env, current: Awaited<ReturnType<typeof requireMember>>, unitId: string, file: MediaFile) {
   const userId = current.member.user_id;
   const now = Date.now(), counter = `playback:${userId}`;
+  const source = [file.id, unitId, file.r2_etag, file.object_key, file.byte_length];
   const result = await env.DB.prepare(`INSERT INTO rate_limit_counters (key, operation, occurred_at, count, expires_at)
     SELECT ?, 'playback', ?, 1, ? WHERE (SELECT coalesce(sum(count), 0) FROM rate_limit_counters WHERE key = ? AND operation = 'playback' AND occurred_at > ?) < ?
-    AND EXISTS (${liveSession}) AND EXISTS (SELECT 1 FROM media_files WHERE id = ? AND playable_unit_id = ? AND format = 'mp4')
+    AND EXISTS (${liveSession}) AND EXISTS (${sourceVersion})
     ON CONFLICT(key, operation, occurred_at) DO UPDATE SET count = count + 1`).bind(counter, now, now + 60000, counter, now - 60000, settings.rateLimits.playbackTokenPerMember.perMinute,
-      current.session.id, userId, new Date(now).toISOString(), fileId, unitId).run();
+      current.session.id, userId, new Date(now).toISOString(), ...source).run();
   if (!result.meta.changes) {
     try { await memberForSession(env, current.session); }
     catch (error) { if (error instanceof APIError) return fail("UNAUTHORIZED", "AUTH_REQUIRED", "会话已失效，请重新登录。"); throw error; }
-    if (!await env.DB.prepare("SELECT id FROM media_files WHERE id = ? AND playable_unit_id = ? AND format = 'mp4'").bind(fileId, unitId).first()) return fail("NOT_FOUND", "MEDIA_MISSING", "暂无可播放片源。");
+    if (!await env.DB.prepare(sourceVersion).bind(...source).first()) return fail("NOT_FOUND", "MEDIA_MISSING", "暂无可播放片源。");
     const earliest = await env.DB.prepare("SELECT min(occurred_at) AS n FROM rate_limit_counters WHERE key = ? AND operation = 'playback' AND occurred_at > ?").bind(counter, now - 60000).first<number>("n");
     throw new APIError("TOO_MANY_REQUESTS", { code: "PLAYBACK_RATE_LIMITED", message: "播放请求过于频繁，请稍后重试。" }, { "Retry-After": String(Math.max(1, Math.ceil(((earliest ?? now) + 60000 - now) / 1000))) });
   }
@@ -61,16 +69,21 @@ export async function authorizePlayback(request: Request, env: Env, unitId: stri
   const current = await requireMember(request, env, identity);
   for (const cookie of current.headers.getSetCookie()) responseHeaders?.append("Set-Cookie", cookie);
   const db = env.DB.withSession("first-primary");
-  const [files, tracks] = await db.batch<{ id: string }>([
-    db.prepare("SELECT id FROM media_files WHERE playable_unit_id = ? AND format = 'mp4'").bind(unitId),
-    db.prepare("SELECT id, language, display_name FROM subtitle_tracks WHERE playable_unit_id = ? AND format = 'vtt' ORDER BY language, track_key").bind(unitId),
+  const [files, tracks] = await db.batch<MediaFile>([
+    db.prepare("SELECT id, object_key, byte_length, r2_etag FROM media_files WHERE playable_unit_id = ? AND format = 'mp4'").bind(unitId),
+    db.prepare("SELECT id, language, display_name, object_key, byte_length, r2_etag FROM subtitle_tracks WHERE playable_unit_id = ? AND format = 'vtt' AND r2_etag IS NOT NULL AND r2_etag <> '' ORDER BY language, track_key").bind(unitId),
   ]);
   if (files.results.length !== 1) return fail("NOT_FOUND", "MEDIA_MISSING", "暂无可播放片源。");
-  const fileId = files.results[0].id;
-  await quota(env, current, unitId, fileId);
+  const file = files.results[0], fileId = file.id;
+  if (!await verifiedObject(env.MEDIA_BUCKET, file)) return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。");
+  const availableTracks = (await Promise.all((tracks.results as (MediaFile & { language: string; display_name: string })[]).map(async track => {
+    try { return await verifiedObject(env.MEDIA_BUCKET, track) ? track : null; }
+    catch { console.warn(JSON.stringify({ event: "subtitle_unavailable", resourceId: track.id })); return null; }
+  }))).filter(track => track !== null);
+  await quota(env, current, unitId, file);
   const iat = Math.floor(Date.now() / 1000), exp = iat + settings.playbackTokenTtl;
   const token = await signPlayback(env, { v: 1, kid: "1", environment: env.APP_ENV, purpose: "playback", userId: current.member.user_id, sessionId: current.session.id, playableUnitId: unitId, mediaFileId: fileId, iat, exp });
-  return { url: `/media/${fileId}?token=${token}`, expiresAt: exp * 1000, tracks: (tracks.results as { id: string; language: string; display_name: string }[]).map(track => ({ id: track.id, language: track.language, displayName: track.display_name, url: `/subtitles/${track.id}?token=${token}` })) };
+  return { url: `/media/${fileId}?token=${token}`, expiresAt: exp * 1000, tracks: availableTracks.map(track => ({ id: track.id, language: track.language, displayName: track.display_name, url: `/subtitles/${track.id}?token=${token}` })) };
 }
 
 function rangeRequest(header: string, total: number) {
@@ -138,9 +151,8 @@ export async function playbackHttp(request: Request, env: Env, ctx: ExecutionCon
   if (!file) return fail("UNAUTHORIZED", "AUTH_REQUIRED", "会话已失效，请重新登录。");
   if (file.id !== match[2] || file.playable_unit_id !== payload.playableUnitId || (media ? file.id !== payload.mediaFileId || file.format !== "mp4" : file.format !== "vtt")) return fail("FORBIDDEN", "PLAYBACK_INVALID", "播放凭证不能访问此资源。");
   if (!["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
-  const metadata = await env.MEDIA_BUCKET.head(file.object_key);
-  if (!metadata || !file.r2_etag || metadata.etag !== file.r2_etag) { console.info(JSON.stringify({ event: "media_missing", resourceId: file.id })); return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。"); }
-  if (metadata.size !== file.byte_length) throw new Error("Media length mismatch");
+  const metadata = await verifiedObject(env.MEDIA_BUCKET, file);
+  if (!metadata) { console.info(JSON.stringify({ event: "media_missing", resourceId: file.id })); return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。"); }
   const headers = new Headers({ "Content-Type": match[1] === "media" ? "video/mp4" : "text/vtt; charset=utf-8", "Content-Length": String(metadata.size), "Accept-Ranges": "bytes", ETag: metadata.httpEtag, "Last-Modified": metadata.uploaded.toUTCString(), "Cache-Control": "private, no-store", "Content-Encoding": "identity" });
   current.headers.forEach((value, name) => headers.append(name, value));
   if (request.method === "HEAD") return new Response(null, { headers });
@@ -151,7 +163,7 @@ export async function playbackHttp(request: Request, env: Env, ctx: ExecutionCon
   if (range && "unsatisfied" in range) { headers.set("Content-Range", `bytes */${metadata.size}`); headers.delete("Content-Length"); return new Response(null, { status: 416, headers }); }
   const object = await env.MEDIA_BUCKET.get(file.object_key, range ? { range: request.headers } : undefined);
   if (!object || !("body" in object)) return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。");
-  if (object.size !== metadata.size || object.etag !== metadata.etag) { await object.body.cancel(); throw new Error("Media object changed"); }
+  if (object.size !== metadata.size || object.etag !== metadata.etag) { await object.body.cancel(); return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。"); }
   let length = object.size, status = 200;
   if (range) {
     const actual = object.range;

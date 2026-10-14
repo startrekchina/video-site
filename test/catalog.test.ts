@@ -66,7 +66,7 @@ it("maps named public data, literal bilingual search, seasons, unavailable media
   await seedCatalog(env.DB);
   await env.DB.batch([
     env.DB.prepare("UPDATE works SET title_zh = NULL, poster_asset = '/private/file' WHERE id = 'series'"),
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',4,'hash',4,'h264','aac',100,NULL)"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',4,'hash',4,'h264','aac',100,'fictional-verified-version')"),
     env.DB.prepare("INSERT INTO watch_progress VALUES ('nova','episode-unit',2,0,100,1)"),
     env.DB.prepare("INSERT INTO playable_units (id,kind,work_id,season_id,episode_number,tmdb_id,duration_seconds,title_en) VALUES ('episode-two','episode','series','season',2,930002,4,'Unused Detail')"),
   ]);
@@ -91,9 +91,28 @@ it("returns only configured first episodes with actual MP4 sources for a member 
   expect(homeStages(await catalog(env.DB, "nova")).items).toEqual([]);
   await env.DB.batch([
     env.DB.prepare("UPDATE works SET tmdb_id = 103516 WHERE id = 'series'"),
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',4,'hash',4,'h264','aac',100,NULL)"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',4,'hash',4,'h264','aac',100,'fictional-verified-version')"),
   ]);
   expect(homeStages(await catalog(env.DB, "nova", "", { home: true }))).toMatchObject({ label: "推荐起点", items: [{ unit: { id: "episode-unit" } }] });
+});
+
+it.each([null, ""])("keeps a video with verified version %s out of play links and home recommendations", async version => {
+  await seedCatalog(env.DB);
+  await env.DB.batch([
+    env.DB.prepare("UPDATE works SET tmdb_id = 103516 WHERE id = 'series'"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',4,'hash',4,'h264','aac',100,?)").bind(version),
+    env.DB.prepare("INSERT INTO watch_progress VALUES ('nova','episode-unit',2,0,100,1)"),
+  ]);
+  for (const target of [undefined, { workId: "series" }, { unitId: "episode-unit" }] as const) {
+    const work = (await catalog(env.DB, "nova", "", target)).find(work => work.slug === "series")!;
+    expect(work.units[0]).toMatchObject({ playable: false, positionSeconds: 2 });
+    expect(homeStages([work]).items).toEqual([]);
+  }
+  const home = await catalog(env.DB, "nova", "", { home: true });
+  expect(home.find(work => work.slug === "series")!.units).toEqual([]);
+  expect(homeStages(home).items).toEqual([]);
+  await env.DB.prepare("UPDATE media_files SET r2_etag = 'fictional-verified-version' WHERE id = 'source'").run();
+  expect(homeStages(await catalog(env.DB, "nova", "", { home: true })).items.map(item => item.unit.id)).toEqual(["episode-unit"]);
 });
 
 it("protects all catalog pages and their loader requests independently and keeps guest landing free of catalog data", async () => {
