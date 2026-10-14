@@ -40,6 +40,52 @@ it("rejects changed content and unsafe subtitles while retaining the original co
   expect((await env.DB.prepare("SELECT id FROM subtitle_tracks").all()).results).toHaveLength(1);
 });
 
+it.each(["checksum", "length"])("reports logical identities for %s conflicts without exposing storage details or replacing references", async mismatch => {
+  const movieKey = "library/movie/910001/movie.mp4", englishKey = "library/series/920001/S01/E01.en.main.vtt";
+  await media();
+  await env.MEDIA_BUCKET.put(movieKey, video());
+  for (const objectKey of [subtitleKey, englishKey]) await env.MEDIA_BUCKET.put(objectKey, vtt);
+  expect(await syncMedia(env)).toMatchObject({ linked: 4, conflicts: 0 });
+  if (mismatch === "checksum") {
+    const changed = video(); changed[changed.length - 1] ^= 1;
+    for (const objectKey of [key, movieKey]) await env.MEDIA_BUCKET.put(objectKey, changed);
+    for (const objectKey of [subtitleKey, englishKey]) await env.MEDIA_BUCKET.put(objectKey, vtt.replace("fictional", "different"));
+  } else await env.DB.batch([
+    env.DB.prepare("UPDATE media_files SET byte_length = byte_length - 1"),
+    env.DB.prepare("UPDATE subtitle_tracks SET byte_length = byte_length - 1"),
+  ]);
+  const files = (await env.DB.prepare("SELECT * FROM media_files ORDER BY id").all()).results;
+  const tracks = (await env.DB.prepare("SELECT * FROM subtitle_tracks ORDER BY id").all()).results;
+  const series = { event: "media_sync_conflict", unitId: "episode-unit", kind: "series", tmdbId: 920001, season: 1, episode: 1 };
+  const expected = [
+    { event: "media_sync_conflict", unitId: "movie-unit", resourceType: "video", kind: "movie", tmdbId: 910001, season: null, episode: null, language: null, trackKey: null },
+    { ...series, resourceType: "video", language: null, trackKey: null },
+    { ...series, resourceType: "subtitle", language: "zh-CN", trackKey: "zh-CN.main" },
+    { ...series, resourceType: "subtitle", language: "en", trackKey: "en.main" },
+  ];
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {}), info = vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    for (let run = 0; run < 2; run++) {
+      warn.mockClear(); info.mockClear();
+      expect(await syncMedia(env)).toMatchObject({ linked: 0, conflicts: 4, failed: 0, deferred: false });
+      const events = warn.mock.calls.map(([message]) => JSON.parse(String(message)));
+      expect(events).toHaveLength(4);
+      expect(events).toEqual(expect.arrayContaining(expected));
+      expect(info.mock.calls.map(([message]) => JSON.parse(String(message)))).toEqual([
+        expect.objectContaining({ event: "media_sync_completed", linked: 0, conflicts: 4, failed: 0 }),
+      ]);
+      expect(JSON.stringify([warn.mock.calls, info.mock.calls])).not.toMatch(/library\/|object_key|checksum_sha256|r2_etag|\?token=/u);
+    }
+    expect((await env.DB.prepare("SELECT * FROM media_files ORDER BY id").all()).results).toEqual(files);
+    expect((await env.DB.prepare("SELECT * FROM subtitle_tracks ORDER BY id").all()).results).toEqual(tracks);
+    for (const objectKey of [key, movieKey, subtitleKey, englishKey]) expect(await env.MEDIA_BUCKET.head(objectKey)).not.toBeNull();
+    await env.MEDIA_BUCKET.put("library/series/920001/S01/E01.en.secondary.vtt", vtt);
+    warn.mockClear();
+    expect(await syncMedia(env)).toMatchObject({ linked: 1, conflicts: 4, failed: 0, deferred: false });
+    expect(warn).toHaveBeenCalledTimes(4);
+  } finally { warn.mockRestore(); info.mockRestore(); }
+});
+
 it("rejects partial/changed/aborted MP4 and never publishes invalid or unknown resources", async () => {
   await media(); const head = (await env.MEDIA_BUCKET.head(key))!;
   await expect(inspectR2Media(env.MEDIA_BUCKET, key, head, false, AbortSignal.abort())).rejects.toThrow();

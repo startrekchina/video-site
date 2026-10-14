@@ -41,6 +41,8 @@ MP4 须为 faststart、单 H.264 视频轨与 AAC 音轨。服务器有界读取
 
 关联 MP4 时，实际时长和媒体记录在同一 D1 批次提交。失败保留完整 R2 对象供重试；相同单元/轨道却不同校验和报冲突，不覆盖旧引用。缺失或已验证版本被替换时，播放入口返回脱敏 404；不会把新字节当成已验证片源。扫描没有删除或自动替换能力。
 
+扫描日志以 `media_sync_completed` 汇总数量，每个冲突另记 `media_sync_conflict`：包含 `unitId`、资源类型 `resourceType`（video/subtitle）、作品类型 `kind`、作品 `tmdbId`、季号 `season`、集号 `episode`、字幕 `language` 和复合轨道标识 `trackKey`。电影的季集号、视频的字幕字段为 null；中英文同名轨道可分别定位。记录不含存储对象键、路径、校验和或凭证；重复扫描仍报告未处理的冲突，需人工核对文件，不自动覆盖。
+
 ## 可选本机媒体预检
 
 本机需要 PATH 上的 FFmpeg（含 ffprobe）。将映射放在被忽略的目录：
