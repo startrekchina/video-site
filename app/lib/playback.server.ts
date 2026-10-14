@@ -163,7 +163,9 @@ export async function playbackHttp(request: Request, env: Env, ctx: ExecutionCon
   const matching = !condition || condition === metadata.httpEtag || Number.isFinite(date) && Math.floor(metadata.uploaded.getTime() / 1000) <= date / 1000;
   const range = raw && matching ? rangeRequest(raw, metadata.size) : null;
   if (range && "unsatisfied" in range) { headers.set("Content-Range", `bytes */${metadata.size}`); headers.delete("Content-Length"); return new Response(null, { status: 416, headers }); }
-  const object = await env.MEDIA_BUCKET.get(file.object_key, range ? { range: request.headers } : undefined);
+  let object;
+  try { object = await env.MEDIA_BUCKET.get(file.object_key, range ? { range: request.headers } : undefined); }
+  catch { return fail("SERVICE_UNAVAILABLE", "MEDIA_UNAVAILABLE", "媒体服务暂时不可用，请稍后重试。"); }
   if (!object || !("body" in object)) return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。");
   if (object.size !== metadata.size || object.etag !== metadata.etag) { await object.body.cancel(); return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。"); }
   let length = object.size, status = 200;
