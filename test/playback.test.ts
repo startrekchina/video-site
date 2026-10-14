@@ -93,7 +93,7 @@ it.each(["missing", "outage"])("returns a failed video %s without waiting for a 
   }
 });
 
-it.each(["missing", "outage"])("settles pending subtitles but preserves the %s video error without charging quota", async state => {
+it.each(["missing", "outage"])("returns the %s video error without exposing subtitle failures", async state => {
   const videoStarted = Promise.withResolvers<void>(), releaseSubtitle = Promise.withResolvers<void>();
   const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementation(async key => {
     if (key === "fictional-private-object") {
@@ -111,9 +111,11 @@ it.each(["missing", "outage"])("settles pending subtitles but preserves the %s v
     await videoStarted.promise;
     expect(head).toHaveBeenCalledWith("fictional-private-subtitle");
     expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBeNull();
-    expect(settled).toBe(false);
-    releaseSubtitle.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(settled).toBe(true);
     expect(await outcome).toMatchObject({ statusCode: state === "outage" ? 503 : 404, body: { code: state === "outage" ? "MEDIA_UNAVAILABLE" : "MEDIA_MISSING" } });
+    releaseSubtitle.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(warning).not.toHaveBeenCalled();
     expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBeNull();
   } finally {
