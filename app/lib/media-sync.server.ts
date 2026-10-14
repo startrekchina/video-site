@@ -93,7 +93,11 @@ export async function syncMedia(env: Env) {
             .bind(...(identity.language ? [unitId, identity.trackKey!] : [unitId])).all<{ id: string; checksum_sha256: string; byte_length: number; object_key: string }>();
           controller.signal.throwIfAborted();
           if (existing.results.length) {
-            if (existing.results.length !== 1 || existing.results[0].checksum_sha256 !== inspected.checksum || existing.results[0].byte_length !== inspected.byteLength) { result.conflicts++; continue; }
+            if (existing.results.length !== 1 || existing.results[0].checksum_sha256 !== inspected.checksum || existing.results[0].byte_length !== inspected.byteLength) {
+              result.conflicts++;
+              console.warn(JSON.stringify({ event: "media_sync_conflict", unitId, resourceType: identity.language ? "subtitle" : "video", ...identity }));
+              continue;
+            }
             if (existing.results[0].object_key === object.key) await db.prepare(`UPDATE ${table} SET r2_etag = ? WHERE id = ?`).bind(object.etag, existing.results[0].id).run();
             result.skipped++; continue;
           }
