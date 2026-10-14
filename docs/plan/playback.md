@@ -8,6 +8,8 @@
 
 ## 任务与验证摘要
 
+授权接口文档自检（2026-10-14）：接口表与服务端入口、播放器请求及响应字段静态核对通过，本地链接/锚点和差异检查通过。仅修正文档，未重跑应用测试、构建或平台验收。
+
 媒体内容读取自检（2026-10-14）：PR #24 与完整 dev 各通过 `test/playback.test.ts` 35 项、类型检查及 development 构建。新增视频/字幕回归先复现 `get()` 抛错返回 `500`，修复后覆盖普通 GET 与 Range 的脱敏 `503`、安全及缓存头、HEAD 不读取正文、故障恢复后同一 token 的 `200/206` 和不增加签发计数；既有缺失/版本变化 `404`、鉴权、配额及流截止测试通过。仅在隔离本地 Workers 测试环境验证，未执行全站、浏览器、staging、实机或长播验收，未迁移或部署。
 
 字幕按钮同步（2026-10-14）：播放页选项随播放器采用的续期轨道更新；已选轨道移除则关闭，恢复只增加选项，不自动启用，也不重建同一单元的播放器。PR #24 与完整 dev 各通过 `test/player-renewal.test.ts` 6 项、类型检查及 development 构建。复用相同客户端实现的 dev Node 续期控制器 2 项及隔离浏览器结果：真实 React/Watch/Player/ArtPlayer、自生成 MP4/VTT、模拟授权返回与提前触发续期回调，验证按钮移除/恢复、实际字幕选择及暂停/播放位置保留和后续续期；未访问业务库或云端，未重跑全站、staging、实机或长播验收，阶段状态不变。
@@ -58,15 +60,13 @@
 
 ## 播放器与授权接口
 
-| 入口与方法（草案） | 权限 | 请求 / 响应 |
+| 入口与方法 | 权限 | 请求 / 响应 |
 | --- | --- | --- |
-| `POST /playback/tokens` | 正常成员 | `playableUnitId, mediaFileId, csrfToken`；检查文件确属该单元且可用，签发绑定 `playableUnitId` + `mediaFileId` + 当前成员与会话的播放 token，返回 `url, expiresAt` 和该单元字幕轨的 ID/名称/语言（字幕用同一 token 访问）。续期重复此接口重新鉴权，旧 token 不是续期凭据；续期时机与重试按 6.6.1.1。 |
+| `POST /playback/:unitId/authorize` | 正常成员 | 路径 `unitId` 为可播放单元 ID，请求携带当前会话 Cookie，JSON 请求体仅含 `csrfToken`；服务端选择并验证该单元唯一的 MP4，签发绑定单元、媒体文件、当前成员与会话的播放 token。返回 `url, expiresAt, tracks`，字幕轨含 `id, language, displayName, url` 并共用同一 token。续期重复此接口重新鉴权，旧 token 不是续期凭据；续期时机与重试按 B 6.6.1.1。 |
 | `GET/HEAD /media/:mediaFileId`、`/subtitles/:subtitleTrackId` | 有效播放 token + 当前 Cookie 会话 | query 接收 `token`；每次按 6.6.1 从 D1 主库核对原生会话、注册/邮箱/封禁状态与播放密钥版本；媒体只授权载荷中的 `mediaFileId`，字幕须属于同一单元。返回字节流或脱敏错误，资源 ID 只在服务端映射 R2，不接受客户端对象路径。 |
 
 
 ArtPlayer 在浏览器懒加载，同源 MP4/VTT；切单元重建并读取目标起点，取消旧单元迟到响应。续期按 B 6.6.1.1 提前 5 分钟、5/15/30 秒最多三次，401/403 停止，到期暂停；换 URL 保留位置、暂停/播放和字幕。Token 放 query 以兼容 video 无自定义请求头，日志须剔除。
-
-正式授权入口为 POST /playback/:id/authorize（早期 /playback/tokens 为草案），服务端验证单元和文件归属、当前会话与 CSRF；签发和续期使用同一授权逻辑。资源入口 /media/:id、/subtitles/:id，Cookie 加同一 token，不接受客户端对象路径。
 
 ## 续期验证方案
 
