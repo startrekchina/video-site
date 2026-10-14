@@ -77,7 +77,7 @@
 
 比较基线为 `cbb16db5a55c04816a76d63e6d3811aa9df9cfb3`，修复版仅在其上改变 `app/lib/playback.server.ts` 的共享 `authorizePlayback()`：视频和字幕 HEAD 同时开始，以 `Promise.allSettled` 等待全部结束；视频错误仍优先返回，字幕按原查询顺序独立筛选。无已验证视频版本时直接拒绝，不访问 R2；全部校验成功后才进行最终条件配额写入和签名。播放页 SSR、Single Fetch 与 POST 续期复用此函数；媒体传输和原生 session 不变。没有新增依赖、缓存、认证旁路或诊断生产代码。
 
-受控 Promise 用例先在原实现因“视频 HEAD 未结束时字幕 HEAD 尚未启动”变红，再在修复后通过。新增 6 项回归覆盖并行启动/等待、不提前扣额、视频缺失/异常、等待期间会话/片源变化及字幕乱序完成；原有视频版本/长度、字幕降级、配额、Range 和流取消断言保留。
+受控 Promise 用例先在原实现因“视频 HEAD 未结束时字幕 HEAD 尚未启动”变红，再在修复后通过。复验当时新增 6 项回归覆盖并行启动/等待、不提前扣额、视频缺失/异常、等待期间会话/片源变化及字幕乱序完成；PR #26 后续另新增 2 项慢字幕失败快速返回回归。原有视频版本/长度、字幕降级、配额、Range 和流取消断言保留。
 
 ```powershell
 pnpm test -- test/playback.test.ts -t "starts video and subtitle"
@@ -86,7 +86,7 @@ pnpm typecheck
 pnpm build
 ```
 
-相关 4 文件 60 项、类型检查和 development 构建通过；两个 staging 产物的构建及锁定 Wrangler 4.150.0 dry-run 通过。未重复全量测试，首次复验的 272 项应用/23 项工具结果不冒充修复版全量结果。
+复验当时相关 4 文件 60 项、类型检查和 development 构建通过；两个 staging 产物的构建及锁定 Wrangler 4.150.0 dry-run 通过。PR #26 后续提交追加慢字幕回归后，按同一 4 文件命令复跑共 62 项通过，完整应用套件 280 项、工具测试 23 项、类型检查和构建也通过；未将这些后续本地结果冒充 staging 云端结果。
 
 ### 采样与结果
 
