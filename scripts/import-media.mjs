@@ -242,8 +242,9 @@ export async function preflight({ environment, mappingPath, env = process.env, r
     const video = await inspectMp4(localFile(item.videoPath, dirname(mappingPath))), subtitles = [], tracks = new Set();
     for (const track of item.subtitles) {
       const validated = await subtitle(track, dirname(mappingPath), id, warnings);
-      check(!tracks.has(validated.trackKey), `${id} 字幕 trackKey 重复。`);
-      tracks.add(validated.trackKey);
+      const trackId = `${validated.language}.${validated.trackKey}`;
+      check(!tracks.has(trackId), `${id} 字幕 language.trackKey 重复。`);
+      tracks.add(trackId);
       subtitles.push(validated);
     }
     media.push({ id, workId, seasonId: item.kind === "movie" ? null : seasonId, episodeNumber: item.episodeNumber ?? null, video, subtitles });

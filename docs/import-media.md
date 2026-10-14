@@ -67,6 +67,8 @@ node scripts/import-media.mjs preflight --environment staging --mapping .cloudfl
 
 媒体路径相对映射文件；电影没有季集号，没有字幕时使用空数组。检查 manifest 的类型/季集身份、JPG→存在的 WebP 映射、ffprobe 编码/时长/码率、faststart 和流式校验和。ASS 转 VTT 只生成内存字节并警告样式丢失；站长须自行保存合格 VTT 后上传。报告移除本机路径和配置，`cloudWrites` 恒为 0。旧 `import` 上传命令退出码为 2，不执行写入。
 
+每个单元的字幕按 `language.trackKey` 去重：`zh-CN/main` 与 `en/main` 可并存，同语言不同轨道可并存，同语言同轨道重复时拒绝预检。
+
 本机保存转换结果可用 `ffmpeg -i subtitle.ass subtitle.zh.main.vtt`，再用 VTT 路径重新预检；字体、定位等 ASS 样式不会保留。
 
 ## 验证与当前边界

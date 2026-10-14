@@ -109,6 +109,23 @@ test("two read-only preflights: identity, bilingual fallback, ASS conversion, re
   assert.equal(report(first).cloudWrites, 0); assert.equal(report(first).counts.imported, 0);
 });
 
+test("subtitle identity includes language and track within each unit", async () => {
+  const input = mapping();
+  input.media[1].subtitles = [
+    { language: "zh-CN", displayName: "简体中文", trackKey: "main", sourcePath: "english.vtt" },
+    { language: "en", displayName: "English", trackKey: "main", sourcePath: "english.vtt" },
+  ];
+  const bilingual = await run(input);
+  assert.deepEqual(bilingual.media[1].subtitles.map(({ language, trackKey }) => [language, trackKey]), [["zh-CN", "main"], ["en", "main"]]);
+  assert.equal(report(bilingual).cloudWrites, 0);
+  input.media[1].subtitles[1].language = "zh-CN";
+  await assert.rejects(run(input), /字幕.*重复/u);
+  assert.equal(calls.length, 0);
+  input.media[1].subtitles[1].trackKey = "alternate";
+  const alternate = await run(input);
+  assert.deepEqual(alternate.media[1].subtitles.map(({ language, trackKey }) => [language, trackKey]), [["zh-CN", "main"], ["zh-CN", "alternate"]]);
+});
+
 test("input/environment rejection happens before any TMDB request", async () => {
   const cases = [
     input => { input.environment = "prod"; },
