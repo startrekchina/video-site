@@ -7,7 +7,7 @@ type Payload = { v: number; kid: string; environment: string; purpose: string; u
 type MediaFile = { id: string; object_key: string; byte_length: number; r2_etag: string | null };
 export type Authorization = { url: string; expiresAt: number; tracks: { id: string; language: string; displayName: string; url: string }[] };
 const encoder = new TextEncoder(), prefix = "video-site:playback\0";
-const fail = (status: "UNAUTHORIZED" | "FORBIDDEN" | "BAD_REQUEST" | "NOT_FOUND", code: string, message: string): never => { throw new APIError(status, { code, message }); };
+const fail = (status: "UNAUTHORIZED" | "FORBIDDEN" | "BAD_REQUEST" | "NOT_FOUND" | "SERVICE_UNAVAILABLE", code: string, message: string): never => { throw new APIError(status, { code, message }); };
 const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 function decode(value: string) {
   if (!/^[A-Za-z0-9_-]+$/u.test(value)) return fail("FORBIDDEN", "PLAYBACK_INVALID", "播放凭证无效。");
@@ -44,7 +44,9 @@ const liveSession = `SELECT s.id FROM session s JOIN "user" u ON u.id = s.userId
   AND u.emailVerified = 1 AND p.registration_state = 'completed' AND p.status = 'active'`;
 async function verifiedObject(bucket: R2Bucket, file: Pick<MediaFile, "object_key" | "byte_length" | "r2_etag">) {
   if (!file.r2_etag) return null;
-  const object = await bucket.head(file.object_key);
+  let object;
+  try { object = await bucket.head(file.object_key); }
+  catch { return fail("SERVICE_UNAVAILABLE", "MEDIA_UNAVAILABLE", "媒体服务暂时不可用，请稍后重试。"); }
   return object?.etag === file.r2_etag && object.size === file.byte_length ? object : null;
 }
 const sourceVersion = "SELECT id FROM media_files WHERE id = ? AND playable_unit_id = ? AND format = 'mp4' AND r2_etag = ? AND object_key = ? AND byte_length = ?";

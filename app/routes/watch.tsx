@@ -1,9 +1,10 @@
 import { data, Link } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import { CheckIcon } from "lucide-react";
+import { APIError } from "better-auth/api";
 import { pageMember } from "@/lib/member.server";
 import { catalog } from "@/lib/catalog.server";
-import { authorizePlayback } from "@/lib/playback.server";
+import { authorizePlayback, type Authorization } from "@/lib/playback.server";
 import { csrfData } from "@/lib/security.server";
 import { displayTitle, episodeCode, formatRuntime } from "@/lib/catalog";
 import { cn } from "@/lib/utils";
@@ -19,12 +20,19 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
   const works = await catalog(env.DB, current.member.user_id, "", { unitId: params.id }), work = works[0], unit = work?.units.find(unit => unit.id === params.id);
   if (!work || !unit) throw new Response(null, { status: 404 });
   const headers = new Headers(current.headers);
-  const authorization = unit.playable ? await authorizePlayback(request, env, unit.id, headers, context.identity) : null;
+  let authorization: Authorization | null = null;
+  try { if (unit.playable) authorization = await authorizePlayback(request, env, unit.id, headers, context.identity); }
+  catch (error) {
+    if (!(error instanceof APIError)) throw error;
+    new Headers(error.headers).forEach((value, name) => headers.append(name, value));
+    throw Response.json(error.body, { status: error.statusCode, headers });
+  }
   const csrf = await csrfData(request, env);
   csrf.headers.forEach((value, name) => headers.append(name, value));
   const playable = work.units.filter(unit => unit.playable), index = playable.findIndex(item => item.id === unit.id);
   return data({ work, unit, authorization, csrfToken: csrf.csrfToken, previous: playable[index - 1]?.id, next: playable[index + 1]?.id }, { headers });
 }
+export function headers({ errorHeaders, parentHeaders }: Route.HeadersArgs) { return errorHeaders ?? parentHeaders; }
 export default function Watch({ loaderData: { work, unit, authorization, csrfToken, previous, next } }: Route.ComponentProps) {
   // Each unit owns its subtitle state and progress start; changing units never restarts the old player.
   return <WatchContent key={unit.id} work={work} unit={unit} authorization={authorization} csrfToken={csrfToken} previous={previous} next={next} />;
