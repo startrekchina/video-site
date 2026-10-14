@@ -33,7 +33,7 @@
 | --- | --- | --- |
 | 运行与包管理 | Node 24、pnpm 12 | 构建脚本需批准 `esbuild`、`workerd` |
 | 框架 | `react-router` / `@react-router/dev` 7.18.4，`future.v8_viteEnvironmentApi: true` | 需求定为 v7；自定义 `app/entry.server.tsx`（`renderToReadableStream`） |
-| Cloudflare 集成 | `cf` 1.0.0-beta.12（项目 devDependency）、`@cloudflare/vite-plugin` 2.0 beta、Vite 8 | 配置文件为 `cloudflare.config.ts`，没有 Wrangler 配置 |
+| Cloudflare 集成 | `cf` 1.0.0-beta.12、`@cloudflare/vite-plugin` 2.0 beta、Vite 8；Wrangler 4.150.0 补充 staging 发布 | `cloudflare.config.ts` 为权威配置，Wrangler 配置仅从 Build Output 生成，不提交资源映射 |
 | 测试 | `vitest` 4.1、`@cloudflare/vitest-plugin`（`experimental.newConfig`） | 读取 `cloudflare.config.ts`，`mode` 为 `test`；D1 迁移在 setup 中应用 |
 | 类型 | `.cloudflare/types/index.d.ts`（Vite 插件自动生成，`Env` 由配置推断） | `react-router typegen && tsc` 作为类型检查 |
 

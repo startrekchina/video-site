@@ -6,7 +6,7 @@
 
 承接 A7、B 6.9/6.10/6.16/7，依赖第三至第五阶段主要功能。T6.1 备份与恢复、T6.2 production 发布均待实施。staging 生效代码仍为 2026-10-07 第四阶段版本，D1 已应用当前全部迁移；production 只有资源/密钥准备记录和构建/dry-run，不是已发布。
 
-staging 已连接当前仓库 `startrekchina/video-site` 的 `dev`，启用推送构建且关闭其他分支/PR 预览；云端检查、构建和迁移通过，Worker 上传被 cf strict 拒绝，自动发布尚未验收完成。production 不启用自动发布。
+staging 已连接当前仓库 `startrekchina/video-site` 的 `dev`，启用推送构建且关闭其他分支/PR 预览；cf strict 限制下使用 Wrangler 补充发布。配置转换的 3 项定向用例、23 项工具测试、类型检查、staging 构建和 Wrangler dry-run 通过，15 个服务端模块完整打包；云端发布与运行时复核待完成。production 不启用自动发布。
 
 ## 任务与验收
 
@@ -30,7 +30,7 @@ staging 已连接当前仓库 `startrekchina/video-site` 的 `dev`，启用推�
 
 ## 当前运维风险
 
-- cf beta.12 固定 strict 检查因 staging 最近由 script API 更新而拒绝上传，部署帮助未提供覆盖选项；2026-10-14 核对官方 beta.16 仍固定 `strict: true`，不能仅靠升级解除。当前 D1 迁移已应用，但新代码未发布；临时 API 发布须站长另行授权，不修改 CLI 内部实现或自行重建 Worker。历史例外范围见[第三阶段记录](../screenshots/phase3/README.md#临时部署授权记录)和[第四阶段记录](../screenshots/phase4/README.md#发布与剩余验收)，不沿用为本次授权。
+- cf beta.12 固定 strict 检查因 staging 最近由 script API 更新而拒绝上传；官方 beta.16 同样固定 `strict: true`，不能仅靠升级解除。staging 采用已获准的 Wrangler 补充发布，开发、构建和迁移继续使用 cf；生成配置须核对模式、目标、全部拆分模块及静态资源，不读取或重建既有运行时 Secrets。直接 API 发布仍需另行授权，不修改 CLI 内部实现或重建 Worker。
 - production 密钥交接文件仅含原四项，不含 EMAIL_API_KEY；不能据此认定配置齐全。备份导出、OWNER_EMAIL 及启用外部目标在模块接入时声明，不上传假值。
 - 原生凭证路径需禁用相关应用日志以避免平台附加 URL，invocation/traces 未脱敏前保持关闭；认证小样本/静态配置不等于全部业务平台验证。
 - Time Travel 隔离能力、网页任务生命周期与全流程时限仍未验；无法满足时让站长决定，不擅自加 Queues/Workflows 或原地覆盖生产。
@@ -105,9 +105,10 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 
 #### 6.9.5 远程数据库迁移与运维工程细节
 
-- **staging 云端构建**：仅监听 `startrekchina/video-site` 的 `dev`，关闭其他分支/PR 预览；Node 24.21.0、pnpm 12.6.0，使用锁文件安装依赖。构建命令为 `bash scripts/build-staging.sh`，先下载固定版本并校验 SHA-256 的 Linux FFmpeg/ffprobe 到被忽略的 `.cloudflare/build-tools`，再依次运行 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm test`、`pnpm test:tools`、`pnpm build:staging`；自生成媒体仍不提交到 Git。部署命令为 `pnpm db:migrate:staging && pnpm exec cf deploy --prebuilt --mode staging`。任一步失败即停止，不回退本机上传或 Wrangler。首次成功后核对来源 SHA、迁移结果、实际生效版本和受影响入口，不能仅凭保存设置勾选 DEP1。
+- **staging 云端构建**：仅监听 `startrekchina/video-site` 的 `dev`，关闭其他分支/PR 预览；Node 24.21.0、pnpm 12.6.0，使用锁文件安装依赖。构建命令为 `bash scripts/build-staging.sh`，先下载固定版本并校验 SHA-256 的 Linux FFmpeg/ffprobe 到被忽略的 `.cloudflare/build-tools`，再依次运行 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm test`、`pnpm test:tools`、`pnpm build:staging`；自生成媒体仍不提交到 Git。部署命令为 `pnpm db:migrate:staging && pnpm deploy:staging:prebuilt --message "GitHub dev $WORKERS_CI_COMMIT_SHA"`，迁移继续使用 cf。任一步失败即停止，不改用本机上传或静默忽略失败；核对来源 SHA、迁移结果、实际生效版本和受影响入口后才能认定发布成功。
+- **Wrangler 补充发布边界**：固定 Wrangler 4.150.0；4.151.0 引用的 workerd 版本尚不能从 npm 安装。`scripts/prepare-staging-wrangler.mjs` 使用与 cf 一致的官方 Build Output 解析器和配置转换函数，拒绝非 staging、多 Worker、Container、缺失产物及尚未适配的模块类型；配置仅生成在被忽略的 `.cloudflare/wrangler-staging/wrangler.json`。发布使用既有 ESM 拆分模块及静态素材，不重新打包、不保留手写资源映射；Wrangler 默认保留线上 Secrets，不使用 Secrets 文件。文本变量、绑定、域名、Cron 和日志设置以构建产物为准，production 仍使用 cf 且未获发布授权。
 - **构建环境**：在 Workers Builds 单独配置 `STAGING_*` 与 Cloudflare 账户标识，资源标识作为构建 Secret 保存，不注入 production 配置。沿用 staging 构建 token；核对其 Worker 部署与目标 D1 迁移权限，缺权限时报告开发者，不默认为可用。运行时认证、播放、邮件等 Secrets 保留在现有 staging Worker，不复制到 Git 或构建日志；构建机不依赖本机 `.env`。
-- **远程迁移执行与 D1 触发器兼容**：远程迁移统一使用 `pnpm db:migrate:staging` 与 `pnpm db:migrate:production`，脚本自行创建 `.cloudflare` 父目录，干净 checkout 无需先开发或构建。针对 Cloudflare D1 `/query` 接口将触发器内裸 `CASE…END` 错认作触发器结束导致回滚的已知问题（参考 [Cloudflare 问题记录 #4727](https://github.com/cloudflare/workers-sdk/issues/4727)），`scripts/migrate-remote.mjs` 会在临时副本中为该表达式补充等价括号，再交由 `cf d1 migrations apply --dir` 执行；CLI 正常记录原文件名并执行增量判断，原始文件和本地已应用迁移不改写，临时文件执行后清除。禁止直接重复失败的原始远程命令，也不使用 Wrangler 兜底。
+- **远程迁移执行与 D1 触发器兼容**：远程迁移统一使用 `pnpm db:migrate:staging` 与 `pnpm db:migrate:production`，脚本自行创建 `.cloudflare` 父目录，干净 checkout 无需先开发或构建。针对 Cloudflare D1 `/query` 接口将触发器内裸 `CASE…END` 错认作触发器结束导致回滚的已知问题（参考 [Cloudflare 问题记录 #4727](https://github.com/cloudflare/workers-sdk/issues/4727)），`scripts/migrate-remote.mjs` 会在临时副本中为该表达式补充等价括号，再交由 `cf d1 migrations apply --dir` 执行；CLI 正常记录原文件名并执行增量判断，原始文件和本地已应用迁移不改写，临时文件执行后清除。迁移失败先核对状态和根因，不直接重复失败的原始命令或切换工具重跑。
 - **封禁邀请码状态增量迁移**：`0011_member_security_invitation_expiry_guard.sql` 按完整文件名排在原 0011 后，替换封禁触发器，仅作废有效未使用码并原子撤销会话；已过期、已用及已作废码保留原记录。staging 已应用，production 未应用；不改写原 0011，也不批量重置历史 `revoked_at`。
 - **Secrets 与交接文件**：本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，只含原有四项密钥，未包含站长另行配置的 `EMAIL_API_KEY`；仅在获准本机直接部署的例外任务中，可用 `pnpm exec cf deploy --prebuilt --mode staging --secrets-file .dev.vars.staging.secrets.json` 上传文件中的密钥，不作为 Git 集成的常规步骤。
 - **应用日志与敏感凭据脱敏**：线上环境关闭包含请求 URL 的 invocation logs，并在平台启用 `redact_query_string`；密码重置链接等原生敏感路径（如 `/api/auth/reset-password/`）禁止产生应用日志，避免平台日志附加包含凭据的完整请求路径。邮件 fetch 请求采用 `redirect: "manual"` 并拒绝所有非 2xx（包含 3xx），一次请求、不跟随重定向、不自动重发。
