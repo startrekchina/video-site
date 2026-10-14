@@ -44,7 +44,7 @@
 
 - **当前验收阻塞**：真实手机反馈尚未收到，第四阶段不能标为全部完成；具体检查和证据入口在片库/播放计划。
 - **优化证据缺口**：已有 24 个前后对比及 3 个补充本地请求场景及播放页/Range 时间线，播放页 D1 调用 15→7、Range 6→4；原生插件其余敏感端点的成本分解及 staging 同条件收益仍待补齐，见[专项报告](docs/performance-request-identity-20261013.md)。staging 部署及诊断须另获授权，不触及 production。
-- **staging 发布验证**：cf 的固定 strict 限制下使用已获准的 Wrangler 补充发布，开发、构建及迁移仍使用 cf。转换用例、23 项工具测试、类型检查、staging 构建和无上传打包检查通过；GitHub 推送后的实际发布、Secrets 保留及运行时复核待完成，尚不表示最新 dev 已上线。详情见[运维计划](docs/plan/operations.md)，production 未改动。
+- **staging 自动发布**：GitHub `dev` 推送已在 Cloudflare 云端完成检查、D1 迁移和 Wrangler 补充发布；272 项应用测试、23 项工具测试、类型检查及 staging 构建通过，来源 SHA、100% 生效流量、11 个 Secrets 和资源绑定保留已核对。公开页面、匿名权限边界及静态资源烟测通过；专项功能、性能与实机复验仍待完成。详情见[运维计划](docs/plan/operations.md)，production 未改动。
 - **后续平台门槛**：备份任务生命周期、15 分钟定时窗口和 Time Travel 隔离恢复尚待验证；认证小样本不代表全站容量。无法满足时报告站长，不自行引入新产品或覆盖生产库。
 
 ## 更新规则

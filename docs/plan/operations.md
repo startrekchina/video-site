@@ -4,15 +4,16 @@
 
 ## 范围与状态
 
-承接 A7、B 6.9/6.10/6.16/7，依赖第三至第五阶段主要功能。T6.1 备份与恢复、T6.2 production 发布均待实施。staging 生效代码仍为 2026-10-07 第四阶段版本，D1 已应用当前全部迁移；production 只有资源/密钥准备记录和构建/dry-run，不是已发布。
+承接 A7、B 6.9/6.10/6.16/7，依赖第三至第五阶段主要功能。T6.1 备份与恢复、T6.2 production 发布均待实施。staging 已通过 GitHub `dev` 的云端自动发布，D1 已应用当前全部迁移；production 只有资源/密钥准备记录和构建/dry-run，不是已发布。
 
-staging 已连接当前仓库 `startrekchina/video-site` 的 `dev`，启用推送构建且关闭其他分支/PR 预览；cf strict 限制下使用 Wrangler 补充发布。配置转换的 3 项定向用例、23 项工具测试、类型检查、staging 构建和 Wrangler dry-run 通过，15 个服务端模块完整打包；云端发布与运行时复核待完成。production 不启用自动发布。
+staging 已连接当前仓库 `startrekchina/video-site` 的 `dev`，启用推送构建且关闭其他分支/PR 预览；cf strict 限制下使用 Wrangler 补充发布。配置转换的 3 项定向用例、23 项工具测试、类型检查、staging 构建和 Wrangler dry-run 通过，15 个服务端模块完整打包。实际云端发布、运行时绑定及入口烟测通过，不替代专项功能、性能和实机验收。production 不启用自动发布。
 
 ## 任务与验收
 
 - [x] 同步 `main` 的 PR 合并规则、协作约定和验收条件；规则一致性、62 个本地链接/锚点及 `git diff --check` 自检通过。仅验证文档，未调整 GitHub 分支保护或云端发布配置，DEP1 保持待实施。
 - [ ] DEP1 按 [B 6.9.5](../detailed-requirements.md#695-github-分支构建与发布)接通并验收 Workers Builds 分支发布：先完成 staging，production 接通与验收遵守 T6.2 上线门槛；核对 `main` 的 PR 合并与分支保护、现有 cf 工具链兼容性、构建/运行时配置、迁移顺序与失败中止。
-- DEP1 staging：`c45d959` 的 GitHub `push_event` 在云端通过锁文件安装、类型检查、272 项应用测试、20 项工具测试和 staging 构建；沿用的构建 token 成功应用 `0008_legacy_invitation_guard_retirement.sql`、`0011_member_security_invitation_expiry_guard.sql`、`0013_invitation_source_guard.sql`，只读迁移列表确认无待应用项。构建 `9203762f-2141-4a4e-a76c-4a522f8f178e` 的 Worker 上传被 cf beta.12 固定 strict 拒绝，生效版本仍为 `9df3f5b0-93ee-4ca7-8c2b-8873ff94b709`（2026-10-07 21:34 北京时间，100% 流量）。没有回退到本机/API/Wrangler 上传，未回滚数据库；页面 HTTP 复核遇到连接重置，运行时及功能验收待完成。
+- DEP1 staging 自动发布自检（2026-10-14）：GitHub `push_event` 来源 `dev` 的 `1ce197c`，构建 `f447c6db-bdc2-4ac5-a3e0-72d718f3c343` 在云端通过锁文件安装、类型检查、272 项应用测试、23 项工具测试、staging 构建、cf 增量迁移和 Wrangler 发布。版本 `f77d338b-efaa-412d-b81d-ef1612bf00d0` 于 18:18 北京时间生效，100% 流量，版本消息记录完整来源 SHA；未从本机上传。D1 的 `0008_legacy_invitation_guard_retirement.sql`、`0011_member_security_invitation_expiry_guard.sql`、`0013_invitation_source_guard.sql` 已应用，只读迁移列表无待应用项；11 个既有 Secrets、D1/R2 和四个限流绑定与发布前一致。
+- DEP1 staging 入口烟测：无 Cookie 的 `/`、`/about` 返回 `200`，`/series` 和 `/watch/series_103516_s1_e1` 返回 `302` 到登录，匿名 `/media/00000000-0000-4000-8000-000000000000` 返回 `401`；入口带 `noindex`、`no-store, private` 和 `nosniff`，首页引用的客户端 JS 返回 `200`。Chrome 既有成员会话能打开首页；导航操作已到 `/series`，后续浏览器读取超时，不能据此认定完整交互复验通过。Node 直连连接重置，系统 HTTP 客户端可访问。专项功能与性能复验、开发者验收及 production 链路仍待完成。
 - [ ] T6.1 站长专用备份页/状态/手动创建与重试、加密下载、WebDAV/S3，逐请求 OWNER_EMAIL + 正常管理员门禁；来源和 CSRF 校验不靠隐藏入口。
 - [ ] T6.1 配置完整外部目标后才可启用频率/北京时间设置；共用 D1→私有 R2→加密→所选目标→回读校验，目标失效拒绝，保留各端最后可恢复副本。
 - [ ] T6.1 本地模拟权限、环境、下载可恢复性、部分失败、重试和保留；staging 实测网页执行生命周期/中断重试、全定时流程 15 分钟、存储访问与内存成本。

@@ -64,7 +64,7 @@
 
 > 📌 详细的实施细节、技术决策与进展简报，请参阅 [开发总计划 (PLAN.md)](PLAN.md) 与 [项目进展简报 (docs/progress.md)](docs/progress.md)。
 
-staging 的 Workers Builds 已监听 GitHub `dev`，云端测试、构建及当前 D1 迁移通过；`cf` strict 限制下使用 Wrangler 补充发布，其配置从已验证产物生成，本地打包检查通过，云端发布待验证。production 未启用自动发布；配置及状态见[运维计划](docs/plan/operations.md)。
+staging 的 Workers Builds 已监听 GitHub `dev`，推送后在云端完成测试、构建、D1 迁移和发布；`cf` strict 限制下使用 Wrangler 补充上传，其配置从已验证产物生成。实际自动发布、Secrets/资源绑定保留和线上入口烟测通过，专项功能与性能复验仍待完成。production 未启用自动发布；配置及状态见[运维计划](docs/plan/operations.md)。
 
 ---
 
