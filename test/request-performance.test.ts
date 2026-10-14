@@ -21,8 +21,12 @@ it("bounds repeated identity and media work in real Worker requests", async () =
     env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-object',20,'hash',4,'h264','aac',100,NULL)"),
     env.DB.prepare("INSERT INTO subtitle_tracks VALUES ('zh','episode-unit','zh','vtt','中文','zh','fictional-subtitle',8,'hash',NULL)"),
   ]);
-  await env.MEDIA_BUCKET.put("fictional-object", "0123456789abcdefghij");
-  await env.MEDIA_BUCKET.put("fictional-subtitle", "WEBVTT\n\n");
+  const video = await env.MEDIA_BUCKET.put("fictional-object", "0123456789abcdefghij");
+  const subtitle = await env.MEDIA_BUCKET.put("fictional-subtitle", "WEBVTT\n\n");
+  await env.DB.batch([
+    env.DB.prepare("UPDATE media_files SET r2_etag = ? WHERE id = 'source'").bind(video!.etag),
+    env.DB.prepare("UPDATE subtitle_tracks SET r2_etag = ? WHERE id = 'zh'").bind(subtitle!.etag),
+  ]);
   const runtime = { ...env, APP_ENV: "development" };
   const protection = await csrf(cookie); cookie = protection.cookie;
   const authorization = await authorizePlayback(request("/watch/episode-unit", undefined, cookie), runtime, "episode-unit");

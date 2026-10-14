@@ -16,6 +16,8 @@
 
 证据：[第四阶段](../screenshots/phase4/README.md)、[长时数据](../screenshots/phase4/staging-playback-report.json)、[设计修复](../screenshots/design-fixes-20261007/README.md)。平台 134 请求、7118.834 ms CPU、错误 0，146 条日志无已知凭证泄漏；样本不代表完整容量。保留既有 6120 服务，不重启或另起端口。
 
+局部修复自检（2026-10-14）：`playback.test.ts`、`player-renewal.test.ts`、`media-sync.test.ts`、`request-identity.test.ts`、`request-performance.test.ts` 共 33 项及 Node 续期 2 项通过；类型检查和 development 构建通过。覆盖缺失/不匹配版本的 GET/HEAD/Range 拒绝、扫描冲突及验证恢复、字幕异常后新期限与后续续期、暂停/自动播放受阻提示，以及视频失败的重试/到期暂停；身份竞态与既有 D1 预算保持通过。PR #24 对应 20 项与 Node 2 项、类型检查和构建也通过。测试执行真实组件 effect/续期控制器，模拟浏览器、ArtPlayer 和授权请求边界；不声称真实解码或字幕 HTTP 404 必然使库拒绝。未重跑全量、浏览器、staging、实机或长播验收，未迁移或部署。
+
 2026-10-13：T4.5 本地播放页 D1 调用 15→7，视频 GET/HEAD/Range 与字幕 6→4，签发/续期 7→5。最终授权 SQL、R2 完整性、Range 与取消边界及身份读取后的竞态用例通过；详见[专项报告](../performance-request-identity-20261013.md)。本次未重复两小时长播，尚未部署或复验 staging。
 
 #### 6.6.1 token 载荷与撤销边界
@@ -32,6 +34,8 @@
 #### 6.6.2 R2 与 HTTP Range 契约
 
 鉴权先于 HEAD、Range 判断、条件响应和任何 R2 读取。Worker 使用私有 R2 binding，将资源 ID 映射到 D1 中的对象键，不重定向到 R2，也不返回可绕过 Worker 的预签名地址。
+
+视频和字幕请求要求数据库保存的已验证 `r2_etag` 非空且与 R2 当前版本一致，否则返回脱敏 `404`。历史未记录版本的引用须经扫描验证格式、校验和及长度后补齐版本，不能仅凭长度相同放行。
 
 | 请求 | 外部行为 |
 | --- | --- |
@@ -57,6 +61,8 @@
 
 
 ArtPlayer 在浏览器懒加载，同源 MP4/VTT；切单元重建并读取目标起点，取消旧单元迟到响应。续期按 B 6.6.1.1 提前 5 分钟、5/15/30 秒最多三次，401/403 停止，到期暂停；换 URL 保留位置、暂停/播放和字幕。Token 放 query 以兼容 video 无自定义请求头，日志须剔除。
+
+播放器在视频换源成功后单独捕获字幕切换异常，保留字幕失败与自动播放受阻提示，并让续期控制器采用新期限；授权或视频换源异常继续交给原续期失败路径处理。
 
 正式授权入口为 POST /playback/:id/authorize（早期 /playback/tokens 为草案），服务端验证单元和文件归属、当前会话与 CSRF；签发和续期使用同一授权逻辑。资源入口 /media/:id、/subtitles/:id，Cookie 加同一 token，不接受客户端对象路径。
 
