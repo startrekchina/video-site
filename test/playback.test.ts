@@ -106,6 +106,45 @@ it("returns sanitized 503 for resource metadata failures without charging signin
   } finally { head.mockRestore(); }
 });
 
+it.each(["video", "subtitle"])("returns sanitized 503 for %s content failures and recovers with the same token", async target => {
+  const authorization = await auth(), video = target === "video";
+  const url = video ? authorization.url : authorization.tracks[0].url;
+  const objectKey = video ? "fictional-private-object" : "fictional-private-subtitle";
+  const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
+  const get = vi.spyOn(env.MEDIA_BUCKET, "get").mockRejectedValue(new Error(`${objectKey} storage failure`));
+  try {
+    for (const options of [{}, { headers: { Range: "bytes=0-1" } }]) {
+      get.mockClear();
+      const response = await http(url, options);
+      expect(get).toHaveBeenCalledOnce();
+      expect(get.mock.calls[0][0]).toBe(objectKey);
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+      expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+      expect(response.headers.get("X-Request-Id")).toBeTruthy();
+      expect(response.headers.has("ETag")).toBe(false);
+      expect(response.headers.has("Content-Range")).toBe(false);
+      const body = await response.json();
+      expect(body).toMatchObject({ error: { code: "MEDIA_UNAVAILABLE", message: "媒体服务暂时不可用，请稍后重试。" } });
+      expect(JSON.stringify(body)).not.toMatch(/fictional-private|object_key|r2_etag|storage failure|\?token=|"stack"/u);
+    }
+    get.mockClear();
+    const head = await http(url, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("Content-Length")).toBe(video ? "20" : "8");
+    expect(await head.text()).toBe("");
+    expect(get).not.toHaveBeenCalled();
+  } finally { get.mockRestore(); }
+  const recovered = await http(url);
+  expect(recovered.status).toBe(200);
+  expect(await bytesText(recovered)).toBe(video ? "0123456789abcdefghij" : "WEBVTT\n\n");
+  const partial = await http(url, { headers: { Range: "bytes=0-1" } });
+  expect(partial.status).toBe(206);
+  expect(partial.headers.get("Content-Range")).toBe(`bytes 0-1/${video ? 20 : 8}`);
+  expect(await bytesText(partial)).toBe(video ? "01" : "WE");
+  expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(before);
+});
+
 it.each(["unverified", "empty-version", "missing", "replaced", "wrong-length"])("rejects %s video before initial or renewal signing without charging quota", async state => {
   await auth();
   const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
