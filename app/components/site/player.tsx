@@ -4,7 +4,7 @@ import type { Authorization } from "@/lib/playback.server";
 import { fetchAuthorization, startRenewal } from "@/lib/playback-client";
 import { Button } from "@/components/ui/button";
 
-export function Player({ unitId, authorization, csrfToken, startSeconds, subtitle, onSubtitleChange }: { unitId: string; authorization: Authorization; csrfToken: string; startSeconds: number; subtitle: string; onSubtitleChange: (id: string) => void }) {
+export function Player({ unitId, authorization, csrfToken, startSeconds, subtitle, onSubtitleChange, onTracksChange }: { unitId: string; authorization: Authorization; csrfToken: string; startSeconds: number; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: Authorization["tracks"]) => void }) {
   const container = useRef<HTMLDivElement>(null), retry = useRef<() => void>(() => {});
   const frame = useRef<HTMLDivElement>(null), selectSubtitle = useRef<(id: string) => void>(() => {});
   const [message, setMessage] = useState("");
@@ -50,6 +50,7 @@ export function Player({ unitId, authorization, csrfToken, startSeconds, subtitl
         if (disposed || !art) return;
         const position = art.currentTime, paused = art.video.paused;
         current = next;
+        onTracksChange(next.tracks);
         if (!current.tracks.some(track => track.id === selected) && selected !== "off") { selected = "off"; onSubtitleChange("off"); }
         await art.switchUrl(absolute(next.url));
         if (disposed) return;
