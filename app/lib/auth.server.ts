@@ -53,6 +53,8 @@ export function createAuth(env: Env, registrationUserId?: string, integration?: 
     session: { ...settings.session, cookieCache: { enabled: false } },
     rateLimit: { enabled: true, storage: "database", ...settings.rateLimits.auth },
     advanced: {
+      // Migrations and runtime tests validate the schema; do not introspect it on every request.
+      database: { validateSchema: env.APP_ENV === "test" },
       ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
       // The cookie is explicitly named; avoid Better Auth's automatic __Secure- prefix.
       useSecureCookies: false,
