@@ -42,6 +42,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 export function shouldRevalidate(args: ShouldRevalidateFunctionArgs) {
   return !args.formMethod && presentationNavigation(args.currentUrl, args.nextUrl) ? false : args.defaultShouldRevalidate;
 }
+export function headers({ errorHeaders }: Route.HeadersArgs) { return errorHeaders ?? {}; }
 
 export default function App({ loaderData }: Route.ComponentProps) {
   return <SiteShell member={loaderData.member} catalog={loaderData.catalog}><Outlet /></SiteShell>;
