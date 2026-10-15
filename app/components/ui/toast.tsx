@@ -180,7 +180,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
   )
 }
 
-// data.dismissible === false keeps a toast until code closes it: no close button and no swipe.
+// data.dismissible === false keeps a toast until code closes it: no close button, swipe or Escape.
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager<{ dismissible?: boolean }>()
 
@@ -191,6 +191,14 @@ function ToastList() {
         key={toastItem.id}
         toast={toastItem}
         swipeDirection={dismissible ? undefined : []}
+        // Base UI closes a focused toast on Escape regardless of swipeDirection.
+        onKeyDown={
+          dismissible
+            ? undefined
+            : (event) => {
+                if (event.key === "Escape") event.preventBaseUIHandler()
+              }
+        }
       >
         <ToastContent>
           <ToastIcon type={toastItem.type} />
@@ -235,6 +243,7 @@ export {
   ToastDescription,
   ToastPortal,
   ToastProvider,
+  ToastList,
   ToastTitle,
   ToastViewport,
   createToastManager,
