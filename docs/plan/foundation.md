@@ -40,7 +40,7 @@
 
 Workers 静态资源默认 `Cache-Control: public, max-age=0, must-revalidate`，整页加载和再次访问时每个脚本、样式与字体都要回源校验。构建产物的 `.js`、`.css`、`.woff2` 文件名均含内容 hash，内容变化即换名，HTML 为 `private, no-store`，长期缓存不会让用户停留在旧代码。
 
-- [ ] `public/_headers` 仅为 `/assets/*.js`、`/assets/*.css`、`/assets/*.woff2` 设置 `Cache-Control: public, max-age=31536000, immutable`；同在 `/assets/` 下但文件名不含 hash 的海报、剧照保持平台默认。
+- [x] `public/_headers` 仅为 `/assets/*.js`、`/assets/*.css`、`/assets/*.woff2` 设置 `Cache-Control: public, max-age=31536000, immutable`；同在 `/assets/` 下但文件名不含 hash 的海报、剧照保持平台默认。
 - [ ] staging 核对三类文件的响应头，并确认 `.webp` 与 HTML 未受影响。
 
 ## 技术基线与限制

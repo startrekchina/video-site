@@ -2,3 +2,11 @@
   X-Robots-Tag: noindex
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
+
+# Content-hashed build output only; same-named posters and stills under /assets/ keep the platform default.
+/assets/*.js
+  Cache-Control: public, max-age=31536000, immutable
+/assets/*.css
+  Cache-Control: public, max-age=31536000, immutable
+/assets/*.woff2
+  Cache-Control: public, max-age=31536000, immutable
