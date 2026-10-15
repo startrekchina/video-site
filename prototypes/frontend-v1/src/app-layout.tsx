@@ -60,7 +60,7 @@ export function AppLayout() {
   )
 }
 
-/** Sign-in flow pages: login, register, recovery, reset. */
+/** Sign-in flow pages: login and register. */
 export function AuthLayout() {
   return (
     <Providers>

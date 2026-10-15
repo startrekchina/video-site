@@ -19,11 +19,19 @@ describe("worker responses", () => {
     const response = await fetchPath("/reset-password/complete");
     expect(response.status).toBe(200); expectSecurityHeaders(response);
     const html = await response.text();
-    expect(html).toContain("密码已重置"); expect(html).toContain("旧会话已撤销");
+    expect(html).toContain("密码已重设"); expect(html).toContain("所有设备已退出登录");
     expect(html).toMatch(/href="\/login"[^>]*>前往登录/);
     expect(html).not.toMatch(/<form\b|type="password"|保存新密码|challenges\.cloudflare\.com/);
     const reset = await (await fetchPath("/reset-password?token=fictional-link")).text();
     expect(reset).toContain('name="newPassword"'); expect(reset).toContain("保存新密码");
+    const expired = await (await fetchPath("/reset-password?error=INVALID_TOKEN")).text();
+    expect(expired).toContain("重设链接无效或已过期"); expect(expired).toMatch(/href="\/forgot-password"/); expect(expired).not.toContain('name="newPassword"');
+    expect(await (await fetchPath("/verify-email?error=EMAIL_CHANGE_ACCOUNT")).text()).toContain("不属于当前登录的账号");
+  });
+  it("titles public pages with the site name, the page's own name first", async () => {
+    for (const [path, title] of [["/", "星际舰队档案馆"], ["/login", "登录 · 星际舰队档案馆"], ["/about", "关于 · 星际舰队档案馆"], ["/missing-star", "页面不存在 · 星际舰队档案馆"]]) {
+      expect(await (await fetchPath(path)).text()).toContain(`<title>${title}</title>`);
+    }
   });
   it("does not emit reset-link logs that Cloudflare would enrich with the path credential", async () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => {});
@@ -39,7 +47,7 @@ describe("worker responses", () => {
       await member(); const cookie = await login();
       const account = await exports.default.fetch("http://localhost:6120/account", { headers: { Cookie: cookie } });
       expect(account.status).toBe(200); expectSecurityHeaders(account);
-      const html = await account.text(); expect(html).toContain("管理登录方式、二步验证和登录会话。"); expect(html).toContain("Nova");
+      const html = await account.text(); expect(html).toContain("管理登录方式、二步验证和登录设备。"); expect(html).toContain("Nova");
       expect(html).not.toMatch(/"password"|"token"|"secret"|backupCodes\":/);
       const forbidden = await exports.default.fetch("http://localhost:6120/admin", { headers: { Cookie: cookie } });
       expect(forbidden.status).toBe(403); expectSecurityHeaders(forbidden);
@@ -106,8 +114,8 @@ describe("worker responses", () => {
     expect(html).toContain("注册邮箱");
     expect(html).toContain("邮箱找回密码");
     expect(html).toContain("1 小时内有效");
-    expect(html).toContain("正确密码加一个未用备用码");
-    expect(html).toContain("不承诺网页自助或管理员一键恢复");
+    expect(html).toContain("正确密码加一个未使用的备用码");
+    expect(html).toContain("管理员也无法替你重设");
     expect(html).not.toMatch(/href="\/recover"|注册时拿到的任意一个恢复码|24 小时内有效|连续认证失败时/);
     expect(html).toContain('name="theme"');
     expect(html).not.toMatch(/href="\/(series|movies|library|playlists|invites|account|admin)(?:["#?\/])/);

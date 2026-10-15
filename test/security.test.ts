@@ -1,23 +1,24 @@
 import { env } from "cloudflare:workers";
 import { expect, it } from "vitest";
-import { checkCsrf, cookieName, cookieValue, csrfData, privateCookie, safeNext } from "@/lib/security.server";
+import { checkWrite, cookieName, cookieValue, privateCookie, safeNext } from "@/lib/security.server";
 
-it("binds business CSRF to a private nonce and rejects cross-site, missing and duplicate cookies", async () => {
-  const result = await csrfData(new Request(env.APP_ORIGIN), env);
-  const cookie = result.headers.getSetCookie()[0].split(";")[0];
-  const headers = { Cookie: cookie, Origin: new URL(env.APP_ORIGIN).origin };
-  await expect(checkCsrf(new Request(env.APP_ORIGIN, { headers }), env, result.csrfToken)).resolves.toBeUndefined();
-  for (const invalid of [{ ...headers, Origin: "https://evil.invalid" }, { ...headers, "Sec-Fetch-Site": "same-site" }, { ...headers, Cookie: `${cookie}; ${cookie}` }, { ...headers, Cookie: "" }]) {
-    await expect(checkCsrf(new Request(env.APP_ORIGIN, { headers: invalid }), env, result.csrfToken)).rejects.toMatchObject({ body: { code: "CSRF_INVALID" } });
-  }
-  expect((await csrfData(new Request(env.APP_ORIGIN, { headers }), env)).csrfToken).toBe(result.csrfToken);
+it("accepts only same-origin JSON writes and rejects cross-site, same-site, missing-origin and non-JSON requests", () => {
+  const origin = new URL(env.APP_ORIGIN).origin, json = { Origin: origin, "Content-Type": "application/json; charset=utf-8" };
+  expect(() => checkWrite(new Request(env.APP_ORIGIN, { method: "POST", headers: json }), env)).not.toThrow();
+  expect(() => checkWrite(new Request(env.APP_ORIGIN, { method: "POST", headers: { ...json, "Sec-Fetch-Site": "same-origin" } }), env)).not.toThrow();
+  for (const [headers, code] of [
+    [{ ...json, Origin: "https://evil.invalid" }, "CSRF_INVALID"], [{ "Content-Type": "application/json" }, "CSRF_INVALID"],
+    [{ ...json, "Sec-Fetch-Site": "cross-site" }, "CSRF_INVALID"], [{ ...json, "Sec-Fetch-Site": "same-site" }, "CSRF_INVALID"],
+    [{ ...json, "Content-Type": "text/plain" }, "INVALID_INPUT"], [{ ...json, "Content-Type": "application/x-www-form-urlencoded" }, "INVALID_INPUT"],
+    [{ ...json, "Content-Type": "multipart/form-data; boundary=x" }, "INVALID_INPUT"], [{ Origin: origin }, "INVALID_INPUT"],
+  ] as const) expect(() => checkWrite(new Request(env.APP_ORIGIN, { method: "POST", headers }), env), JSON.stringify(headers)).toThrow(expect.objectContaining({ body: expect.objectContaining({ code }) }));
   expect(cookieValue(new Request(env.APP_ORIGIN, { headers: { Cookie: "x=1; xx=2" } }), "x")).toBe("1");
 });
 
 it("uses host-only secure cookies on deployed HTTPS and accepts only safe relative return targets", () => {
   const secure = { ...env, APP_ORIGIN: "https://example.test" };
-  expect(cookieName(secure, "csrf")).toBe("__Host-csrf");
-  expect(privateCookie(secure, "csrf", "fictional", 300)).toBe("__Host-csrf=fictional; Path=/; HttpOnly; SameSite=Lax; Max-Age=300; Secure");
+  expect(cookieName(secure, "registration")).toBe("__Host-registration");
+  expect(privateCookie(secure, "registration", "fictional", 300)).toBe("__Host-registration=fictional; Path=/; HttpOnly; SameSite=Lax; Max-Age=300; Secure");
   for (const value of ["//evil.invalid", "/\\evil.invalid", "https://evil.invalid", "/\u0000evil", "x".repeat(2049)]) expect(safeNext(value, env.APP_ORIGIN)).toBe("/account");
   expect(safeNext("/invites?view=mine", env.APP_ORIGIN)).toBe("/invites?view=mine");
 });

@@ -32,6 +32,22 @@ for (const mode of ["staging", "production"]) test(`remote migration runs from a
   assert.deepEqual(readdirSync(join(directory, ".cloudflare")), []);
 });
 
+for (const mode of ["staging", "production"]) test(`remote migration accepts injected environment without a dotenv file (${mode})`, t => {
+  const temporaryRoot = resolve(tmpdir());
+  const directory = mkdtempSync(join(temporaryRoot, "video-site-remote-migration-test-"));
+  t.after(() => { assert.equal(dirname(directory), temporaryRoot); rmSync(directory, { recursive: true, force: true }); });
+  mkdirSync(join(directory, "migrations")); mkdirSync(join(directory, "node_modules/cf/bin"), { recursive: true });
+  writeFileSync(join(directory, "migrations/0001_fixture.sql"), "SELECT 1;");
+  writeFileSync(join(directory, "node_modules/cf/bin/cf"), "console.log(JSON.stringify(process.argv.slice(2)));");
+  const databases = { STAGING_D1_DATABASE_ID: "00000000-0000-4000-8000-000000000001", PRODUCTION_D1_DATABASE_ID: "00000000-0000-4000-8000-000000000002" };
+  assert.equal(existsSync(join(directory, ".env")), false);
+  const args = JSON.parse(execFileSync(process.execPath, [resolve("scripts/migrate-remote.mjs"), mode],
+    { cwd: directory, encoding: "utf8", env: { ...process.env, ...databases } }));
+  assert.equal(args[3], databases[`${mode.toUpperCase()}_D1_DATABASE_ID`]);
+  assert.equal(args[args.indexOf("--mode") + 1], mode);
+  assert.deepEqual(readdirSync(join(directory, ".cloudflare")), []);
+});
+
 for (const expired of [false, true]) test(`remote migration transport preserves atomic registration (expired=${expired})`, () => {
   const db = new DatabaseSync(":memory:");
   try {

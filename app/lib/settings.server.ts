@@ -17,9 +17,6 @@ export const settings = {
   commentMaxLength: 1000,
   commentsPerPage: 10,
   repliesPerBatch: 10,
-  playbackTokenTtl: 30 * MINUTE,
-  playbackTokenRenewBefore: 5 * MINUTE,
-  playbackTokenRenewRetryDelays: [5, 15, 30],
 
   session: {
     expiresIn: 30 * DAY,
@@ -37,7 +34,6 @@ export const settings = {
 
   rateLimits: {
     auth: { window: 10, max: 100 },
-    playbackTokenPerMember: { perMinute: 30 },
     adminHighImpactPerAdmin: { perMinute: 30 },
     memberEmail: { minInterval: 60, perHour: 5 },
   },

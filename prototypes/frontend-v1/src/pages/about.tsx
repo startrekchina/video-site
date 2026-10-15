@@ -1,6 +1,7 @@
 import type React from "react"
+import { useEffect } from "react"
 import { ArrowRightIcon } from "lucide-react"
-import { Link } from "react-router"
+import { Link, useLocation } from "react-router"
 
 import { useStore } from "@/data/store"
 import { useActiveSection } from "@/lib/use-active-section"
@@ -23,10 +24,11 @@ const SECTIONS = [
 ]
 
 const KEPT = [
-  { what: "用户名", why: "你自己设置。公开片单时，其他成员能看到作者的用户名。" },
-  { what: "密码", why: "只保存加盐哈希，任何人都看不到原文。" },
+  { what: "用户名", why: "你自己设置，注册后不能修改。其他成员会在评论、公开片单和邀请记录中看到你的用户名。" },
+  { what: "注册邮箱", why: "用于验证邮箱、找回密码和接收账号安全提醒，不向其他成员公开。" },
+  { what: "密码", why: "经不可逆处理后保存，包括站长在内，任何人都看不到原文。" },
   { what: "观看进度、收藏和片单", why: "用于续播和跨设备同步。片单默认私有。" },
-  { what: "登录会话", why: "设备和大致位置。你可以在账号页查看，并退出不认识的会话。" },
+  { what: "登录设备", why: "设备信息、登录 IP 和最近活跃时间。你可以在账号页查看已登录的设备，并退出不认识的设备。" },
   { what: "邀请关系", why: "谁邀请了你、你邀请了谁，管理员可见。" },
 ]
 
@@ -57,6 +59,12 @@ function Spec({ label, children, className }: { label: string; children: React.R
 export function AboutPage() {
   const me = useStore((s) => s.me)
   const active = useActiveSection(SECTIONS.map((s) => s.href.slice(1)))
+  const { hash } = useLocation()
+
+  // The layout resets scroll on navigation, so deep links such as /about#recovery jump to their section here.
+  useEffect(() => {
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" })
+  }, [hash])
 
   return (
     <Page narrow className="relative">
@@ -117,8 +125,8 @@ export function AboutPage() {
         <ol className="divide-y divide-line">
           {[
             "账号只给自己用，不要借给别人。",
-            "邀请只发给信得过的朋友。你邀请的人违反守则时，你也可能被连带处理。",
-            "不要转发播放地址。地址很快失效，而且只对你自己的账号有效。",
+            "邀请只发给信得过的朋友。若成员严重违规，其账号以及经他直接或间接邀请加入的成员账号可能一同被封禁。",
+            "不要把站内视频转发或分享到站外。",
             "违反守则的账号会被封禁，封禁后立即无法登录。",
           ].map((r, i) => (
             <li key={r} className="flex gap-4 p-4">
@@ -141,7 +149,7 @@ export function AboutPage() {
           ))}
         </dl>
         <p className="screen-line-top p-4 text-pretty text-muted-foreground [&_strong]:font-medium [&_strong]:text-foreground">
-          我们<strong>不收集</strong>邮箱、手机号和真实姓名，不使用第三方统计或广告。连续输错密码时会弹出 Cloudflare Turnstile 人机验证。数据库每天加密备份。
+          我们<strong>不收集</strong>手机号和真实姓名，不使用第三方统计或广告。注册、密码登录、申请验证邮件和邮箱找回均有人机验证与频率限制。数据库备份存到站外前会先加密。
         </p>
       </Section>
 
@@ -150,17 +158,18 @@ export function AboutPage() {
       <Section id="recovery" title="找回账号">
         <ol className="divide-y divide-line">
           <li className="flex flex-col gap-1 p-4">
-            <span className="font-medium">忘记密码</span>
+            <span className="font-medium">忘记密码，通过注册邮箱找回</span>
             <span className="text-pretty text-muted-foreground">
-              用注册时拿到的任意一个恢复码，自己重设密码。
-              <Link to="/recover" className="link-underline ml-1 text-foreground">
-                使用恢复码
-              </Link>
+              向注册邮箱申请重设链接，1 小时内有效。重设后所有设备都会退出登录；通行密钥、验证器和未使用的备用码不受影响，开启了二步验证的，登录时仍需输入动态验证码或备用码。
             </span>
           </li>
           <li className="flex flex-col gap-1 p-4">
-            <span className="font-medium">恢复码也丢了</span>
-            <span className="text-pretty text-muted-foreground">请邀请你的人转告管理员。管理员会生成一个一次性重置链接，24 小时内有效。重置后，所有旧的登录会话都会失效。</span>
+            <span className="font-medium">遗失验证器</span>
+            <span className="text-pretty text-muted-foreground">开启二步验证时请妥善保存备用码。遗失验证器后，可用正确密码加一个未使用的备用码登录；每个备用码只能使用一次。备用码不能重设密码。已添加的通行密钥也可用于登录。</span>
+          </li>
+          <li className="flex flex-col gap-1 p-4">
+            <span className="font-medium">无法找回的情况</span>
+            <span className="text-pretty text-muted-foreground">没有可用的通行密钥时，如果验证器和全部备用码都已遗失，或者忘记密码且无法使用注册邮箱，账号将无法找回，管理员也无法替你重设。请妥善保存备用码，并建议添加一个通行密钥。</span>
           </li>
         </ol>
       </Section>
@@ -183,9 +192,9 @@ export function AboutPage() {
         <dl className="grid grid-cols-2 gap-px bg-line font-mono">
           <Spec label="运行于">Cloudflare Workers</Spec>
           <Spec label="播放器">ArtPlayer</Spec>
-          <Spec label="字幕">中文 / English · VTT</Spec>
+          <Spec label="字幕">中文 / 英文 · VTT</Spec>
           <Spec label="字体">Noto Sans SC · Geist Mono</Spec>
-          <Spec label="剧集资料" className="col-span-2">
+          <Spec label="作品资料" className="col-span-2">
             <span className="font-sans text-muted-foreground">
               来自{" "}
               <a className="link-underline text-foreground" href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer">

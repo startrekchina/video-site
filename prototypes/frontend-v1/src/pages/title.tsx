@@ -32,7 +32,7 @@ function Overview({ work }: { work: Work }) {
       <p>
         {work.overviewZh ?? work.overviewEn}
         {zhMissing && (
-          <Tag className="ml-2 align-middle" title="中文资料缺失，显示英文">
+          <Tag className="ml-2 align-middle" title="暂无中文简介，显示英文">
             EN
           </Tag>
         )}
@@ -124,7 +124,7 @@ function Header({ work, primary }: { work: Work; primary: React.ReactNode }) {
                   {work.seasons.length} 季 · {p.total} 集
                 </Meta>
                 <Meta icon={<CircleCheckIcon />}>
-                  已看 {p.watched}/{p.total}
+                  已看完 {p.watched}/{p.total} 集
                 </Meta>
               </>
             ) : (
@@ -169,7 +169,7 @@ function EpisodeRow({ ep }: { ep: Episode }) {
             {inProgress && (
               <span className="flex min-w-0 basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:basis-auto">
                 <ProgressBar value={pr.positionSec / pr.durationSec} className="w-12 shrink-0 sm:w-16" />
-                <span className="whitespace-nowrap">剩 {Math.round((pr.durationSec - pr.positionSec) / 60)} 分钟</span>
+                <span className="whitespace-nowrap">剩余 {Math.round((pr.durationSec - pr.positionSec) / 60)} 分钟</span>
               </span>
             )}
           </div>

@@ -29,14 +29,14 @@ export function SiteFooter({ minimal }: { minimal?: boolean }) {
           <>
             <div className="screen-line-bottom flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3 font-mono text-sm">
               <span className="font-medium">video.startrekchina.org</span>
-              <span className="font-sans text-muted-foreground">星际迷航中国粉丝社区 · 邀请制私人档案馆</span>
+              <span className="font-sans text-muted-foreground">星际舰队档案馆 · 《星际迷航》中文粉丝的邀请制观看站</span>
             </div>
 
             <dl className="grid grid-cols-2 gap-px bg-line font-mono md:grid-cols-4">
               <Field label="剧集">{SERIES.length} 部 · {SEASON_TOTAL} 季</Field>
               <Field label="单集">约 {EPISODE_TOTAL} 集</Field>
               <Field label="电影">{MOVIES.length} 部</Field>
-              <Field label="字幕">中文 / English · VTT</Field>
+              <Field label="字幕">中文 / 英文 · VTT</Field>
               <Field label="海报来源">
                 <a className="link-underline" href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer">
                   TMDB
@@ -47,7 +47,7 @@ export function SiteFooter({ minimal }: { minimal?: boolean }) {
               <Field label="字体">Noto Sans SC · Geist Mono</Field>
               <Field className="col-span-2 md:col-span-4" label="版权说明">
                 <span className="font-sans text-muted-foreground">
-                  《星际迷航》及相关海报版权归 Paramount 及原权利人所有。本站仅对受邀成员开放，不公开索引。
+                  《星际迷航》及相关海报版权归 Paramount 及原权利人所有。本站仅对受邀成员开放，不被搜索引擎收录。
                 </span>
               </Field>
             </dl>

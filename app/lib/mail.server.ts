@@ -2,6 +2,7 @@ import { APIError } from "better-auth/api";
 import { sendEmail } from "./email.server";
 import { sha256 } from "./registration.server";
 import { settings } from "./settings.server";
+import { siteName } from "./site";
 
 type Purpose = "registration_verification" | "verification_resend" | "email_change_verification" | "password_reset" | "admin_notification";
 export type MailAttempt = { id: string; email: string; purpose: Purpose };
@@ -33,8 +34,9 @@ export async function deliverMail(env: Env, attempt: MailAttempt, urlOrText: str
   if (!claim.meta.changes) return;
   const reset = attempt.purpose === "password_reset";
   const notification = attempt.purpose === "admin_notification";
-  const result = await sendEmail(env, { to: attempt.email, subject: notification ? "账号状态通知" : reset ? "重设你的密码" : "验证你的注册邮箱",
-    text: notification ? urlOrText : `请打开以下链接${reset ? "重设密码" : "验证邮箱"}（1 小时内有效）：\n${urlOrText}\n如非本人操作，请忽略这封邮件。` });
+  const change = attempt.purpose === "email_change_verification";
+  const result = await sendEmail(env, { to: attempt.email, subject: `【${siteName}】${notification ? "账号状态通知" : reset ? "重设你的密码" : change ? "确认修改登录邮箱" : "验证你的注册邮箱"}`,
+    text: notification ? urlOrText : `请打开以下链接${reset ? "重设密码" : change ? "确认修改邮箱" : "验证邮箱"}（1 小时内有效）：\n${urlOrText}\n如非本人操作，请忽略这封邮件。` });
   await env.DB.prepare(`UPDATE email_deliveries SET user_id = (SELECT user_id FROM member_profiles WHERE user_id = ?),
     status = ?, provider_message_id = ?, error_code = ? WHERE id = ?`)
     .bind(userId ?? null, result.status, result.status === "accepted" ? result.messageId : null, result.status === "accepted" ? null : result.errorCode, attempt.id).run();

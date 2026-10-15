@@ -13,7 +13,7 @@ node scripts/import-media.mjs catalog --environment staging --execute
 
 第一条只读取 TMDB 并报告数量，第二条先获取并验证完整资料，再通过项目 cf CLI 对 D1 执行一个原子批次。重复执行更新双语资料，保留已有作品/季/单元 ID、媒体实际时长、进度及讨论。TMDB 没有时长时保存 null；没有媒体的占位不获得播放授权。
 
-执行写入前，目标数据库须已应用 `0012_catalog_placeholders.sql` 或后续迁移；按 README 的目标环境迁移命令操作，不能把本地迁移完成视为云端已迁移。
+执行写入前，目标数据库须已应用 `0012_catalog_placeholders.sql` 或后续迁移；按[运维说明](plan/operations.md#695-远程数据库迁移与运维工程细节)中的目标环境迁移命令操作，不能把本地迁移完成视为云端已迁移。
 
 目标必须显式为 `staging` 或 `prod`。必需配置为目标环境的 `STAGING_D1_DATABASE_ID` / `STAGING_MEDIA_BUCKET_NAME` 或 `PRODUCTION_D1_DATABASE_ID` / `PRODUCTION_MEDIA_BUCKET_NAME`，执行时还须具备该环境构建配置和 cf 登录。缺配置、身份歧义、另一环境资源共用、TMDB 失败都会停止；不能默认写 prod。
 
@@ -33,7 +33,7 @@ library/movie/800001/movie.mp4
 library/movie/800001/movie.zh.main.vtt
 ```
 
-季/集号至少两位，无多余前导零；语言为 zh/en 及可选地区，轨道标识稳定。D1 字幕标识为 `language.trackKey`，因此不同语言的 main 不冲突。范围外、没有占位或命名错误的对象跳过；不猜片名。站长的上传工具负责 multipart 和断点恢复，扫描只读取已完成对象，不提供上传替代命令。
+季/集号至少两位，无多余前导零；语言为 zh/en 及可选地区，轨道标识稳定。D1 字幕标识为 `language.trackKey`，因此不同语言的 main 不冲突。同步生成的显示名只按语言显示“中文”“繁体中文”（zh-TW/HK/MO/Hant）或“英文”，同语言的非 main 轨道追加轨道名，例如“中文（alternate）”；离线导入工具填写的 `displayName` 原样保留。范围外、没有占位或命名错误的对象跳过；不猜片名。站长的上传工具负责 multipart 和断点恢复，扫描只读取已完成对象，不提供上传替代命令。
 
 Worker 的 staging / production 配置声明 `*/5 * * * *` Cron，通过当前环境 R2 binding 扫描。默认每页 1000 项，每次最多验证 20 个新/变更对象、6 分钟窗口；D1 保存最后处理对象键及互斥租约。已发布且 ETag/长度未变的对象跳过完整校验。失败或冲突对象在下一轮完整扫描重试，后续对象可以继续处理。
 

@@ -7,7 +7,8 @@ export const recommendedStarts = [
   { tmdbId: 655, why: "老粉最常推荐的入门作，七季一气呵成" },
   { tmdbId: 253, why: "1966 年，一切的起点：柯克与斯波克" },
 ].map(start => ({ ...start, season: 1, episode: 1 }));
-const codes: Record<number, string> = { 103516: "SNW", 655: "TNG", 253: "TOS", 580: "DS9", 1855: "VOY", 314: "ENT" };
+// Fan short codes, not TMDB data; every series in the poster manifest has one.
+const codes: Record<number, string> = { 253: "TOS", 1992: "TAS", 655: "TNG", 580: "DS9", 1855: "VOY", 314: "ENT", 67198: "DIS", 82491: "ST", 85948: "LD", 85949: "PIC", 106393: "PRO", 103516: "SNW", 223530: "SFA" };
 const stills = new Map(stillManifest.episodes.map(item => [`${item.tmdbId}:${item.season}:${item.episode}`, `/assets/stills/star-trek/${item.file}`]));
 
 // Called only after membership validation; no storage identifiers enter the global UI.
@@ -16,7 +17,7 @@ export async function catalogSummary(db: D1Database) {
     db.prepare("SELECT id, kind, tmdb_id, title_zh, title_en, year FROM works ORDER BY year, tmdb_id, id"),
     db.prepare("SELECT (SELECT count(*) FROM seasons) AS seasons, (SELECT count(*) FROM playable_units WHERE season_id IS NOT NULL) AS episodes"),
   ]);
-  return { works: works.results.map(row => ({ slug: String(row.id), kind: row.kind as "series" | "movie", titleZh: String(row.title_zh || row.title_en || "资料暂缺"), titleEn: String(row.title_en || ""), code: codes[Number(row.tmdb_id)] ?? "", year: row.year as number | null })),
+  return { works: works.results.map(row => ({ slug: String(row.id), kind: row.kind as "series" | "movie", titleZh: String(row.title_zh || row.title_en || "标题暂缺"), titleEn: String(row.title_en || ""), code: codes[Number(row.tmdb_id)] ?? "", year: row.year as number | null })),
     stats: { series: works.results.filter(row => row.kind === "series").length, movies: works.results.filter(row => row.kind === "movie").length, seasons: Number(counts.results[0].seasons), episodes: Number(counts.results[0].episodes) } };
 }
 
@@ -32,7 +33,7 @@ function searchQuery(query: string) {
   return query.trim();
 }
 function workDto(row: WorkRow) {
-  return { slug: row.id, kind: row.kind, tmdbId: row.tmdb_id, titleZh: row.title_zh || row.title_en || "资料暂缺", titleEn: row.title_en || "",
+  return { slug: row.id, kind: row.kind, tmdbId: row.tmdb_id, titleZh: row.title_zh || row.title_en || "标题暂缺", titleEn: row.title_en || "",
     overviewZh: row.overview_zh, overviewEn: row.overview_en, year: row.year,
     poster: row.poster_asset?.startsWith("/assets/posters/star-trek/") && !row.poster_asset.includes("..") ? row.poster_asset : "",
     code: codes[row.tmdb_id] ?? "", favorite: Boolean(row.favorite) };

@@ -126,14 +126,14 @@ describe("invitation source constraints", () => {
 describe("invitation source migration", () => {
   beforeEach(async () => {
     await reset();
-    const index = env.TEST_MIGRATIONS.findIndex(item => item.name === "0009_member_profiles_invitation_guard.sql");
+    const index = env.TEST_MIGRATIONS.findIndex(item => item.name === "0013_invitation_source_guard.sql");
     expect(index).toBeGreaterThan(0);
     await applyD1Migrations(env.DB, env.TEST_MIGRATIONS.slice(0, index));
     await seedMembers();
   });
 
   const migrate = () => applyD1Migrations(env.DB, env.TEST_MIGRATIONS.filter(
-    item => item.name === "0009_member_profiles_invitation_guard.sql",
+    item => item.name === "0013_invitation_source_guard.sql",
   ));
 
   it.each(invalidSources)("preserves existing records and refuses inconsistent data: %s", async (_name, consumer, issuer) => {
@@ -158,6 +158,23 @@ describe("invitation source migration", () => {
 });
 
 // PR #21's guarded legacy schema is the input to the membership-table rebuild.
+const legacyGuard = {
+  name: "pr21_legacy_invitation_source_guard.sql",
+  queries: [
+    `CREATE TRIGGER invitations_match_inviter_insert BEFORE INSERT ON invitations
+      WHEN NEW.used_by_user_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM users WHERE id = NEW.used_by_user_id AND invited_by_user_id IS NOT NEW.issuer_user_id
+      ) BEGIN SELECT RAISE(ABORT, 'Invitation issuer does not match member inviter'); END`,
+    `CREATE TRIGGER invitations_match_inviter_update BEFORE UPDATE OF issuer_user_id, used_by_user_id ON invitations
+      WHEN NEW.used_by_user_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM users WHERE id = NEW.used_by_user_id AND invited_by_user_id IS NOT NEW.issuer_user_id
+      ) BEGIN SELECT RAISE(ABORT, 'Invitation issuer does not match member inviter'); END`,
+    `CREATE TRIGGER users_match_consumed_invitation_insert BEFORE INSERT ON users
+      WHEN EXISTS (
+        SELECT 1 FROM invitations WHERE used_by_user_id = NEW.id AND issuer_user_id IS NOT NEW.invited_by_user_id
+      ) BEGIN SELECT RAISE(ABORT, 'Invitation issuer does not match member inviter'); END`,
+  ],
+};
 
 it.each(["nova", null])("upgrades the guarded legacy schema without losing invitation relations (%s)", async issuer => {
   await reset();
@@ -166,6 +183,7 @@ it.each(["nova", null])("upgrades the guarded legacy schema without losing invit
     item => item.name !== "0008_legacy_invitation_guard_retirement.sql",
   );
   await applyD1Migrations(env.DB, preceding);
+  await applyD1Migrations(env.DB, [legacyGuard]);
   const legacyUser = (id: string, inviter: string | null) => env.DB.prepare(`INSERT INTO users
     (id, username, username_key, email, email_key, email_verified_at, password_hash,
      role, status, invited_by_user_id, invite_quota, created_at)

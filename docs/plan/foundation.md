@@ -12,20 +12,39 @@
 - [x] DOC2 按站长要求继续精炼 A，保留八项核心能力及目标/范围；细则承接、链接和差异检查通过，不改变产品或阶段状态，见[精炼记录](../documentation-restructure-20261011.md#核心需求二次精炼)。
 - [x] DOC3 分离协作规则与项目结论，删减内容承接、临时授权记录、维护规则入口及文档链接/状态/差异检查通过；A/B 与功能里程碑不变，见[整理记录](../documentation-restructure-20261011.md#协作规则与项目结论分离)。
 
-文档验证（[PR #19](https://github.com/startrekchina/video-site/pull/19)）：缓存、续期、人机验证及文档职责边界的 8 份文档自检通过，涵盖 132 个本地链接/锚点、既有待办状态、续期默认值和 `git diff --check`；E2E1 与 T4.5 保持待实施。
+文档验证（[PR #19](https://github.com/startrekchina/video-site/pull/19)）：缓存、续期、人机验证及文档职责边界的 8 份文档自检通过，涵盖 132 个本地链接/锚点、既有待办状态、续期默认值和 `git diff --check`；E2E1 待接入，T4.5 当前实现与云端验收状态见[认证计划](authentication.md#t45-请求级身份与-d1-往返优化)。
 
 成熟库优先原则与[项目进展简报](../progress.md)已落实到文档；五章结构、协作称呼、状态依据、入口链接及差异检查通过，未调整功能实现或验收状态。
-
-主题 5 文档交付自检（2026-10-14）：20 份 Markdown 的 336 个本地链接及锚点、六个领域计划、用户故事 1–74 的连续编号和差异检查通过；前序 PR 的审查修复规则与验证记录保留在对应领域文档。只交付文档，不重复运行应用测试、构建或平台验收，T4.5 的实现与测量结果留待主题 6 交付。
 
 - [x] T2.1 建立执行计划并同步 README；原建立记录见历史归档。
 - [x] T2.2 工程骨架、公开响应安全头、robots、类型检查、构建和 Workers 测试入口落地。
 - [x] T2.3 本地/staging 配置与 Secrets 可用，staging/production 隔离声明、资源映射及构建/dry-run 通过；production 发布属于 T6.2。
 - [x] T2.5 版本化 D1 迁移、约束与虚构数据/生成媒体夹具通过；认证迁移由 authentication 维护。
 - [x] T2.6 前端基础从原型单向迁入；关于页/404 的桌面、手机、浅深色、主题及键盘复核通过。其余页面按各模块验收。
+- [ ] UI1 界面文案对齐实际行为（开发者 2026-10-15 批准两步）：统一术语并修正与行为不符的说明；需改逻辑的部分包括播放登录失效改为“重新登录”、全屏出错先退出全屏、重设与邮件链接失效落到页面说明、同步字幕按语言显示（迁移 `0014`）、剧集简称补全、首页通行密钥直接登录、非 Apple 平台显示 Ctrl、认证请求的网络/网关错误兜底与限流分钟换算；站名统一为“星际舰队档案馆”并为各页补标题（B 6.14）；B 故事 23/26 按会话鉴权改写；原型共有界面同步，并删除恢复码、管理员重置与免邮箱注册等旧流程。实现与本地自检通过：类型检查、257 项应用测试、21 项工具测试及正式/原型构建；原型关于、播放、注册页与找回锚点已浏览器查看，正式工程登录态页面、手机与深色主题未复核。
 - [ ] E2E1 建立少量关键路径的 Playwright Test 回归：先确认首批场景与环境，再接入隔离数据、真实页面操作、可按场景筛选的执行入口及失败证据保护；方案见[浏览器验证方案](#浏览器验证方案)。未接入不宣称自动化浏览器回归已通过。
 
 证据：[基础截图](../screenshots/phase2/README.md)、[新认证文案截图](../screenshots/phase2-better-auth/README.md)、[历史计划](../archive/plan-20261007.md)。命令与日常使用见根 README，不复制完整开发日志。
+
+### T4.7 业务写入来源与 JSON 校验
+
+开发者 2026-10-15 确认。业务页面凭证（`csrf` cookie 加 HMAC）沿用自建认证方案的通用基线；cookie 固定 24 小时过期且不续期，页面开着跨过过期时刻后提交失败，已复现播放续期因此返回 `403`，第五阶段进度上报同样受影响。现有来源校验已拒绝缺 Origin、跨站及同站子域请求，页面凭证不提供额外防护。改为与 Better Auth 1.7.7 原生模型一致：来源校验、Fetch Metadata、`SameSite=Lax` 会话 Cookie、仅接受 JSON 这类非简单请求，不使用页面凭证。
+
+- [x] 业务写入统一经一个入口：Origin 等于 `APP_ORIGIN`，拒绝 `cross-site` / `same-site` Fetch Metadata，要求 `Content-Type: application/json`；删除页面凭证、`csrf` cookie 及各 loader 与表单的传递。注册入口同样要求 JSON。
+- [x] 同步 B 6.1.1、6.9.4、6.12、7.1 与本计划 6.1.1；测试覆盖跨站、缺 Origin、非 JSON 拒绝及同源 JSON 成功。
+
+本地自检（2026-10-15）：类型检查与全量 Workers 测试通过；新增来源/Fetch Metadata/非 JSON 拒绝用例，管理员高影响操作在跨站、同站或非 JSON 请求下被拒且成员状态不变。注册入口由 Better Auth 原生拒绝非 JSON（`415`），站点只叠加来源校验。
+
+验收：账号、邀请、管理和注册写入在同源 JSON 下成功；跨站、缺 Origin 或非 JSON 请求被拒且无副作用；页面打开时长不影响提交。
+
+### T4.8 构建资源长期缓存
+
+Workers 静态资源默认 `Cache-Control: public, max-age=0, must-revalidate`，整页加载和再次访问时每个脚本、样式与字体都要回源校验。构建产物的 `.js`、`.css`、`.woff2` 文件名均含内容 hash，内容变化即换名，HTML 为 `private, no-store`，长期缓存不会让用户停留在旧代码。
+
+- [x] `public/_headers` 仅为 `/assets/*.js`、`/assets/*.css`、`/assets/*.woff2` 设置 `Cache-Control: public, max-age=31536000, immutable`；同在 `/assets/` 下但文件名不含 hash 的海报、剧照保持平台默认。
+- [x] staging 核对三类文件的响应头，并确认 `.webp` 与 HTML 未受影响。
+
+staging 核对（2026-10-15，`78914f2`）：入口脚本、根样式与字体返回 `public, max-age=31536000, immutable`，海报 `.webp` 保持 `public, must-revalidate, max-age=0`，首页 HTML 为 `no-store, private`。
 
 ## 技术基线与限制
 
@@ -35,7 +54,7 @@
 | --- | --- | --- |
 | 运行与包管理 | Node 24、pnpm 12 | 构建脚本需批准 `esbuild`、`workerd` |
 | 框架 | `react-router` / `@react-router/dev` 7.18.4，`future.v8_viteEnvironmentApi: true` | 需求定为 v7；自定义 `app/entry.server.tsx`（`renderToReadableStream`） |
-| Cloudflare 集成 | `cf` 1.0.0-beta.12（项目 devDependency）、`@cloudflare/vite-plugin` 2.0 beta、Vite 8 | 配置文件为 `cloudflare.config.ts`，没有 Wrangler 配置 |
+| Cloudflare 集成 | `cf` 1.0.0-beta.12、`@cloudflare/vite-plugin` 2.0 beta、Vite 8；Wrangler 4.150.0 补充 staging 发布 | `cloudflare.config.ts` 为权威配置，Wrangler 配置仅从 Build Output 生成，不提交资源映射 |
 | 测试 | `vitest` 4.1、`@cloudflare/vitest-plugin`（`experimental.newConfig`） | 读取 `cloudflare.config.ts`，`mode` 为 `test`；D1 迁移在 setup 中应用 |
 | 类型 | `.cloudflare/types/index.d.ts`（Vite 插件自动生成，`Env` 由配置推断） | `react-router typegen && tsc` 作为类型检查 |
 
@@ -43,7 +62,7 @@
 
 - `cf` 与 Vite 插件均为 beta，锁定精确版本；升级单独提交并重跑相关完整验证，不借文档拆分升级工具链。
 - **v7 与 Build Output 目录不一致**：Vite 插件 2.0 把客户端产物强制输出到 `.cloudflare/output/v0/workers/default/assets`，React Router v7 仍从 `build/client` 读写 manifest。用一个小 Vite 插件在构建时双向同步，待 [remix-run/react-router#15480](https://github.com/remix-run/react-router/pull/15480) 进入 v7 后删除。官方插件声明正式支持的是 React Router v8；是否升级 v8 属于需求变更，须站长决定并同步本技术基线和 README。
-- **`cf build` 不向 React Router 转发 `--mode`**：staging / prod 构建改用 `react-router build --mode <mode>`，部署用 `cf deploy --prebuilt --mode <mode>`（mode 须与构建一致）。本地开发直接 `cf dev`（mode 为 `development`）。
+- **`cf build` 不向 React Router 转发 `--mode`**：staging / prod 构建使用 `react-router build --mode <mode>`；production 预备路径为 `cf deploy --prebuilt --mode production`，staging 使用[运维计划的 Wrangler 补充发布](operations.md#695-远程数据库迁移与运维工程细节)。部署目标须与构建一致；本地开发直接 `cf dev`（mode 为 `development`）。
 - **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；staging / prod 的真实 ID 由被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
 - **远程 D1 触发器解析**：staging 的 `/query` 将 0010 内裸 `CASE…END` 错认作触发器结束；该迁移完整回滚，0009 已成功。[同类问题](https://github.com/cloudflare/workers-sdk/issues/4727)用等价括号规避。`pnpm db:migrate:staging` / `db:migrate:production` 只规范临时副本，再交给 cf 的增量迁移 runner，原始迁移不改写；SQLite 正反用例及 staging 0010/0011 实测通过。
 - **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `staging` / `production`）返回完整配置；Worker 名、D1、R2、Rate Limiting namespace 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 staging / prod。
@@ -66,9 +85,9 @@
 - 路由模块负责 loader / action 的输入输出，认证、D1 查询、签名、R2 和备份逻辑放在 `*.server.ts` 或 Worker 服务端模块。浏览器构建不能引用 Secrets、数据库绑定或对象存储键。
 - 每个受保护的 loader、action 和资源路由都单独校验会话、成员状态和权限，不能只依赖父布局 loader；框架的数据请求、预取和直接 HTTP 请求也受同一规则约束。`userId` 和角色取自服务端会话，不接受客户端指定当前身份。
 - 会话 Cookie 按 Better Auth 的签名不透明 token 设置，生产命名 `__Host-session`，使用 `HttpOnly; Secure; SameSite=Lax; Path=/` 且无 `Domain`。D1 按原生 schema 保存 token 原值，Cookie 签名 Secret 独立保管；不再要求哈希会话表。库 Cookie 名映射和本地 HTTP 开发例外须实测，不能把本地属性当作生产验收。期限与改密行为见 6.3.3。
-- 站点业务写入走 action 或非 GET 接口，校验 Origin 与 `APP_ORIGIN`、Fetch Metadata，并保留业务 CSRF token。Better Auth 入口使用库原生 Origin / Fetch Metadata / SameSite 防护，不再强制附加自定义 `csrfToken`；服务端 API 的包装入口同样先完成跨站检查，不能以内部调用跳过防护。验证邮件 GET 是 6.0.1 明确的例外。trustedOrigins 限于本环境，同源凭证，不开放跨域媒体；回跳限定本站。
+- 站点业务写入走 action 或非 GET 接口，统一经 `checkWrite` 校验 Origin 等于 `APP_ORIGIN`、拒绝 `cross-site` / `same-site` Fetch Metadata，并只接受 `Content-Type: application/json`，不使用页面凭证（T4.7）。Better Auth 入口使用库原生 Origin / Fetch Metadata / SameSite 防护，不再强制附加自定义 `csrfToken`；服务端 API 的包装入口同样先完成跨站检查，不能以内部调用跳过防护。验证邮件 GET 是 6.0.1 明确的例外。trustedOrigins 限于本环境，同源凭证，不开放跨域媒体；回跳限定本站。
 - 站点业务 JSON action 成功结构为 `{ data, requestId }`，失败为 `{ error: { code, message, fieldErrors?, challenge? }, requestId }`。Better Auth API 保留原生 JSON、状态码、Cookie 与重定向，认证客户端消费 `code/message`、二步挑战及库客户端类型；中文文案由前端映射，不把全部库端点重写成业务 action。页面表单可 `303` 回跳，媒体返回字节流。
-- `400` 表示格式或字段不合法；`401` 表示未认证或凭证无效；`403` 表示已认证但权限不足、CSRF 或挑战未满足；`404` 表示资源不存在或不可见；`409` 表示已消费、版本冲突或额度不足；`429` 表示限流；依赖暂不可用返回 `503`，意外错误返回脱敏 `500`。限流提供可重试信息，不能泄露内部 SQL、栈、R2 key 或上游原始错误。
+- `400` 表示格式或字段不合法；`401` 表示未认证或凭证无效；`403` 表示已认证但权限不足、来源校验（`CSRF_INVALID`）或挑战未满足；`404` 表示资源不存在或不可见；`409` 表示已消费、版本冲突或额度不足；`429` 表示限流；依赖暂不可用返回 `503`，意外错误返回脱敏 `500`。限流提供可重试信息，不能泄露内部 SQL、栈、R2 key 或上游原始错误。
 - 稳定错误码至少区分 `AUTH_REQUIRED`、`AUTH_INVALID`、`CSRF_INVALID`、`TURNSTILE_REQUIRED`、`FRESH_SESSION_REQUIRED`、`INVITATION_INVALID`、`INVITATION_EXPIRED`、`INVITATION_USED`、`INVITATION_REVOKED`、`QUOTA_EXHAUSTED` 和 `REVISION_CONFLICT`；前端按 code 处理，不解析中文 message。邀请码无效使用 `400`，其已用/过期/作废及额度不足使用 `409`。
 - 受保护 HTML 页面未登录时跳转登录页；6.5 列明的公开页无需登录，受保护 JSON 和媒体接口返回错误。登录、邮箱找回保留库脱敏语义；注册可返回库的用户名/邮箱冲突码，不能承诺注册入口完全隐藏账号存在性。邀请码失败仍明确区分状态，不返回邀请人的私人资料。
 - 登录态 HTML、loader 数据、认证 action、邀请凭证和媒体响应使用 `Cache-Control: private, no-store`，禁止共享缓存绕过鉴权。公开静态资源可以按文件版本缓存；静态资源、重定向、错误和媒体响应同样带 `X-Robots-Tag: noindex`。Workers 静态资源头与 Worker 生成响应头分别配置，不能假定其中一处覆盖另一处。
@@ -76,7 +95,17 @@
 
 ## 基础验证方法
 
-Workers Vitest 读取 cloudflare.config.ts 的 test 模式，每例 reset 并应用版本化迁移；本地 D1/R2 和虚构数据，不断言内部调用。约束验证包括复合外键、唯一性、互斥字段、原生 Date 序列化、迁移拒绝/回滚及孤立注册无权限。测试命令和并发/SSR 预热边界见根 README，业务场景见 B 第 7 节。
+Workers Vitest 读取 cloudflare.config.ts 的 test 模式，每例 reset 并应用版本化迁移；本地 D1/R2 和虚构数据，不断言内部调用。约束验证包括复合外键、唯一性、互斥字段、原生 Date 序列化、迁移拒绝/回滚及孤立注册无权限。测试命令见 [README](../../README.md#常用命令)，并发与 SSR 预热边界见[本地认证验收边界](authentication.md#本地认证验收边界)，业务场景见 B 第 7 节。
+
+### 测试媒体准备
+
+需要媒体夹具时，先安装 ffmpeg 并确保它可从 `PATH` 调用，再从工作树根目录执行：
+
+```bash
+node scripts/gen-test-media.mjs
+```
+
+脚本自行生成 4 秒、320×180、H.264 + AAC、faststart 的测试视频，输出到被 Git 忽略的 `test/fixtures/media/signal-test.mp4`；可重复运行并覆盖该测试文件，不使用真实剧集。自行编写的中英文 VTT 位于 `test/fixtures/subtitles/`，随代码提交；数据库约束测试不依赖生成的 MP4。
 
 ### 浏览器验证方案
 
@@ -89,10 +118,10 @@ Workers Vitest 读取 cloudflare.config.ts 的 test 模式，每例 reset 并应
 | CDP 探索与现场排查 | 复现问题、观察页面及请求；稳定且有回归价值的发现收成自动化用例，临时点击记录不充当长期回归门禁。 |
 | staging / 人工实机 | 真实配置、外部服务、设备能力与视觉确认；手机视口模拟、虚拟验证器和短片段不替代相应实机及长时验收。 |
 
-首批候选从 B 第 7 节选取：受保护页面登录回跳；搜索、空结果、详情切季与正确单集；关键菜单/对话框的开关、取消及焦点；自生成视频播放、拖动、字幕与退出/撤销后的新媒体请求拒绝；在受控测试时间下真实续期，换 URL 后保留当前位置、暂停/播放状态和字幕，并能继续播放与拖动；封禁专用成员后刷新失去访问。续期的加速方法与 121 分钟长播证据分界见[播放验证方案](playback.md#续期验证方案)。实施前以中文确认具体操作和断言，不在本计划复制业务规则；新增注册、邮件及通行密钥场景时明确自动化覆盖段与真实服务/设备待验段。
+首批候选从 B 第 7 节选取：受保护页面登录回跳；搜索、空结果、详情切季与正确单集；关键菜单/对话框的开关、取消及焦点；自生成视频播放、拖动、字幕与退出/撤销后的新媒体请求拒绝，媒体缺失时的出错提示与原地重新连接；封禁专用成员后刷新失去访问。自动化与长播证据分界见[播放验证方案](playback.md#播放验证方案)。实施前以中文确认具体操作和断言，不在本计划复制业务规则；新增注册、邮件及通行密钥场景时明确自动化覆盖段与真实服务/设备待验段。
 
 - **环境与身份**：优先独立本地测试数据，启动/复用服务遵守 AGENTS；staging 执行须明确目标及数据变更授权，不将测试授权当作部署授权。只使用虚构账号及自生成媒体，走真实应用链路；隔离本地环境如需模拟外部服务须标明覆盖边界。
-- **人机验证与登录夹具**：按 [README 本地认证边界](../../README.md#本地认证验收边界)，仅 development 且官方 always-pass Site Key/Secret 配对时接受对应测试响应；test、staging、production 仍严格校验 hostname/action。staging/prod 不设认证或 CAPTCHA 旁路，也不增加默认可关闭的生产开关。登录后的业务可复用专用登录态；注册/登录本身须走对应流程，真人挑战、邮件与设备待验段明确分开，复用登录态或跳过的步骤不计作注册/登录验收。
+- **人机验证与登录夹具**：按 [认证计划本地认证验收边界](authentication.md#本地认证验收边界)，仅 development 且官方 always-pass Site Key/Secret 配对时接受对应测试响应；test、staging、production 仍严格校验 hostname/action。staging/prod 不设认证或 CAPTCHA 旁路，也不增加默认可关闭的生产开关。登录后的业务可复用专用登录态；注册/登录本身须走对应流程，真人挑战、邮件与设备待验段明确分开，复用登录态或跳过的步骤不计作注册/登录验收。
 - **数据隔离**：浏览器上下文不隔离 D1/R2。测试数据有可识别的本次运行归属；staging 的状态修改只针对本次专用数据，清理不重置共享库、不删除他人内容，并避免并行用例共用可变账号。
 - **证据保护**：会话状态文件、截图、视频、trace 和报告可能含 Cookie、邮箱、验证链接或播放凭证，不提交仓库或公开发布；需要共享的证据先脱敏。失败保留可定位的操作与断言，不能靠重试直至变绿掩盖不稳定行为。
 - **执行与验收**：按 [AGENTS 验证规则](../../AGENTS.md#验证)定向选测和复用有效证据；工具接入、自检通过和站长验收分别记录。已有真实手机待验项仍由片库/播放计划维护；E2E1 不替代这些门槛，也不自动接通发布流水线。

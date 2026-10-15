@@ -5,15 +5,15 @@ import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard"
 import { Button } from "@/components/ui/button"
 import { CopyStateIcon } from "@/components/ui/copy-button"
 
-export function makeRecoveryCodes(n = 10) {
+export function makeBackupCodes(n = 10) {
   const a = "abcdefghjkmnpqrstuvwxyz23456789"
   return Array.from({ length: n }, () => Array.from({ length: 10 }, (_, i) => (i === 5 ? "-" : a[Math.floor(Math.random() * a.length)])).join(""))
 }
 
-/** One-time display of freshly generated recovery codes. */
-export function RecoveryCodes({ seed }: { seed?: number }) {
+/** One-time display of freshly generated two-factor backup codes. */
+export function BackupCodes({ seed }: { seed?: number }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const codes = useMemo(() => makeRecoveryCodes(), [seed])
+  const codes = useMemo(() => makeBackupCodes(), [seed])
   const { state, copy } = useCopyToClipboard({ resetDelay: 2000 })
   const text = codes.join("\n")
   return (
@@ -35,7 +35,7 @@ export function RecoveryCodes({ seed }: { seed?: number }) {
           type="button"
           variant="outline"
           size="sm"
-          render={<a href={`data:text/plain;charset=utf-8,${encodeURIComponent(text)}`} download="starfleet-archive-recovery-codes.txt" />}
+          render={<a href={`data:text/plain;charset=utf-8,${encodeURIComponent(text)}`} download="starfleet-archive-backup-codes.txt" />}
           nativeButton={false}
         >
           <DownloadIcon data-icon="inline-start" />

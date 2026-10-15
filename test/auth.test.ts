@@ -277,7 +277,7 @@ it("requires unique credential IDs and an existing native user", async () => {
 it("rejects invalid or reused secrets, HTTP deployments and mismatched RP IDs", () => {
   for (const invalid of [
     { BETTER_AUTH_SECRET: "" }, { BETTER_AUTH_SECRET: "short" },
-    { PLAYBACK_HMAC_KEY: env.BETTER_AUTH_SECRET }, { BACKUP_ENCRYPTION_KEY: env.BETTER_AUTH_SECRET },
+    { BACKUP_ENCRYPTION_KEY: env.BETTER_AUTH_SECRET },
     { APP_ENV: "production" }, { WEBAUTHN_RP_ID: "wrong.example" }, { TURNSTILE_SECRET_KEY: "" },
   ]) expect(() => createAuth({ ...env, ...invalid })).toThrow();
 });

@@ -58,7 +58,7 @@ export function CommandMenuTrigger({ className }: { className?: string }) {
       <SearchIcon aria-hidden />
       <span className="font-sans text-sm/4 font-medium sm:hidden">搜索</span>
       <KbdGroup className="max-sm:hidden">
-        <Kbd className="w-5 min-w-5">⌘</Kbd>
+        {/Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? <Kbd className="w-5 min-w-5">⌘</Kbd> : <Kbd className="min-w-5">Ctrl</Kbd>}
         <Kbd className="w-5 min-w-5">K</Kbd>
       </KbdGroup>
     </Button>
@@ -93,7 +93,7 @@ export function CommandMenu() {
       <CommandInput placeholder="输入作品名或命令…" />
       <div className="rounded-xl bg-background ring-1 ring-border">
         <CommandList className="min-h-80 scroll-fade">
-          <CommandEmpty>没有找到匹配的作品</CommandEmpty>
+          <CommandEmpty>没有找到匹配的结果。</CommandEmpty>
           <CommandGroup heading="剧集">
             {SERIES.map((w) => (
               <CommandItem key={w.slug} value={w.slug} keywords={[w.titleZh, w.titleEn, w.code]} onSelect={() => go(`/title/${w.slug}`)}>

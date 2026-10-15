@@ -84,7 +84,7 @@ export function BrowsePage({ kind }: { kind: WorkKind }) {
           <InputGroupAddon>
             <SearchIcon />
           </InputGroupAddon>
-          <InputGroupInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="按中文或英文片名筛选…" aria-label="筛选作品" />
+          <InputGroupInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="按中文或英文作品名筛选…" aria-label="筛选作品" />
         </InputGroup>
       </div>
 

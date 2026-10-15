@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, unlinkSync, rmdirSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, unlinkSync, rmdirSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -15,7 +15,7 @@ export function remoteMigrationSql(name, sql) {
 function main() {
   const mode = process.argv[2];
   if (!["staging", "production"].includes(mode) || process.argv.length !== 3) throw new Error("用法：node scripts/migrate-remote.mjs staging|production");
-  process.loadEnvFile(".env");
+  if (existsSync(".env")) process.loadEnvFile(".env");
   const database = process.env[`${mode.toUpperCase()}_D1_DATABASE_ID`];
   if (!database || !/^[a-f0-9-]{36}$/i.test(database) || database === process.env[`${mode === "staging" ? "PRODUCTION" : "STAGING"}_D1_DATABASE_ID`]) throw new Error("目标数据库未配置或环境未隔离。");
   mkdirSync(resolve(".cloudflare"), { recursive: true });
