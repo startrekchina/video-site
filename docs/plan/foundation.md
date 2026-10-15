@@ -25,6 +25,22 @@
 
 证据：[基础截图](../screenshots/phase2/README.md)、[新认证文案截图](../screenshots/phase2-better-auth/README.md)、[历史计划](../archive/plan-20261007.md)。命令与日常使用见根 README，不复制完整开发日志。
 
+### T4.7 业务写入来源与 JSON 校验
+
+开发者 2026-10-15 确认。业务页面凭证（`csrf` cookie 加 HMAC）沿用自建认证方案的通用基线；cookie 固定 24 小时过期且不续期，页面开着跨过过期时刻后提交失败，已复现播放续期因此返回 `403`，第五阶段进度上报同样受影响。现有来源校验已拒绝缺 Origin、跨站及同站子域请求，页面凭证不提供额外防护。改为与 Better Auth 1.7.7 原生模型一致：来源校验、Fetch Metadata、`SameSite=Lax` 会话 Cookie、仅接受 JSON 这类非简单请求，不使用页面凭证。
+
+- [ ] 业务写入统一经一个入口：Origin 等于 `APP_ORIGIN`，拒绝 `cross-site` / `same-site` Fetch Metadata，要求 `Content-Type: application/json`；删除页面凭证、`csrf` cookie 及各 loader 与表单的传递。注册入口同样要求 JSON。
+- [ ] 同步 B 6.1.1、6.9.4、6.12、7.1 与本计划 6.1.1；测试覆盖跨站、缺 Origin、非 JSON 拒绝及同源 JSON 成功。
+
+验收：账号、邀请、管理和注册写入在同源 JSON 下成功；跨站、缺 Origin 或非 JSON 请求被拒且无副作用；页面打开时长不影响提交。
+
+### T4.8 构建资源长期缓存
+
+Workers 静态资源默认 `Cache-Control: public, max-age=0, must-revalidate`，整页加载和再次访问时每个脚本、样式与字体都要回源校验。构建产物的 `.js`、`.css`、`.woff2` 文件名均含内容 hash，内容变化即换名，HTML 为 `private, no-store`，长期缓存不会让用户停留在旧代码。
+
+- [ ] `public/_headers` 仅为 `/assets/*.js`、`/assets/*.css`、`/assets/*.woff2` 设置 `Cache-Control: public, max-age=31536000, immutable`；同在 `/assets/` 下但文件名不含 hash 的海报、剧照保持平台默认。
+- [ ] staging 核对三类文件的响应头，并确认 `.webp` 与 HTML 未受影响。
+
 ## 技术基线与限制
 
 在临时目录用以下组合完成了端到端探针：`cf dev` 渲染带 D1 查询的 loader；`react-router build --mode staging` 产出 `.cloudflare/output/v0`，`vite preview` 下页面与全部客户端资源返回 200；`cf deploy --prebuilt --mode staging --dry-run` 正确列出 staging 绑定；Workers Vitest 直接读取 `cloudflare.config.ts`，D1 迁移后唯一键与外键生效，并能经 Worker 入口渲染路由。
