@@ -80,8 +80,8 @@
 受控 Promise 用例先在原实现因“视频 HEAD 未结束时字幕 HEAD 尚未启动”变红，再在修复后通过。复验当时新增 6 项回归覆盖并行启动/等待、不提前扣额、视频缺失/异常、等待期间会话/片源变化及字幕乱序完成；PR #26 后续另新增 2 项慢字幕失败快速返回回归。原有视频版本/长度、字幕降级、配额、Range 和流取消断言保留。
 
 ```powershell
-pnpm test -- test/playback.test.ts -t "starts video and subtitle"
-pnpm test -- test/playback.test.ts test/request-identity.test.ts test/request-performance.test.ts test/player-renewal.test.ts
+pnpm test test/playback.test.ts -t "starts video and subtitle"
+pnpm test test/playback.test.ts test/request-identity.test.ts test/request-performance.test.ts test/player-renewal.test.ts
 pnpm typecheck
 pnpm build
 ```
