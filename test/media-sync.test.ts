@@ -4,6 +4,7 @@ import { expect, it, vi } from "vitest";
 import { seedCatalog } from "./fixtures/catalog";
 import { catalog } from "@/lib/catalog.server";
 import { inspectR2Media, mediaIdentity, syncMedia } from "@/lib/media-sync.server";
+import { probeD1 } from "./fixtures/d1-probe";
 
 const key = "library/series/920001/S01/E01.mp4", subtitleKey = "library/series/920001/S01/E01.zh-CN.main.vtt";
 const video = () => Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0));
@@ -27,6 +28,35 @@ it("validates actual R2 MP4 and VTT, links placeholders, skips a repeat and pres
   expect((await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0]).toMatchObject({ durationSeconds: 4, playable: true, positionSeconds: 2, revision: 1 });
   const row = await env.DB.prepare("SELECT byte_length, checksum_sha256, r2_etag FROM media_files").first<{ byte_length: number; checksum_sha256: string; r2_etag: string }>();
   expect(row?.byte_length).toBe(video().length); expect(row?.checksum_sha256).toMatch(/^[a-f0-9]{64}$/); expect(row?.r2_etag).toBeTruthy();
+});
+
+it("clears versions of deleted objects only after a complete pass and restores them after revalidation", async () => {
+  await media(); await env.MEDIA_BUCKET.put(subtitleKey, vtt);
+  expect(await syncMedia(env)).toMatchObject({ linked: 2, cleared: 0 });
+  const playable = async () => (await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0].playable;
+  await env.MEDIA_BUCKET.delete([key, subtitleKey]);
+  await env.DB.prepare("UPDATE media_sync_state SET cursor = 'library/000'").run();
+  expect(await syncMedia(env)).toMatchObject({ cleared: 0, deferred: false });
+  expect(await playable()).toBe(true);
+  expect(await syncMedia(env)).toMatchObject({ cleared: 2, deferred: false });
+  expect(await playable()).toBe(false);
+  expect((await env.DB.prepare("SELECT r2_etag FROM media_files UNION ALL SELECT r2_etag FROM subtitle_tracks").all()).results).toEqual([{ r2_etag: null }, { r2_etag: null }]);
+  await env.MEDIA_BUCKET.put(key, video()); await env.MEDIA_BUCKET.put(subtitleKey, vtt);
+  expect(await syncMedia(env)).toMatchObject({ linked: 0, conflicts: 0, failed: 0, cleared: 0 });
+  expect(await playable()).toBe(true);
+});
+
+it("clears any number of deleted objects with one set-based statement per table", async () => {
+  await media(); expect(await syncMedia(env)).toMatchObject({ linked: 1 });
+  await env.DB.batch(Array.from({ length: 40 }, (_, n) => env.DB.prepare(`INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256, r2_etag)
+    VALUES (?, 'episode-unit', 'en', 'vtt', 'English', ?, ?, 8, 'hash', 'fictional-version')`).bind(`gone-${n}`, `en.gone${n}`, `library/series/920001/S01/E01.en.gone${n}.vtt`)));
+  await env.MEDIA_BUCKET.delete(key);
+  const probe = probeD1(env.DB);
+  expect(await syncMedia({ ...env, DB: probe.db })).toMatchObject({ cleared: 41, deferred: false });
+  const cleanup = probe.calls.find(call => call.method === "batch" && call.statements.every(kind => kind === "media"));
+  expect(cleanup?.statements).toHaveLength(2);
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM subtitle_tracks WHERE r2_etag IS NOT NULL").first<number>("n")).toBe(0);
+  expect(await env.DB.prepare("SELECT r2_etag FROM media_files").first("r2_etag")).toBeNull();
 });
 
 it("rejects changed content and unsafe subtitles while retaining the original complete object and D1 reference", async () => {

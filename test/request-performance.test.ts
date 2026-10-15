@@ -2,7 +2,6 @@ import { env } from "cloudflare:workers";
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeAll, expect, it, vi } from "vitest";
 import worker from "../workers/app";
-import { authorizePlayback } from "@/lib/playback.server";
 import { seedCatalog } from "./fixtures/catalog";
 import { csrf, login, member, request } from "./fixtures/auth";
 import { probeD1 } from "./fixtures/d1-probe";
@@ -29,7 +28,6 @@ it("bounds repeated identity and media work in real Worker requests", async () =
   ]);
   const runtime = { ...env, APP_ENV: "development" };
   const protection = await csrf(cookie); cookie = protection.cookie;
-  const authorization = await authorizePlayback(request("/watch/episode-unit", undefined, cookie), runtime, "episode-unit");
   async function measure(label: string, input: Request, status: number, budget: number, sessionReads: number) {
     const probe = probeD1(env.DB), ctx = createExecutionContext();
     const start = performance.now();
@@ -42,15 +40,15 @@ it("bounds repeated identity and media work in real Worker requests", async () =
     expect.soft(probe.calls.length, label + " D1 round trips").toBeLessThanOrEqual(budget);
   }
   for (const path of ["/", "/series", "/movies", "/title/series", "/watch/episode-unit"]) {
-    for (const suffix of ["", ".data"]) await measure(path + suffix, request(path + suffix, undefined, cookie), 200, path.startsWith("/watch/") ? 7 : path.startsWith("/title/") ? 6 : 5, 1);
+    for (const suffix of ["", ".data"]) await measure(path + suffix, request(path + suffix, undefined, cookie), 200, path.startsWith("/watch/") || path.startsWith("/title/") ? 6 : 5, 1);
   }
-  await measure("watch-only-data", request("/watch/episode-unit.data?_routes=routes%2Fwatch", undefined, cookie), 200, 6, 1);
-  for (const method of ["GET", "HEAD"]) await measure("media-" + method, new Request(request(authorization.url, undefined, cookie), { method }), 200, 4, 1);
-  await measure("range", request(authorization.url, undefined, cookie, { Range: "bytes=2-5" }), 206, 4, 1);
-  await measure("subtitle", request(authorization.tracks[0].url, undefined, cookie), 200, 4, 1);
+  await measure("watch-only-data", request("/watch/episode-unit.data?_routes=routes%2Fwatch", undefined, cookie), 200, 5, 1);
+  // Media requests: the native session lookup plus one primary query that authorizes and finds the resource.
+  for (const method of ["GET", "HEAD"]) await measure("media-" + method, new Request(request("/media/source", undefined, cookie), { method }), 200, 3, 1);
+  await measure("range", request("/media/source", undefined, cookie, { Range: "bytes=2-5" }), 206, 3, 1);
+  await measure("subtitle", request("/subtitles/zh", undefined, cookie), 200, 3, 1);
   await measure("get-session", request("/api/auth/get-session", undefined, cookie), 200, 5, 1);
-  await measure("authorize-renew", request("/playback/episode-unit/authorize", { csrfToken: protection.token }, cookie), 200, 5, 1);
-  await measure("no-source", request("/watch/movie-unit.data", undefined, cookie), 200, 5, 1);
+  await measure("no-source", request("/watch/movie-unit.data", undefined, cookie), 200, 6, 1);
   await measure("invites", request("/invites.data", undefined, cookie), 200, 6, 1);
   await env.DB.prepare("UPDATE member_profiles SET role = 'admin' WHERE user_id = (SELECT id FROM user WHERE username = 'kepler')").run();
   await measure("admin", request("/admin.data", undefined, cookie), 200, 6, 1);
@@ -63,7 +61,7 @@ it("bounds repeated identity and media work in real Worker requests", async () =
   await measure("guest", request("/"), 200, 0, 0);
   await measure("invalid-cookie", request("/series", undefined, "session=invalid"), 302, 0, 0);
   await env.DB.prepare("UPDATE session SET updatedAt = ?, expiresAt = ?").bind(new Date(Date.now() - 2 * 86400000).toISOString(), new Date(Date.now() + 28 * 86400000).toISOString()).run();
-  await measure("rolling-watch", request("/watch/episode-unit.data", undefined, cookie), 200, 8, 1);
+  await measure("rolling-watch", request("/watch/episode-unit.data", undefined, cookie), 200, 7, 1);
   const ownSession = await env.DB.prepare('SELECT s.id FROM session s JOIN "user" u ON u.id = s.userId WHERE u.username = ?').bind("kepler").first<string>("id");
   // Native authoritative, target-ownership and delete-hook lookups remain necessary library work.
   await measure("self-revoke", request(`/account/sessions/${ownSession}/revoke`, { csrfToken: protection.token }, cookie), 200, 10, 4);

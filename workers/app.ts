@@ -36,7 +36,7 @@ export default {
     const account = path.startsWith("/account/sessions");
     const invites = path.startsWith("/invites/");
     const admin = path.startsWith("/admin/members/");
-    const playback = path.startsWith("/playback/") || path.startsWith("/media/") || path.startsWith("/subtitles/");
+    const playback = path.startsWith("/media/") || path.startsWith("/subtitles/");
     const requestId = crypto.randomUUID();
     const identity = createRequestIdentity(request, env);
     let input: Request = request;
@@ -48,7 +48,7 @@ export default {
     let code: string | undefined;
     try {
       response = auth ? await authHttp(input, env, identity) : account ? await accountHttp(input, env, identity)
-        : invites ? await invitationsHttp(input, env, identity) : admin ? await adminHttp(input, env, identity) : playback ? await playbackHttp(input, env, ctx, identity)
+        : invites ? await invitationsHttp(input, env, identity) : admin ? await adminHttp(input, env, identity) : playback ? await playbackHttp(input, env, identity)
         : await requestHandler(request, { cloudflare: { env, ctx }, identity });
     } catch (error) {
       const native = error instanceof APIError;

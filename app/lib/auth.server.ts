@@ -10,8 +10,8 @@ type Integration = { plugin: BetterAuthPlugin; beforeSession: (userId: string) =
 export function createAuth(env: Env, registrationUserId?: string, integration?: Integration) {
   const secret = env.BETTER_AUTH_SECRET;
   if (!secret || secret.length < 32) throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
-  if (secret === env.PLAYBACK_HMAC_KEY || secret === env.BACKUP_ENCRYPTION_KEY) {
-    throw new Error("Authentication, playback and backup must use independent secrets");
+  if (secret === env.BACKUP_ENCRYPTION_KEY) {
+    throw new Error("Authentication and backup must use independent secrets");
   }
   const origin = new URL(env.APP_ORIGIN);
   const secure = origin.protocol === "https:";

@@ -3,7 +3,6 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import worker from "../workers/app";
 import { createRequestIdentity, currentMember, requireMember } from "@/lib/member.server";
-import { authorizePlayback } from "@/lib/playback.server";
 import { accountHttp } from "@/lib/account.server";
 import { adminHttp } from "@/lib/admin.server";
 import { csrf, login, member, request } from "./fixtures/auth";
@@ -34,7 +33,6 @@ async function media() {
     env.DB.prepare("UPDATE media_files SET r2_etag = ? WHERE id = 'source'").bind(video!.etag),
     env.DB.prepare("UPDATE subtitle_tracks SET r2_etag = ? WHERE id = 'zh'").bind(subtitle!.etag),
   ]);
-  return authorizePlayback(request("/watch/episode-unit", undefined, cookie), runtime, "episode-unit");
 }
 
 it("shares a pending identity across parallel callers and clones without sharing mutable response headers", async () => {
@@ -78,29 +76,16 @@ it("rejects a session revoked between native lookup and the unified member query
   expect(await currentMember(request("/series", undefined, cookie), { ...runtime, DB: probe.db })).toBeNull();
 });
 
-it.each(["video", "subtitle"])("rechecks live permissions in final %s metadata lookup without exposing metadata", async target => {
-  const authorization = await media(); let changed = false;
+it.each(["video", "subtitle"])("rejects a session revoked between native lookup and the %s authorization query without metadata", async target => {
+  await media(); let changed = false;
   const probe = probeD1(env.DB, async call => {
-    if (!changed && call.statements.includes("member")) { changed = true; await env.DB.prepare("DELETE FROM session WHERE userId = ?").bind(userId).run(); }
+    if (!changed && call.statements.includes("session")) { changed = true; await env.DB.prepare("DELETE FROM session WHERE userId = ?").bind(userId).run(); }
   });
-  const input = request(target === "video" ? authorization.url : authorization.tracks[0].url, undefined, cookie, { Range: "bytes=2-5" });
+  const input = request(target === "video" ? "/media/source" : "/subtitles/zh", undefined, cookie, { Range: "bytes=2-5" });
   const response = await send(input, { ...runtime, DB: probe.db });
   expect(changed).toBe(true); expect(response.status).toBe(401);
   expect(response.headers.has("Content-Length")).toBe(false); expect(response.headers.has("Content-Range")).toBe(false);
   expect(await response.text()).not.toContain("fictional-object");
-});
-
-it.each(["session", "source"])("rejects %s loss at the signing write instead of misreporting quota exhaustion", async target => {
-  await media(); const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
-  let changed = false;
-  const probe = probeD1(env.DB, async call => {
-    if (!changed && call.method === "batch" && call.statements.includes("media")) {
-      changed = true; await env.DB.prepare(target === "session" ? "DELETE FROM session" : "DELETE FROM media_files WHERE id = 'source'").run();
-    }
-  });
-  await expect(authorizePlayback(request("/watch/episode-unit", undefined, cookie), { ...runtime, DB: probe.db }, "episode-unit"))
-    .rejects.toMatchObject({ statusCode: target === "session" ? 401 : 404 });
-  expect(changed).toBe(true); expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(before);
 });
 
 it("keeps rolling cookies on HTML, data and errors and keeps unrelated cookies separate", async () => {

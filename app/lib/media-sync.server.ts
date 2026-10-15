@@ -66,7 +66,7 @@ export async function syncMedia(env: Env) {
     WHERE media_sync_state.lease_until <= ? RETURNING cursor`).bind(lease, started + windowMs + 120000, started, started).first<{ cursor: string | null }>();
   if (!locked) return { busy: true, linked: 0 };
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), windowMs);
-  const result = { busy: false, linked: 0, skipped: 0, unknown: 0, conflicts: 0, failed: 0, deferred: false };
+  const result = { busy: false, linked: 0, skipped: 0, unknown: 0, conflicts: 0, failed: 0, cleared: 0, deferred: false };
   try {
     const units = await db.prepare(`SELECT u.id, w.kind, w.tmdb_id AS tmdbId, s.season_number AS season, u.episode_number AS episode
       FROM playable_units u JOIN works w ON w.id = u.work_id LEFT JOIN seasons s ON s.id = u.season_id`).all<{ id: string; kind: "movie" | "series"; tmdbId: number; season: number | null; episode: number | null }>();
@@ -74,12 +74,15 @@ export async function syncMedia(env: Env) {
     const known = await db.prepare(`SELECT id, object_key, r2_etag, byte_length FROM media_files
       UNION ALL SELECT id, object_key, r2_etag, byte_length FROM subtitle_tracks`).all<{ id: string; object_key: string; r2_etag: string | null; byte_length: number }>();
     const versions = new Map(known.results.map(file => [file.object_key, file]));
+    // Only a pass that lists the whole prefix in one run can prove that an object is gone.
+    const fullPass = !locked.cursor, listed = new Set<string>();
     let cursor = locked.cursor ?? undefined, validated = 0;
     const checkpoint = (key: string | undefined) => db.prepare("UPDATE media_sync_state SET cursor = ?, updated_at = ? WHERE id = 'catalog' AND lease_id = ?").bind(key ?? null, Date.now(), lease).run();
     do {
       const page = await env.MEDIA_BUCKET.list({ prefix: "library/", limit: 1000, startAfter: cursor });
       let last = cursor;
       for (const object of page.objects) {
+        listed.add(object.key);
         const identity = mediaIdentity(object.key); if (!identity) { last = object.key; result.unknown++; continue; }
         const unitId = identities.get(identityKey(identity)); if (!unitId) { last = object.key; result.unknown++; continue; }
         const knownObject = versions.get(object.key);
@@ -119,6 +122,12 @@ export async function syncMedia(env: Env) {
       await checkpoint(cursor);
     } while (cursor && !controller.signal.aborted);
     result.deferred = Boolean(cursor);
+    if (fullPass && !cursor) {
+      const gone = known.results.filter(file => file.r2_etag && file.object_key.startsWith("library/") && !listed.has(file.object_key)).map(file => file.object_key);
+      // One set-based statement per table keeps any number of deletions within the per-invocation query limit.
+      if (gone.length) await db.batch(["media_files", "subtitle_tracks"].map(table => db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE object_key IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(gone))));
+      result.cleared = gone.length;
+    }
     return result;
   } finally {
     clearTimeout(timer);
