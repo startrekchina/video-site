@@ -173,9 +173,11 @@ it("leaves fullscreen for a failure that needs a button and echoes other notices
 
 it("keeps a failure's recovery toast until code closes it and lets other notices time out", () => {
   const actions = { reconnect: vi.fn(), login: vi.fn() };
-  const sticky = { type: "error", priority: "high", timeout: 0, data: { dismissible: false } };
+  const sticky = { type: "error", timeout: 0, data: { dismissible: false } };
   const reconnect = noticeToast({ text: "片源暂时无法播放", reconnect: true }, actions);
   expect(reconnect).toMatchObject({ title: "片源暂时无法播放", ...sticky, actionProps: { children: "重新连接" } });
+  // High priority would hide the toast, and so its button, from assistive tech until F6.
+  expect(reconnect.priority).toBeUndefined();
   (reconnect.actionProps as { onClick: () => void }).onClick(); expect(actions.reconnect).toHaveBeenCalledOnce();
   const login = noticeToast({ text: "登录已失效", reconnect: false, login: true }, actions);
   expect(login).toMatchObject({ ...sticky, actionProps: { children: "重新登录" } });

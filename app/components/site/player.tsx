@@ -6,9 +6,10 @@ import { toast } from "@/components/ui/toast";
 
 type Notice = { text: string; reconnect: boolean; login?: true };
 // A video failure's button is the only way back, so its toast stays until the player recovers or unmounts.
+// Default priority on purpose: Base UI hides high-priority toasts from assistive tech until F6 focuses them, which would hide the button.
 export function noticeToast(notice: Notice, actions: { reconnect: () => void; login: () => void }): Parameters<typeof toast.add>[0] {
   const action = notice.login ? { children: "重新登录", onClick: actions.login } : notice.reconnect ? { children: "重新连接", onClick: actions.reconnect } : null;
-  return action ? { title: notice.text, type: "error", priority: "high" as const, timeout: 0, actionProps: action, data: { dismissible: false } } : { title: notice.text, type: "info" };
+  return action ? { title: notice.text, type: "error", timeout: 0, actionProps: action, data: { dismissible: false } } : { title: notice.text, type: "info" };
 }
 
 export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChange, onTracksChange }: { unitId: string; source: PlaybackSource; startSeconds: number; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: PlaybackSource["tracks"]) => void }) {
