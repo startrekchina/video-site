@@ -27,7 +27,7 @@
 | 模块 | 当前状态 | 按需阅读 |
 | --- | --- | --- |
 | 工程基础与环境 | 已完成第二阶段；T4.7 业务写入来源校验与 T4.8 构建资源缓存本地自检通过，T4.8 响应头 staging 核对通过；保留 beta 工具链风险 | [foundation.md](docs/plan/foundation.md) |
-| 登录、账号、邀请与权限 | 第三阶段验收通过；T4.5 尾延迟等验收缺口待补齐，T4.5.7 单次 D1 往返待数据位置测量后实施 | [authentication.md](docs/plan/authentication.md) |
+| 登录、账号、邀请与权限 | 第三阶段验收通过；T4.5.7 单次 D1 往返与媒体桶迁至 APAC 已上 staging 待确认；T4.5 尾延迟等验收缺口待补齐 | [authentication.md](docs/plan/authentication.md) |
 | 片库、搜索与资料导入 | 本地/staging 功能与设计复验通过，实机输入/切季待验 | [catalog.md](docs/plan/catalog.md) |
 | 播放与媒体交付 | T4.6 会话鉴权本地与 staging 浏览器正常路径通过，核心验收与设计复验经开发者确认通过，真实手机待验 | [playback.md](docs/plan/playback.md) |
 | 进度、收藏、片单与讨论 | 第五阶段待实施；已有底层结构不等于功能完成 | [community.md](docs/plan/community.md) |
@@ -37,7 +37,7 @@
 
 1. **完成第四阶段技术收尾与实机验收**：
    - 先在同一交付中实施 [T4.6 播放改用登录会话鉴权](docs/plan/playback.md#t46-播放改用登录会话鉴权)、[T4.7 业务写入来源与 JSON 校验](docs/plan/foundation.md#t47-业务写入来源与-json-校验)和 [T4.8 构建资源长期缓存](docs/plan/foundation.md#t48-构建资源长期缓存)；随后按新契约重做播放 HTTP 回归与播放器设计复验。
-   - 再经授权完成 [T4.5.8 数据位置与成员机房测量](docs/plan/authentication.md#t458-数据位置与成员机房测量)，然后实施 [T4.5.7 每请求单次 D1 往返](docs/plan/authentication.md#t457-每请求单次-d1-往返)。
+   - [T4.5.8 数据位置与成员机房测量](docs/plan/authentication.md#t458-数据位置与成员机房测量)已查明 staging 媒体桶在北美东部并迁至 APAC，[T4.5.7 每请求单次 D1 往返](docs/plan/authentication.md#t457-每请求单次-d1-往返)已上 staging，页面数据与媒体请求中位耗时降低约 56%–58%，待开发者确认；成员接入机房统计待累积。
    - [T4.5](docs/plan/authentication.md#t45-请求级身份与-d1-往返优化) 其余历史尾延迟归因、测量矩阵及云端安全场景继续补齐，不放松实时授权；常规发布另按授权流程。
    - 真实手机搜索输入、切季、触屏拖动、中英文字幕及原生全屏反馈继续收集；技术收尾与实机两项均通过才结束本阶段，模拟视口不替代实机。
 2. **第五阶段：个人记录与社区**：依次完成进度/继续观看/下一集、收藏/片单/播放队列、讨论/赞踩/管理员删评，逐模块验证并沿用原型交互。T4.7 是进度上报 T5.1 的前置，长时间打开的播放页不能因页面凭证过期丢失上报。
