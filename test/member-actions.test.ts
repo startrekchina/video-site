@@ -55,7 +55,8 @@ it("enforces exact concurrent quota, idempotent issue/revoke, expiry and permane
   expect(result.data.occupied).toBe(2); expect(JSON.stringify(result)).not.toContain(values[0].data.code); expect(JSON.stringify(result)).not.toContain("code_hash");
   for (let i = 0; i < 2; i++) expect((await invitationsHttp(request(`/invites/${values[0].data.id}/revoke`, {}, anti.cookie), env)).status).toBe(200);
   await issue(anti);
-  await env.DB.prepare("UPDATE invitations SET expires_at = ? WHERE issuer_user_id = ? AND revoked_at IS NULL").bind(Date.now() - 1, user.id).run();
+  // Workers time only advances on I/O, so the invitation just issued can share this millisecond; backdate creation too.
+  await env.DB.prepare("UPDATE invitations SET created_at = ?, expires_at = ? WHERE issuer_user_id = ? AND revoked_at IS NULL").bind(Date.now() - 2, Date.now() - 1, user.id).run();
   await issue(anti);
   const child = await member("Quinn", true, user.id);
   await env.DB.prepare("UPDATE invitations SET used_by_user_id = ?, used_at = ? WHERE id = ?").bind(child.id, Date.now(), values[0].data.id).run();
