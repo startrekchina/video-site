@@ -184,8 +184,8 @@ export function WatchPage() {
       />
       <div className="h-4" />
       <div className="screen-line-top screen-line-bottom bg-black">
-        {/* Height-capped so the controls stay above the fold: 15rem is the header and title block above the player. */}
-        <div className="relative mx-auto aspect-video w-full max-w-[max(40rem,calc((100svh-15rem)*16/9))]">
+        {/* Full width, height-capped so the controls stay above the fold (15rem is the header and title block); the video letterboxes inside the player. */}
+        <div className="relative aspect-video w-full max-h-[max(22.5rem,calc(100svh-15rem))]">
           <TokenGate key={unit.id}>
             <Player
               unitKey={unit.id}
