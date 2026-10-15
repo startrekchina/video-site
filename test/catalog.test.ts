@@ -4,7 +4,7 @@ import { catalog, catalogCards, homeStages, singleParameter } from "@/lib/catalo
 import { resumeTarget } from "@/lib/catalog";
 import { currentMember } from "@/lib/member.server";
 import { seedCatalog } from "./fixtures/catalog";
-import { member, login } from "./fixtures/auth";
+import { member, login, uncached } from "./fixtures/auth";
 
 async function seedContinuations(userId = "nova") {
   await seedCatalog(env.DB);
@@ -133,7 +133,8 @@ it("returns compact cards with exact member-owned counts and scopes details to a
 it("still refreshes sessions and immediately rejects bans and revocation without runtime schema introspection", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
   try {
-    const user = await member("Kepler"), cookie = await login("Kepler");
+    // Rolling renewal happens on the authoritative read once the cookie cache has expired; the renewed login keeps its cache.
+    const user = await member("Kepler"), cookie = uncached(await login("Kepler"));
     const runtimeEnv = { ...env, APP_ENV: "development" }, request = new Request("http://localhost:6120/series", { headers: { Cookie: cookie } });
     const past = new Date(Date.now() - 2 * 86400000).toISOString(), expiry = new Date(Date.now() + 28 * 86400000).toISOString();
     await env.DB.prepare("UPDATE session SET updatedAt = ?, expiresAt = ? WHERE userId = ?").bind(past, expiry, user.id).run();

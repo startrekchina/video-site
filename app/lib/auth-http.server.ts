@@ -187,6 +187,8 @@ export async function authHttp(request: Request, env: Env, identity = createRequ
   } else if (path !== "/verify-email" && !path.startsWith("/reset-password/") && ["cross-site", "same-site"].includes(request.headers.get("Sec-Fetch-Site") ?? "")) {
     return Response.json({ code: "CSRF_INVALID", message: "请求来源无效。" }, { status: 403 });
   }
+  // The public session endpoint stays authoritative: a revoked or expired session reads as null and clears its cookies.
+  if (path === "/get-session") { url.searchParams.set("disableCookieCache", "true"); request = new Request(url, { headers: request.headers }); }
   const site = createSiteAuth(env, identity);
   try {
     const response = await site.auth.handler(request);

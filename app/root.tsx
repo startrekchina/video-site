@@ -3,7 +3,6 @@ import type { Route } from "./+types/root";
 import { SiteShell } from "@/components/site/site-shell";
 import { NotFoundPage } from "@/components/site/not-found";
 import { themeInitScript } from "@/lib/theme";
-import { currentMember } from "@/lib/member.server";
 import { catalogSummary } from "@/lib/catalog.server";
 import { presentationNavigation } from "@/lib/catalog";
 import { pageTitle } from "@/lib/site";
@@ -35,10 +34,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  const current = await currentMember(request, context.cloudflare.env, context.identity);
+export async function loader({ context }: Route.LoaderArgs) {
+  const current = await context.identity.read(catalogSummary);
   return data({ member: current ? { username: current.member.displayUsername || current.member.username, role: current.member.role } : null,
-    catalog: current ? await catalogSummary(context.cloudflare.env.DB) : null }, { headers: current?.headers });
+    catalog: current?.value ?? null }, { headers: current?.headers });
 }
 export function shouldRevalidate(args: ShouldRevalidateFunctionArgs) {
   return !args.formMethod && presentationNavigation(args.currentUrl, args.nextUrl) ? false : args.defaultShouldRevalidate;

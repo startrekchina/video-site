@@ -38,7 +38,7 @@
 
 - 锁定 better-auth/passkey 1.7.7，自有 D1 adapter，username/twoFactor/passkey/captcha 插件，关闭 telemetry。本站保持邀请、角色、封禁、配额及授权边界，不开放额外库能力。
 - 注册 autoSignIn=false、requireEmailVerification=true、sendOnSignUp=false，业务完成后发信；邮箱验证 autoSignInAfterVerification=false，链接 1 小时。重置 revokeSessionsOnPasswordReset=true；改邮箱 enabled=true、updateEmailWithoutVerification=false，确认额外要求本人会话。
-- session.expiresIn=30 天、updateAge=1 天、freshAge=300；关闭 cookieCache/secondaryStorage。twoFactorCookieMaxAge=300；原生 scrypt N=16384/r=16/p=1，库原生盐/哈希和认证加密，不复用播放/备份密钥。
+- session.expiresIn=30 天、updateAge=1 天、freshAge=300；cookieCache 按 [T4.5.7](#t457-每请求单次-d1-往返) 启用，不启用 secondaryStorage。twoFactorCookieMaxAge=300；原生 scrypt N=16384/r=16/p=1，库原生盐/哈希和认证加密，不复用播放/备份密钥。
 - 通行密钥请求 UV，并在 afterVerification 拒绝 userVerified=false；只设置 userVerification 不代表服务端强制。origin/RP 固定本环境，不重写 WebAuthn。
 
 ### 本地认证验收边界
@@ -82,7 +82,7 @@
 - 原生邮箱 JWT 验证、改邮箱、密码重置和备用码消费按库行为执行，不承诺与邀请、设备处理或所有旧凭证撤销同批完成。密码重置撤销会话失败时保持可观察失败并重试撤销；所有新请求仍读主库，不能依赖缓存延迟。
 - 发码、作废、额度调整、封禁、业务成员激活、片单重排等本站业务继续使用 D1 原子边界。发码以发出人/操作类型内唯一 `operationId` 防重扣，响应丢失不重复生成；不提供事后查询邀请码原值的接口。
 - 进度、收藏按组合主键写入；片单修改以 `expectedRevision` 条件提交，失败整体拒绝，不能部分重排。
-- 鉴权与一次性凭证读取走 D1 主库，不启用读副本或认证 Cookie 缓存。若以后用 Sessions API，合并鉴权查询作为 `withSession('first-primary')` 首次查询；成员状态还纳入敏感业务条件写入，防止封禁与提交竞争。
+- 鉴权与一次性凭证读取走 D1 主库，不启用读副本。认证 Cookie 缓存只省去原生会话识别的读库，会话行、成员状态与一次性凭证仍由主库判定；页面读取与成员核对在同一 `withSession('first-primary')` batch 中执行；成员状态还纳入敏感业务条件写入，防止封禁与提交竞争。
 
 ### 6.5.1 认证与管理接口映射
 
@@ -209,6 +209,16 @@
 - [ ] 按同条件方法复测页面与媒体请求，撤销、改密、封禁即时生效的既有用例全部通过。
 
 验收：撤销与封禁的即时性不变；目标路径的串行 D1 次数按上述预算下降，并有 staging 同条件测量。
+
+实现与本地自检（2026-10-16，基于 `7a124e5`；既有用例调整经开发者确认）：
+
+- **缓存边界**：`cookieCache` 为 `jwe`、300 秒，Cookie 名 `__Host-session-data`（开发环境 `session-data`），属性同会话 Cookie。只有页面与媒体的原生会话识别使用缓存；本站包装的原生端点前置钩子仍以 `disableCookieCache` 读库并核对成员，库敏感端点自行绕过缓存，公开 `/get-session` 强制读库，撤销或过期后照旧返回 `null` 并清除 Cookie。管理员新鲜度取缓存中的会话 `createdAt`，真实值不会变化，写入 SQL 仍在主库判定新鲜度、角色与二步验证。
+- **合批**：`identity.read()` 把实时成员 SQL 放进 loader 的第一个 D1 batch；核对失败时丢弃已读行并按未登录处理，D1 异常仍使请求失败。首页、剧集/电影/搜索、作品、播放与账号页使用；邀请与管理页仍经各自 HTTP 处理器，只受益于缓存。
+- **本地计数**（`test/request-performance.test.ts`，缓存有效，新增串行深度预算）：页面串行 D1 4→1、总往返 5–6→2–3；视频与字幕 3→1；邀请与管理页串行 5→3；管理写入 6→4；缓存过期时带滚动续期的播放数据 7→6（串行 5→4）。仍缓存但已撤销的会话访问页面由 1 次变为 3 次并行往返（串行 1）。公开 `/get-session` 保持 5 次。
+- **新增用例**：缓存有效期内会话被撤销、过期、封禁或取消邮箱验证时，成员查询返回空，页面 302，视频与字幕 401 且不带 `Content-Range`/`ETag`；部署环境登录同时下发 `__Host-session-data`，属性为 HttpOnly、Secure、SameSite=Lax、Path=/、Max-Age=300、无 Domain。
+- **既有用例调整**：断言不变，只把依赖“读 session 表”的故障注入和库原生 `/get-session` 检查改走主库路径（去掉缓存 Cookie 或加 `disableCookieCache`），涉及滚动续期、撤销竞态、改密撤销、管理员新鲜度与库异常 5 处；原“3 次往返、1 次 session 读取”的共享身份断言改为只剩 1 次成员查询；性能预算按上列计数收紧。
+- **验证**：`pnpm typecheck`、`pnpm test`（20 个文件 264 项）与 `pnpm build` 通过；未做本地浏览器登录与播放验证，合入后随 staging 浏览器检查补齐。
+- **未完成**：staging 同条件复测（第三项）待 T4.5.8 位置结论后进行。
 
 #### T4.5.8 数据位置与成员机房测量
 

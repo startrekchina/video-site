@@ -1,6 +1,6 @@
 import { data, Link } from "react-router";
 import { ArrowLeftIcon, ArrowRightIcon, CalendarIcon, CircleCheckIcon, ClockIcon, DatabaseIcon, LayersIcon, PlayIcon } from "lucide-react";
-import { pageMember } from "@/lib/member.server";
+import { pageRead } from "@/lib/member.server";
 import { catalog, catalogSummary, singleParameter } from "@/lib/catalog.server";
 import { displayTitle, episodeCode, formatRuntime, resumeTarget, workProgress } from "@/lib/catalog";
 import { EpisodeStill } from "@/components/site/episode-still";
@@ -14,8 +14,9 @@ import type { Episode } from "@/lib/catalog";
 import { pageTitle } from "@/lib/site";
 import type { Route } from "./+types/title";
 export async function loader({ request, params, context }: Route.LoaderArgs) {
-  const current = await pageMember(request, context.cloudflare.env, context.identity);
-  const [works, summary] = await Promise.all([catalog(context.cloudflare.env.DB, current.member.user_id, "", { workId: params.id }), catalogSummary(context.cloudflare.env.DB)]);
+  const current = await pageRead(request, context.cloudflare.env, context.identity,
+    (db, userId) => Promise.all([catalog(db, userId, "", { workId: params.id }), catalogSummary(db)]));
+  const [works, summary] = current.value;
   const work = works[0];
   if (!work) throw new Response(null, { status: 404 });
   const raw = singleParameter(new URL(request.url), "season");

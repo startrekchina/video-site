@@ -90,16 +90,20 @@ it("sets the deployed Host cookie, stores its native token and rolls sessions af
   expect(cookie).toContain("Path=/");
   expect(cookie).toContain("Max-Age=2592000");
   expect(cookie).not.toMatch(/Domain=|__Secure-/i);
+  const cache = login.headers.getSetCookie().find(value => value.startsWith("__Host-session-data="))!;
+  expect(cache).toMatch(/HttpOnly/i); expect(cache).toMatch(/Secure/i); expect(cache).toMatch(/SameSite=Lax/i);
+  expect(cache).toContain("Path=/"); expect(cache).toContain("Max-Age=300"); expect(cache).not.toMatch(/Domain=/i);
   const body = await login.json() as { token: string };
   expect(await env.DB.prepare('SELECT token FROM "session"').first<string>("token")).toBe(body.token);
   await env.DB.prepare('UPDATE "session" SET createdAt = ?, updatedAt = ?, expiresAt = ?')
     .bind(new Date(Date.now() - 200 * 86400000).toISOString(), new Date(Date.now() - 2 * 86400000).toISOString(), new Date(Date.now() + 86400000).toISOString()).run();
-  const refreshed = await auth.handler(new Request(`${auth.options.baseURL}/api/auth/get-session`, { headers: { Cookie: cookies(login), "cf-connecting-ip": "192.0.2.10" } }));
+  // Rolling renewal and expiry happen on the authoritative read, which the cookie cache skips until it expires.
+  const refreshed = await auth.handler(new Request(`${auth.options.baseURL}/api/auth/get-session?disableCookieCache=true`, { headers: { Cookie: cookies(login), "cf-connecting-ip": "192.0.2.10" } }));
   const fresh = await refreshed.json() as { session: { expiresAt: string } };
   expect(new Date(fresh.session.expiresAt).getTime() - Date.now()).toBeGreaterThan(29 * 86400000);
   expect(refreshed.headers.getSetCookie().some(value => value.startsWith("__Host-session="))).toBe(true);
   await env.DB.prepare('UPDATE "session" SET expiresAt = ?').bind(new Date(Date.now() - 1000).toISOString()).run();
-  const expired = await auth.handler(new Request(`${auth.options.baseURL}/api/auth/get-session`, { headers: { Cookie: cookies(login) } }));
+  const expired = await auth.handler(new Request(`${auth.options.baseURL}/api/auth/get-session?disableCookieCache=true`, { headers: { Cookie: cookies(login) } }));
   expect(await expired.json()).toBeNull();
 });
 
@@ -114,7 +118,7 @@ it("changes password with a new current session and revokes every old session", 
   expect(changed.status).toBe(200);
   expect(await count("session")).toBe(1);
   expect(await env.DB.prepare('SELECT token FROM "session"').first<string>("token")).not.toBe(old.token);
-  const revoked = await auth.handler(new Request(`${env.APP_ORIGIN}/api/auth/get-session`, { headers: { Cookie: cookies(first) } }));
+  const revoked = await auth.handler(new Request(`${env.APP_ORIGIN}/api/auth/get-session?disableCookieCache=true`, { headers: { Cookie: cookies(first) } }));
   expect(await revoked.json()).toBeNull();
 });
 

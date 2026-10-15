@@ -1,5 +1,6 @@
 import stillManifest from "../../public/assets/stills/star-trek/manifest.json";
 import { resumeTarget, type Episode, type Work, type WorkCard } from "./catalog";
+import type { D1Reader } from "./member.server";
 
 // Deployment configuration, not a browser/admin editing surface.
 export const recommendedStarts = [
@@ -12,8 +13,8 @@ const codes: Record<number, string> = { 253: "TOS", 1992: "TAS", 655: "TNG", 580
 const stills = new Map(stillManifest.episodes.map(item => [`${item.tmdbId}:${item.season}:${item.episode}`, `/assets/stills/star-trek/${item.file}`]));
 
 // Called only after membership validation; no storage identifiers enter the global UI.
-export async function catalogSummary(db: D1Database) {
-  const [works, counts] = await db.withSession("first-primary").batch<Record<string, unknown>>([
+export async function catalogSummary(db: D1Reader) {
+  const [works, counts] = await db.batch<Record<string, unknown>>([
     db.prepare("SELECT id, kind, tmdb_id, title_zh, title_en, year FROM works ORDER BY year, tmdb_id, id"),
     db.prepare("SELECT (SELECT count(*) FROM seasons) AS seasons, (SELECT count(*) FROM playable_units WHERE season_id IS NOT NULL) AS episodes"),
   ]);
@@ -38,10 +39,10 @@ function workDto(row: WorkRow) {
     poster: row.poster_asset?.startsWith("/assets/posters/star-trek/") && !row.poster_asset.includes("..") ? row.poster_asset : "",
     code: codes[row.tmdb_id] ?? "", favorite: Boolean(row.favorite) };
 }
-export async function catalogCards(db: D1Database, userId: string, query = "", kind: "series" | "movie" | null = null) {
-  const search = searchQuery(query), database = db.withSession("first-primary");
-  const [cards, totals] = await database.batch([
-    database.prepare(`SELECT w.id, w.kind, w.tmdb_id, w.title_zh, w.title_en, w.overview_zh, w.overview_en, w.year, w.poster_asset,
+export async function catalogCards(db: D1Reader, userId: string, query = "", kind: "series" | "movie" | null = null) {
+  const search = searchQuery(query);
+  const [cards, totals] = await db.batch([
+    db.prepare(`SELECT w.id, w.kind, w.tmdb_id, w.title_zh, w.title_en, w.overview_zh, w.overview_en, w.year, w.poster_asset,
       EXISTS(SELECT 1 FROM favorites f WHERE f.work_id = w.id AND f.user_id = ?) AS favorite,
       (SELECT count(*) FROM seasons s WHERE s.work_id = w.id) AS season_count,
       (SELECT count(*) FROM playable_units u WHERE u.work_id = w.id) AS episode_count,
@@ -49,29 +50,28 @@ export async function catalogCards(db: D1Database, userId: string, query = "", k
       (SELECT duration_seconds FROM playable_units u WHERE u.work_id = w.id AND u.season_id IS NULL LIMIT 1) AS duration_seconds
       FROM works w WHERE (? IS NULL OR w.kind = ?) AND (? = '' OR instr(lower(coalesce(w.title_zh, '')), lower(?)) > 0 OR instr(lower(coalesce(w.title_en, '')), lower(?)) > 0)
       ORDER BY w.year, w.tmdb_id, w.id`).bind(userId, userId, kind, kind, search, search, search),
-    database.prepare("SELECT kind, count(*) AS n FROM works GROUP BY kind"),
+    db.prepare("SELECT kind, count(*) AS n FROM works GROUP BY kind"),
   ]);
   return { works: (cards.results as (WorkRow & { season_count: number; episode_count: number; watched_count: number; duration_seconds: number | null })[]).map(row => ({ ...workDto(row),
       seasonCount: row.season_count, episodeCount: row.episode_count, watchedCount: row.watched_count,
       ...(row.kind === "movie" ? { runtimeMin: row.duration_seconds === null ? null : row.duration_seconds / 60 } : {}) } satisfies WorkCard)),
     totals: Object.fromEntries((totals.results as { kind: string; n: number }[]).map(row => [row.kind, row.n])) };
 }
-export async function catalog(db: D1Database, userId: string, query = "", target?: { workId: string } | { unitId: string } | { home: true }) {
+export async function catalog(db: D1Reader, userId: string, query = "", target?: { workId: string } | { unitId: string } | { home: true }) {
   const search = searchQuery(query), workId = target && "workId" in target ? target.workId : null, unitId = target && "unitId" in target ? target.unitId : null;
   const home = Boolean(target && "home" in target);
   const matching = `SELECT id FROM works WHERE (? = '' OR instr(lower(coalesce(title_zh, '')), lower(?)) > 0 OR instr(lower(coalesce(title_en, '')), lower(?)) > 0)
     AND (? IS NULL OR id = ?) AND (? IS NULL OR id = (SELECT work_id FROM playable_units WHERE id = ?))`;
   const parameters = [search, search, search, workId, workId, unitId, unitId];
   const playableMedia = "SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''";
-  const database = db.withSession("first-primary");
-  const [workRows, seasonRows, unitRows] = await database.batch([
-    database.prepare(`SELECT w.id, w.kind, w.tmdb_id, w.title_zh, w.title_en, w.overview_zh, w.overview_en, w.year, w.poster_asset,
+  const [workRows, seasonRows, unitRows] = await db.batch([
+    db.prepare(`SELECT w.id, w.kind, w.tmdb_id, w.title_zh, w.title_en, w.overview_zh, w.overview_en, w.year, w.poster_asset,
     EXISTS(SELECT 1 FROM favorites f WHERE f.work_id = w.id AND f.user_id = ?) AS favorite
     ${home ? `, (SELECT count(*) FROM playable_units u WHERE u.work_id = w.id) AS episode_count,
       (SELECT count(*) FROM playable_units u JOIN watch_progress p ON p.playable_unit_id = u.id WHERE u.work_id = w.id AND p.user_id = ? AND p.completed = 1) AS watched_count` : ""}
     FROM works w WHERE w.id IN (${matching}) ORDER BY w.year, w.tmdb_id, w.id`).bind(userId, ...(home ? [userId] : []), ...parameters),
-    database.prepare(`SELECT id, work_id, season_number FROM seasons WHERE work_id IN (${matching}) ORDER BY season_number, id`).bind(...parameters),
-    database.prepare(`SELECT u.id, u.work_id, u.season_id, u.episode_number, u.tmdb_id, u.title_zh, u.title_en, u.overview_zh, u.overview_en, u.duration_seconds,
+    db.prepare(`SELECT id, work_id, season_number FROM seasons WHERE work_id IN (${matching}) ORDER BY season_number, id`).bind(...parameters),
+    db.prepare(`SELECT u.id, u.work_id, u.season_id, u.episode_number, u.tmdb_id, u.title_zh, u.title_en, u.overview_zh, u.overview_en, u.duration_seconds,
     EXISTS(${playableMedia}) AS playable,
     p.position_seconds, p.completed, p.updated_at, p.revision FROM playable_units u
     LEFT JOIN watch_progress p ON p.playable_unit_id = u.id AND p.user_id = ?

@@ -1,7 +1,7 @@
 import { data, Link } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import { CheckIcon } from "lucide-react";
-import { pageMember } from "@/lib/member.server";
+import { pageRead } from "@/lib/member.server";
 import { catalog } from "@/lib/catalog.server";
 import { playbackSource } from "@/lib/playback.server";
 import { displayTitle, episodeCode, formatRuntime } from "@/lib/catalog";
@@ -15,8 +15,9 @@ import { Player } from "@/components/site/player";
 import { DetailTop, Overview, StepLink } from "./title";
 import type { Route } from "./+types/watch";
 export async function loader({ request, params, context }: Route.LoaderArgs) {
-  const env = context.cloudflare.env, current = await pageMember(request, env, context.identity);
-  const [works, source] = await Promise.all([catalog(env.DB, current.member.user_id, "", { unitId: params.id }), playbackSource(env.DB, params.id)]);
+  const current = await pageRead(request, context.cloudflare.env, context.identity,
+    (db, userId) => Promise.all([catalog(db, userId, "", { unitId: params.id }), playbackSource(db, params.id)]));
+  const [works, source] = current.value;
   const work = works[0], unit = work?.units.find(unit => unit.id === params.id);
   if (!work || !unit) throw new Response(null, { status: 404 });
   const playable = work.units.filter(unit => unit.playable), index = playable.findIndex(item => item.id === unit.id);

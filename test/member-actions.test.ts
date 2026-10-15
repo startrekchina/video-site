@@ -5,7 +5,7 @@ import { createAuth } from "@/lib/auth.server";
 import { adminHttp } from "@/lib/admin.server";
 import { invitationsHttp } from "@/lib/invitations.server";
 import { accountHttp } from "@/lib/account.server";
-import { login, member, request } from "./fixtures/auth";
+import { login, member, request, uncached } from "./fixtures/auth";
 
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => Response.json(String(input).includes("/siteverify") ? { success: true, hostname: "localhost", action: "auth" } : { status: "error" }))); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -80,7 +80,9 @@ it("allows admins unlimited issue without a fresh session, and refuses foreign i
 it("requires live role, verified TOTP, fresh creation time and a same-origin JSON request for all high-impact actions", async () => {
   const admin = await setupAdmin(); const target = await member();
   await env.DB.prepare("UPDATE session SET createdAt = ? WHERE userId = ?").bind(new Date(Date.now() - 301000).toISOString(), admin.user.id).run();
-  for (const action of ["ban", "unban", "quota", "role"]) await expect(adminPost(target.id, action, admin, { cascade: false, total: 2, role: "admin" })).rejects.toMatchObject({ body: { code: "FRESH_SESSION_REQUIRED" } });
+  // A real createdAt never changes, so aging it in D1 shows only on the authoritative read; the write SQL refuses it even from the cookie cache.
+  for (const action of ["ban", "unban", "quota", "role"]) await expect(adminPost(target.id, action, { cookie: uncached(admin.cookie) }, { cascade: false, total: 2, role: "admin" })).rejects.toMatchObject({ body: { code: "FRESH_SESSION_REQUIRED" } });
+  await expect(adminPost(target.id, "ban", admin, { cascade: false })).rejects.toMatchObject({ statusCode: 409 });
   await env.DB.prepare("UPDATE session SET createdAt = ? WHERE userId = ?").bind(new Date().toISOString(), admin.user.id).run();
   const url = `/admin/members/${target.id}/ban`;
   for (const [headers, code] of [[{ Origin: "https://evil.invalid" }, "CSRF_INVALID"], [{ "Sec-Fetch-Site": "same-site" }, "CSRF_INVALID"], [{ "Content-Type": "text/plain" }, "INVALID_INPUT"]] as const) {
