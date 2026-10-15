@@ -8,6 +8,8 @@
 
 staging 已连接当前仓库 `startrekchina/video-site` 的 `dev`，启用推送构建且关闭其他分支/PR 预览；cf strict 限制下使用 Wrangler 补充发布。配置转换的 3 项定向用例、23 项工具测试、类型检查、staging 构建和 Wrangler dry-run 通过，15 个服务端模块完整打包。实际云端发布、运行时绑定及入口烟测通过，不替代专项功能、性能和实机验收。production 不启用自动发布。
 
+staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2026-10-15 授权）：推送只改这些文件时不构建、不部署，GitHub 上也不显示构建状态；同一推送含其他文件时照常构建。`test/` 不排除，测试改动仍经过 staging 构建中的测试门禁。一次推送超过 20 个提交或 3000 个文件，或没有文件改动时，平台忽略路径规则强制构建。规则由 `cf builds triggers update` 维护，见 [Build watch paths](https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/)。
+
 ## 任务与验收
 
 - [x] 同步 `main` 的 PR 合并规则、协作约定和验收条件；规则一致性、62 个本地链接/锚点及 `git diff --check` 自检通过。仅验证文档，未调整 GitHub 分支保护或云端发布配置，DEP1 保持待实施。
