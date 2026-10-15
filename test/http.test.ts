@@ -41,6 +41,16 @@ describe("worker responses", () => {
       await fetchPath("/api/auth/get-session"); expect(log).toHaveBeenCalledOnce();
     } finally { log.mockRestore(); }
   });
+  it("logs only the route family, status and serving data center for a request", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      await exports.default.fetch(new Request("http://example.com/api/auth/get-session?probe=private", { cf: { colo: "HKG" } }));
+      expect(log).toHaveBeenCalledOnce();
+      const entry = JSON.parse(log.mock.calls[0][0] as string);
+      expect(Object.keys(entry)).toEqual(["requestId", "route", "status", "colo"]);
+      expect(entry).toMatchObject({ route: "auth", status: 200, colo: "HKG" });
+    } finally { log.mockRestore(); }
+  });
   it("renders a real member account without credentials and returns HTML 403 for a non-admin", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
     try {

@@ -61,9 +61,9 @@ export default {
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
     headers.set("Cache-Control", "private, no-store");
     headers.set("X-Request-Id", requestId);
-    // Route families only: never log paths, queries, cookies or library errors.
+    // Route families only: never log paths, queries, cookies or library errors; colo is the serving data center code.
     // Cloudflare attaches the original request path to each application log, even with invocation logs disabled.
-    if (!path.startsWith("/api/auth/reset-password/")) console.info(JSON.stringify({ requestId, route: auth ? "auth" : account ? "account/sessions" : invites ? "invites" : admin ? "admin/members" : playback ? "playback" : "page", status: response.status, code }));
+    if (!path.startsWith("/api/auth/reset-password/")) console.info(JSON.stringify({ requestId, route: auth ? "auth" : account ? "account/sessions" : invites ? "invites" : admin ? "admin/members" : playback ? "playback" : "page", status: response.status, code, colo: request.cf?.colo }));
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers, ...(playback ? { encodeBody: "manual" as const } : {}) });
   },
 } satisfies ExportedHandler<Env>;

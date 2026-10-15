@@ -214,7 +214,8 @@
 
 staging 实测 Worker 均在 HKG 运行，单次 R2 操作 240–290 ms、单次 D1 调用 62–77 ms，数据很可能不在成员附近；成员实际接入的机房也未知。
 
-- [ ] 经授权只读查询 staging D1 与 R2 的实际位置；在路由日志加入非敏感的 `colo` 字段，统计成员实际接入机房。
+- [ ] 经授权只读查询 staging D1 与 R2 的实际位置。
+- [ ] 在路由日志加入非敏感的 `colo` 字段，统计成员实际接入机房。字段本地自检通过：`workers/app.ts` 的路由日志带 `colo`（平台 `request.cf.colo`，取不到时省略），新增用例锁定日志只含 `requestId, route, status, colo` 且不带查询串；`pnpm test test/http.test.ts` 11 项与 `pnpm typecheck` 通过。统计待字段进入 staging 后按真实成员请求汇总。
 - [ ] 数据不在成员附近时，评估创建时位置提示（staging 需重建，production 宜在首发前创建）或 Smart Placement；资源重建与数据迁移另行确认。
 
 ### 当前进展与阻塞
