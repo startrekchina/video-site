@@ -64,7 +64,7 @@
 
 > 📌 详细的实施细节、技术决策与进展简报，请参阅 [开发总计划 (PLAN.md)](PLAN.md) 与 [项目进展简报 (docs/progress.md)](docs/progress.md)。
 
-staging 的 Workers Builds 已监听 GitHub `dev`，推送后在云端完成测试、构建、D1 迁移和发布；`cf` strict 限制下使用 Wrangler 补充上传，其配置从已验证产物生成。实际自动发布、Secrets/资源绑定保留和线上入口烟测通过，专项功能与性能复验仍待完成。production 未启用自动发布；配置及状态见[运维计划](docs/plan/operations.md)。
+staging 的 Workers Builds 已监听 GitHub `dev`，推送后在云端完成测试、构建、D1 迁移和发布；`cf` strict 限制下使用 Wrangler 补充上传，其配置从已验证产物生成。实际自动发布、Secrets/资源绑定保留和入口烟测通过；[专项复验](docs/staging-revalidation-20261014.md#并行修复的同条件复测)确认 D1 优化、核心安全/日志，以及签发 HEAD 并行修复约 24%–26% 的同条件中位耗时收益。历史尾延迟与真实手机仍未验收；修复已提交并推送到 PR #26，尚未合入 `dev` 或常规发布，诊断版本已删除，staging 保持原始 `cbb16db` 版本。production 未启用自动发布；配置、清理边界及状态见[运维计划](docs/plan/operations.md)。
 
 ---
 

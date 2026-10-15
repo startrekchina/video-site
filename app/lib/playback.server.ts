@@ -77,11 +77,19 @@ export async function authorizePlayback(request: Request, env: Env, unitId: stri
   ]);
   if (files.results.length !== 1) return fail("NOT_FOUND", "MEDIA_MISSING", "暂无可播放片源。");
   const file = files.results[0], fileId = file.id;
-  if (!await verifiedObject(env.MEDIA_BUCKET, file)) return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。");
-  const availableTracks = (await Promise.all((tracks.results as (MediaFile & { language: string; display_name: string })[]).map(async track => {
-    try { return await verifiedObject(env.MEDIA_BUCKET, track) ? track : null; }
-    catch { console.warn(JSON.stringify({ event: "subtitle_unavailable", resourceId: track.id })); return null; }
-  }))).filter(track => track !== null);
+  if (!file.r2_etag) return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。");
+  const subtitleTracks = tracks.results as (MediaFile & { language: string; display_name: string })[];
+  // Keep optional subtitle checks observed while required video failures return promptly.
+  const videoCheck = verifiedObject(env.MEDIA_BUCKET, file);
+  const subtitleChecks = Promise.allSettled(subtitleTracks.map(track => verifiedObject(env.MEDIA_BUCKET, track)));
+  const video = await videoCheck;
+  if (!video) return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。");
+  const subtitles = await subtitleChecks;
+  const availableTracks = subtitleTracks.filter((track, index) => {
+    const result = subtitles[index];
+    if (result.status === "fulfilled") return result.value !== null;
+    console.warn(JSON.stringify({ event: "subtitle_unavailable", resourceId: track.id })); return false;
+  });
   await quota(env, current, unitId, file);
   const iat = Math.floor(Date.now() / 1000), exp = iat + settings.playbackTokenTtl;
   const token = await signPlayback(env, { v: 1, kid: "1", environment: env.APP_ENV, purpose: "playback", userId: current.member.user_id, sessionId: current.session.id, playableUnitId: unitId, mediaFileId: fileId, iat, exp });
