@@ -32,6 +32,7 @@ const http = (url: string, options: RequestInit = {}) => {
 };
 const bytesText = async (response: Response) => new TextDecoder().decode(await response.arrayBuffer());
 const auth = () => authorizePlayback(request("/watch/episode-unit", undefined, cookie), env, "episode-unit");
+const quotaUsed = () => env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
 
 it("starts video and subtitle verification together and waits for both before charging quota", async () => {
   const videoStarted = Promise.withResolvers<void>(), videoRead = Promise.withResolvers<void>();
@@ -53,10 +54,10 @@ it("starts video and subtitle verification together and waits for both before ch
     expect(head).toHaveBeenCalledWith("fictional-private-subtitle");
     releaseVideo.resolve(); await videoRead.promise;
     expect(settled).toBe(false);
-    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBeNull();
+    expect(await quotaUsed()).toBeNull();
     releaseSubtitle.resolve();
     expect((await signing).tracks.map(track => track.id)).toEqual(["zh"]);
-    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(1);
+    expect(await quotaUsed()).toBe(1);
   } finally {
     releaseVideo.resolve(); releaseSubtitle.resolve();
     await signing.catch(() => {}); head.mockRestore();
@@ -65,7 +66,6 @@ it("starts video and subtitle verification together and waits for both before ch
 
 it.each(["missing", "outage"])("returns a failed video %s without waiting for a slow subtitle check", async state => {
   const videoStarted = Promise.withResolvers<void>(), subtitleStarted = Promise.withResolvers<void>(), releaseSubtitle = Promise.withResolvers<void>();
-  const read = env.MEDIA_BUCKET.head.bind(env.MEDIA_BUCKET);
   const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementation(async key => {
     if (key === "fictional-private-object") {
       videoStarted.resolve();
@@ -73,8 +73,9 @@ it.each(["missing", "outage"])("returns a failed video %s without waiting for a 
       return null;
     }
     subtitleStarted.resolve();
+    // No real R2 read: it would outlive the test once the video failure returns.
     await releaseSubtitle.promise;
-    return read(key);
+    return null;
   });
   let settled = false;
   const outcome = auth().then(() => null, error => error).finally(() => { settled = true; });
@@ -110,14 +111,14 @@ it.each(["missing", "outage"])("returns the %s video error without exposing subt
   try {
     await videoStarted.promise;
     expect(head).toHaveBeenCalledWith("fictional-private-subtitle");
-    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBeNull();
+    expect(await quotaUsed()).toBeNull();
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(settled).toBe(true);
     expect(await outcome).toMatchObject({ statusCode: state === "outage" ? 503 : 404, body: { code: state === "outage" ? "MEDIA_UNAVAILABLE" : "MEDIA_MISSING" } });
     releaseSubtitle.resolve();
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(warning).not.toHaveBeenCalled();
-    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBeNull();
+    expect(await quotaUsed()).toBeNull();
   } finally {
     releaseSubtitle.resolve(); await outcome; head.mockRestore(); warning.mockRestore();
   }
@@ -136,7 +137,7 @@ it.each(["session", "source"])("rejects %s changes while parallel object checks 
     await env.DB.prepare(target === "session" ? "DELETE FROM session" : "UPDATE media_files SET r2_etag = 'fictional-changed-version' WHERE id = 'source'").run();
     releaseSubtitle.resolve();
     expect(await outcome).toMatchObject({ statusCode: target === "session" ? 401 : 404 });
-    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBeNull();
+    expect(await quotaUsed()).toBeNull();
   } finally { releaseSubtitle.resolve(); await outcome; head.mockRestore(); }
 });
 
@@ -161,7 +162,7 @@ it("preserves subtitle order when parallel HEADs finish out of order", async () 
 
 it.each(["initial", "renewal"])("returns sanitized 503 for a video metadata failure during %s signing without charging quota", async phase => {
   if (phase === "renewal") await auth();
-  const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
+  const before = await quotaUsed();
   const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockRejectedValue(new Error("fictional-private-object storage failure"));
   try {
     await expect(auth()).rejects.toMatchObject({ statusCode: 503, body: { code: "MEDIA_UNAVAILABLE" } });
@@ -170,11 +171,11 @@ it.each(["initial", "renewal"])("returns sanitized 503 for a video metadata fail
     const body = await response.json();
     expect(body).toMatchObject({ error: { code: "MEDIA_UNAVAILABLE" } });
     expect(JSON.stringify(body)).not.toMatch(/fictional-private|object_key|r2_etag|storage failure|"stack"/u);
-    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(before);
+    expect(await quotaUsed()).toBe(before);
   } finally { head.mockRestore(); }
   const recovered = await http("/playback/episode-unit/authorize", { method: "POST", headers: { "Content-Type": "application/json", Origin: env.APP_ORIGIN }, body: JSON.stringify({ csrfToken }) });
   expect(recovered.status).toBe(200);
-  expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe((before ?? 0) + 1);
+  expect(await quotaUsed()).toBe((before ?? 0) + 1);
 });
 
 it.each(["missing", "replaced", "limited", "outage", "unexpected"])("preserves %s playback errors in document and data loaders", async state => {
@@ -192,7 +193,7 @@ it.each(["missing", "replaced", "limited", "outage", "unexpected"])("preserves %
     return state === "unexpected" && object ? { ...object, writeHttpMetadata: object.writeHttpMetadata.bind(object), get etag(): string { throw new Error("Fictional unexpected metadata error"); } } : object;
   });
   const status = state === "limited" ? 429 : state === "outage" ? 503 : state === "unexpected" ? 500 : 404;
-  const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
+  const before = await quotaUsed();
   try {
     for (const path of ["/watch/episode-unit", "/watch/episode-unit.data", "/watch/episode-unit.data?_routes=routes/watch"]) {
       const response = await http(path);
@@ -210,13 +211,13 @@ it.each(["missing", "replaced", "limited", "outage", "unexpected"])("preserves %
         if (path === "/watch/episode-unit") expect(body).toContain("这片星域还没有被探索过。");
       }
     }
-    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(before);
+    expect(await quotaUsed()).toBe(before);
   } finally { head.mockRestore(); }
 }, 60000);
 
 it("returns sanitized 503 for resource metadata failures without charging signing quota", async () => {
   const authorization = await auth();
-  const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
+  const before = await quotaUsed();
   const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockRejectedValue(new Error("fictional-private-object storage failure"));
   try {
     for (const url of [authorization.url, authorization.tracks[0].url]) {
@@ -228,7 +229,7 @@ it("returns sanitized 503 for resource metadata failures without charging signin
         expect(await response.text()).not.toMatch(/fictional-private|object_key|r2_etag|storage failure|\?token=/u);
       }
     }
-    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(before);
+    expect(await quotaUsed()).toBe(before);
   } finally { head.mockRestore(); }
 });
 
@@ -236,7 +237,7 @@ it.each(["video", "subtitle"])("returns sanitized 503 for %s content failures an
   const authorization = await auth(), video = target === "video";
   const url = video ? authorization.url : authorization.tracks[0].url;
   const objectKey = video ? "fictional-private-object" : "fictional-private-subtitle";
-  const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
+  const before = await quotaUsed();
   const get = vi.spyOn(env.MEDIA_BUCKET, "get").mockRejectedValue(new Error(`${objectKey} storage failure`));
   try {
     for (const options of [{}, { headers: { Range: "bytes=0-1" } }]) {
@@ -268,12 +269,12 @@ it.each(["video", "subtitle"])("returns sanitized 503 for %s content failures an
   expect(partial.status).toBe(206);
   expect(partial.headers.get("Content-Range")).toBe(`bytes 0-1/${video ? 20 : 8}`);
   expect(await bytesText(partial)).toBe(video ? "01" : "WE");
-  expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(before);
+  expect(await quotaUsed()).toBe(before);
 });
 
 it.each(["unverified", "empty-version", "missing", "replaced", "wrong-length"])("rejects %s video before initial or renewal signing without charging quota", async state => {
   await auth();
-  const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
+  const before = await quotaUsed();
   if (state === "unverified" || state === "empty-version") await env.DB.prepare("UPDATE media_files SET r2_etag = ? WHERE id = 'source'").bind(state === "unverified" ? null : "").run();
   if (state === "missing") await env.MEDIA_BUCKET.delete("fictional-private-object");
   if (state === "replaced") await env.MEDIA_BUCKET.put("fictional-private-object", "same-length-change!!");
@@ -282,7 +283,7 @@ it.each(["unverified", "empty-version", "missing", "replaced", "wrong-length"])(
   const response = await http("/playback/episode-unit/authorize", { method: "POST", headers: { "Content-Type": "application/json", Origin: env.APP_ORIGIN }, body: JSON.stringify({ csrfToken }) });
   expect(response.status).toBe(404);
   expect(await response.text()).not.toMatch(/fictional-private|object_key|r2_etag|\?token=/);
-  expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(before);
+  expect(await quotaUsed()).toBe(before);
 });
 
 it.each(["unverified", "empty-version", "missing", "replaced", "wrong-length"])("omits %s subtitles without blocking video authorization or renewal", async state => {
@@ -298,7 +299,7 @@ it.each(["unverified", "empty-version", "missing", "replaced", "wrong-length"])(
   const response = await http("/playback/episode-unit/authorize", { method: "POST", headers: { "Content-Type": "application/json", Origin: env.APP_ORIGIN }, body: JSON.stringify({ csrfToken }) });
   expect(response.status).toBe(200);
   expect((await response.json() as { tracks: unknown[] }).tracks).toEqual([]);
-  expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(3);
+  expect(await quotaUsed()).toBe(3);
 });
 
 it("keeps video authorization available when optional subtitle metadata cannot be read", async () => {
@@ -318,7 +319,7 @@ it("keeps video authorization available when optional subtitle metadata cannot b
 
 it.each(["r2_etag", "object_key", "byte_length"])("rejects a %s change between object verification and the signing write without charging quota", async column => {
   await auth();
-  const before = await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n");
+  const before = await quotaUsed();
   const read = env.MEDIA_BUCKET.head.bind(env.MEDIA_BUCKET);
   const head = vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementationOnce(async key => {
     const object = await read(key);
@@ -327,7 +328,7 @@ it.each(["r2_etag", "object_key", "byte_length"])("rejects a %s change between o
   });
   try {
     await expect(auth()).rejects.toMatchObject({ statusCode: 404, body: { code: "MEDIA_MISSING" } });
-    expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE operation = 'playback'").first<number>("n")).toBe(before);
+    expect(await quotaUsed()).toBe(before);
   } finally { head.mockRestore(); }
 });
 
