@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { Toaster } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { BottomRuler } from "./bottom-ruler";
 import { CommandMenu } from "./command-menu";
@@ -75,5 +76,6 @@ export function SiteShell({ children, member, catalog }: { children: ReactNode; 
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40" aria-hidden><div className="h-(--fade-bottom-height) bg-linear-to-b from-transparent to-background mask-linear-[to_top,var(--background)_25%,transparent] backdrop-blur-[1px]" /><div className="bg-background pb-[env(safe-area-inset-bottom,0px)]" /><BottomRuler /></div>
     {member && <><BottomNav member={member} onSearch={() => setSearchOpen(true)} /><CommandMenu open={searchOpen} onOpenChange={setSearchOpen} works={catalog?.works ?? []} /></>}
     <ScrollToTop />
+    <Toaster />
   </div></TooltipProvider>;
 }

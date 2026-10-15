@@ -2,13 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import type Artplayer from "artplayer";
 import type { PlaybackSource } from "@/lib/playback.server";
 import { loadSubtitle, mediaErrorMessage } from "@/lib/playback-client";
-import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
+
+type Notice = { text: string; reconnect: boolean; login?: true };
+// A video failure's button is the only way back, so its toast stays until the player recovers or unmounts.
+export function noticeToast(notice: Notice, actions: { reconnect: () => void; login: () => void }): Parameters<typeof toast.add>[0] {
+  const action = notice.login ? { children: "重新登录", onClick: actions.login } : notice.reconnect ? { children: "重新连接", onClick: actions.reconnect } : null;
+  return action ? { title: notice.text, type: "error", priority: "high" as const, timeout: 0, actionProps: action, data: { dismissible: false } } : { title: notice.text, type: "info" };
+}
 
 export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChange, onTracksChange }: { unitId: string; source: PlaybackSource; startSeconds: number; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: PlaybackSource["tracks"]) => void }) {
   const container = useRef<HTMLDivElement>(null), retry = useRef<() => void>(() => {});
   const frame = useRef<HTMLDivElement>(null), selectSubtitle = useRef<(id: string) => void>(() => {});
   // Only video failures offer reconnecting (or signing in again after 401/403); subtitle failures are retried by choosing the track again.
-  const [notice, setNotice] = useState<{ text: string; reconnect: boolean; login?: true } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  // One toast per notice: replacing or clearing the notice, or leaving the unit, closes it.
+  useEffect(() => {
+    if (!notice) return;
+    const id = toast.add(noticeToast(notice, { reconnect: () => retry.current(), login: () => location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`) }));
+    return () => toast.close(id);
+  }, [notice]);
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
@@ -29,7 +42,7 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
     let shown: Kind | null = null;
     const show = (text: string | null, kind: Kind = "other") => {
       shown = text === null ? null : kind;
-      // The notice sits below the player, out of sight in fullscreen: leave fullscreen when it carries a button, otherwise echo it inside the player.
+      // Toasts render outside the player, out of sight in fullscreen: leave fullscreen when the notice carries a button, otherwise echo it inside the player.
       if (text !== null && art && (art.fullscreen || art.fullscreenWeb)) {
         if (kind === "video" || kind === "login") { if (art.fullscreen) art.fullscreen = false; if (art.fullscreenWeb) art.fullscreenWeb = false; }
         else art.notice.show = text;
@@ -120,5 +133,5 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
     return () => { disposed = true; selectSubtitle.current = () => {}; art?.destroy(false); };
   }, [unitId]);
   useEffect(() => selectSubtitle.current(subtitle), [subtitle]);
-  return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom))]"><div ref={container} className="size-full" /></div>{notice && <div className="flex flex-wrap items-center gap-3 p-4" role="status"><p>{notice.text}</p>{notice.reconnect && <Button size="sm" onClick={() => retry.current()}>重新连接</Button>}{notice.login && <Button size="sm" onClick={() => location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`)}>重新登录</Button>}</div>}</div>;
+  return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom))]"><div ref={container} className="size-full" /></div></div>;
 }

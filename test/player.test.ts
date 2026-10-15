@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { Player } from "@/components/site/player";
+import { Player, noticeToast } from "@/components/site/player";
 import Watch from "@/routes/watch";
 import { TabsTrigger } from "@/components/ui/tabs";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
@@ -169,6 +169,18 @@ it("leaves fullscreen for a failure that needs a button and echoes other notices
   expect(art.notice.show).toContain("请再次选择该字幕"); expect(art.fullscreenWeb).toBe(true);
   fetch.mockResolvedValueOnce(new Response(null, { status: 503 })); await emit("video:error");
   expect(art.fullscreenWeb).toBe(false);
+});
+
+it("keeps a failure's recovery toast until code closes it and lets other notices time out", () => {
+  const actions = { reconnect: vi.fn(), login: vi.fn() };
+  const sticky = { type: "error", priority: "high", timeout: 0, data: { dismissible: false } };
+  const reconnect = noticeToast({ text: "片源暂时无法播放", reconnect: true }, actions);
+  expect(reconnect).toMatchObject({ title: "片源暂时无法播放", ...sticky, actionProps: { children: "重新连接" } });
+  (reconnect.actionProps as { onClick: () => void }).onClick(); expect(actions.reconnect).toHaveBeenCalledOnce();
+  const login = noticeToast({ text: "登录已失效", reconnect: false, login: true }, actions);
+  expect(login).toMatchObject({ ...sticky, actionProps: { children: "重新登录" } });
+  (login.actionProps as { onClick: () => void }).onClick(); expect(actions.login).toHaveBeenCalledOnce();
+  expect(noticeToast({ text: "字幕加载失败", reconnect: false }, actions)).toEqual({ title: "字幕加载失败", type: "info" });
 });
 
 it("returns to the saved start when the first load fails before the player is ready", async () => {
