@@ -75,7 +75,7 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
           };
           if ("message" in loaded) { fail(loaded.message, loaded.remove); return; }
           try { await art.subtitle.switch(loaded.url, { name: label(track.displayName), type: "vtt", escape: true }); }
-          catch { if (!disposed && choice === selected) fail("字幕加载失败，请再次选择该字幕重试。"); return; }
+          catch { if (!disposed && choice === selected) fail("字幕加载失败，请再次选择该字幕。"); return; }
           finally { URL.revokeObjectURL(loaded.url); }
         }
         if (disposed || choice !== selected) return;
@@ -90,7 +90,7 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
       selected = id;
       onSubtitleChange(id);
       if (id === "off" && art) art.subtitle.show = false;
-      void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕重试。", "subtitle"));
+      void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕。", "subtitle"));
     };
     selectSubtitle.current = select;
     // The recovery canplay handler below restores the position and the play state.
@@ -126,11 +126,11 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
         if (restoreTo === null) return;
         const target = restoreTo; restoreTo = null;
         if (Math.abs(player.currentTime - target) > 1) player.currentTime = target;
-        if (playing) void player.play().catch(() => say("浏览器阻止了自动播放，请点击播放继续观看。"));
+        if (playing) void player.play().catch(() => say("浏览器阻止自动播放，请点击播放。"));
       });
       (container.current as HTMLDivElement & { art?: Artplayer }).art = player;
-      void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕重试。", "subtitle"));
-    }).catch(() => say("播放器加载失败，请刷新页面后重试。"));
+      void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕。", "subtitle"));
+    }).catch(() => say("播放器加载失败，请刷新页面。"));
     return () => { disposed = true; selectSubtitle.current = () => {}; art?.destroy(false); };
   }, [unitId]);
   useEffect(() => selectSubtitle.current(subtitle), [subtitle]);
