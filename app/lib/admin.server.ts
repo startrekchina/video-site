@@ -1,6 +1,6 @@
 import { APIError } from "better-auth/api";
 import { createRequestIdentity, requireMember } from "./member.server";
-import { checkCsrf, readJson } from "./security.server";
+import { checkWrite, readJson } from "./security.server";
 import { actorSql, occupiedSql } from "./invitations.server";
 import { deliverMail, reserveMail } from "./mail.server";
 import { settings } from "./settings.server";
@@ -73,8 +73,8 @@ export async function adminHttp(request: Request, env: Env, identity = createReq
   }
   const match = /^\/admin\/members\/([^/]+)\/(ban|unban|quota|role)$/.exec(path);
   if (request.method !== "POST" || !match) return new Response(null, { status: 404 });
+  checkWrite(request, env);
   const body = await readJson(request);
-  await checkCsrf(request, env, body.csrfToken);
   const actorId = current.member.user_id;
   const totp = await env.DB.prepare("SELECT id FROM twoFactor WHERE userId = ? AND verified = 1").bind(actorId).first();
   if (!current.member.twoFactorEnabled || !totp || new Date(current.session.createdAt).getTime() <= now - settings.session.freshAge * 1000) {

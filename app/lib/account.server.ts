@@ -1,6 +1,6 @@
 import { APIError } from "better-auth/api";
 import { createRequestIdentity, requireMember } from "./member.server";
-import { checkCsrf, privateCookie, readJson } from "./security.server";
+import { checkWrite, privateCookie } from "./security.server";
 
 export async function accountHttp(request: Request, env: Env, identity = createRequestIdentity(request, env)) {
   const current = await requireMember(request, env, identity);
@@ -13,8 +13,7 @@ export async function accountHttp(request: Request, env: Env, identity = createR
   }
   const match = /^\/account\/sessions\/([^/]+)\/revoke$/.exec(path);
   if (request.method !== "POST" || !match) return new Response(null, { status: 404 });
-  const body = await readJson(request);
-  await checkCsrf(request, env, body.csrfToken);
+  checkWrite(request, env);
   const token = await env.DB.prepare("SELECT token FROM session WHERE id = ? AND userId = ?").bind(match[1], current.member.user_id).first<string>("token");
   if (!token) throw new APIError("NOT_FOUND", { code: "NOT_FOUND", message: "会话不存在。" });
   const result = await identity.auth().api.revokeSession({ headers: request.headers, body: { token }, returnHeaders: true });

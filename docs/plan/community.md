@@ -37,9 +37,9 @@
 | `GET/PUT /me/progress/:playableUnitId` | 正常成员，仅自己 | PUT 接收 `positionSeconds` 或显式 `completed` 手动操作，并携带 `expectedRevision`；返回存储位置、状态、`updatedAt` 和新的 `revision`，版本冲突返回 `409 / REVISION_CONFLICT` 及当前 `revision`（6.7.1）。不存在的单元拒绝，成员 ID 从会话取得。 |
 | `GET /me/favorites`、`PUT/DELETE /me/favorites/:workId` | 正常成员，仅自己 | 返回作品集合/最终收藏状态；不能把集 ID 当作品收藏。 |
 | `GET /playlists/:id`、`POST /playlists`、`PATCH/DELETE /playlists/:id`、条目 action | 正常成员；写入仅所有者 | 读取自己的私有或任何站内公开片单；写入接收 `title, visibility, expectedRevision`，条目接收目标类型与 ID，重排接收完整有序条目 ID。返回片单、目标概要和版本，不接受修改 `ownerUserId`。他人私有片单统一 `404`。重复添加同一目标按 6.7.1.1 返回已存在条目且不改顺序。 |
-| `GET/POST /units/:playableUnitId/comments`、`GET/POST /units/:playableUnitId/comments/:commentId/replies` | 正常成员，讨论限当前单元 | GET 按 6.12 的排序与分页返回正文、作者、时间、回复数量、赞数量和本人反馈，不返回踩数量；POST 接收 `bodyMarkdown, replyToUserId?, csrfToken`，作者由会话确定。校验单元存在、评论属于该单元、回复目标与对话一致及正文安全，成功返回新内容。已删除评论、回复及其赞踩不出现在读取结果中，也不计入数量、排序或分页；直接读取或向已删除目标回复、赞踩返回脱敏 `404`。不提供成员自助编辑/删除、举报或审核接口。 |
-| `PUT/DELETE /units/:playableUnitId/comments/:commentId/vote`、`PUT/DELETE /units/:playableUnitId/replies/:replyId/vote` | 正常成员，仅修改自己的反馈 | PUT 接收 `value`（`1` / `-1`）和 CSRF；DELETE 取消反馈。服务端校验目标归属单元，按成员/目标唯一约束写入，返回赞数量和本人最终反馈，不返回踩数量。已删除目标返回脱敏 `404`，不重新创建反馈记录。 |
-| `DELETE /units/:playableUnitId/comments/:commentId`、`DELETE /units/:playableUnitId/replies/:replyId` | 正常管理员，目标属于该单元 | 接收 CSRF，按 6.12.4 原子删除：顶层评论连同全部回复及其赞踩一起移除，单条回复连同其赞踩移除；成功仅返回删除成功结果，不返回被删正文或已删除记录。目标不存在时返回脱敏 `404`。未认证、已封禁或普通成员的删除请求被拒绝，不提供成员自助删除接口。 |
+| `GET/POST /units/:playableUnitId/comments`、`GET/POST /units/:playableUnitId/comments/:commentId/replies` | 正常成员，讨论限当前单元 | GET 按 6.12 的排序与分页返回正文、作者、时间、回复数量、赞数量和本人反馈，不返回踩数量；POST 接收 `bodyMarkdown, replyToUserId?`，经业务写入来源与 JSON 校验，作者由会话确定。校验单元存在、评论属于该单元、回复目标与对话一致及正文安全，成功返回新内容。已删除评论、回复及其赞踩不出现在读取结果中，也不计入数量、排序或分页；直接读取或向已删除目标回复、赞踩返回脱敏 `404`。不提供成员自助编辑/删除、举报或审核接口。 |
+| `PUT/DELETE /units/:playableUnitId/comments/:commentId/vote`、`PUT/DELETE /units/:playableUnitId/replies/:replyId/vote` | 正常成员，仅修改自己的反馈 | PUT 接收 `value`（`1` / `-1`），经业务写入来源与 JSON 校验；DELETE 取消反馈。服务端校验目标归属单元，按成员/目标唯一约束写入，返回赞数量和本人最终反馈，不返回踩数量。已删除目标返回脱敏 `404`，不重新创建反馈记录。 |
+| `DELETE /units/:playableUnitId/comments/:commentId`、`DELETE /units/:playableUnitId/replies/:replyId` | 正常管理员，目标属于该单元 | 经业务写入来源与 JSON 校验，按 6.12.4 原子删除：顶层评论连同全部回复及其赞踩一起移除，单条回复连同其赞踩移除；成功仅返回删除成功结果，不返回被删正文或已删除记录。目标不存在时返回脱敏 `404`。未认证、已封禁或普通成员的删除请求被拒绝，不提供成员自助删除接口。 |
 
 ## 验证计划
 
