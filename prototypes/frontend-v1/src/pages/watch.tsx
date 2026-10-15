@@ -31,7 +31,7 @@ function TokenGate({ children }: { children: React.ReactNode }) {
   if (ready) return children
   return (
     <div className="absolute inset-0 flex items-center justify-center font-mono text-sm" role="status">
-      <ShimmeringText text="正在签发播放凭证…" className="[--color:var(--color-zinc-500)] [--shimmering-color:var(--color-zinc-100)]" />
+      <ShimmeringText text="正在准备播放…" className="[--color:var(--color-zinc-500)] [--shimmering-color:var(--color-zinc-100)]" />
     </div>
   )
 }
@@ -231,12 +231,12 @@ export function WatchPage() {
           {pr && !pr.watched && pr.positionSec > 0 && (
             <div className="mt-4 flex items-center gap-3 font-mono text-xs text-muted-foreground">
               <ProgressBar value={pr.positionSec / pr.durationSec} className="max-w-48" />
-              已保存进度 {Math.round((pr.positionSec / pr.durationSec) * 100)}%
+              上次看到 {Math.round((pr.positionSec / pr.durationSec) * 100)}%
             </div>
           )}
         </div>
         <aside className="border-t border-line p-4 md:border-t-0 md:border-l max-sm:hidden" aria-label="键盘快捷键">
-          <div className="mb-2 text-sm font-medium">键盘快捷键</div>
+          <div className="mb-2 text-sm font-medium">键盘快捷键<span className="ml-2 font-normal text-muted-foreground">点击播放器后可用</span></div>
           <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-sm">
             {KEYS.map(([k, v]) => (
               <div key={k} className="contents">

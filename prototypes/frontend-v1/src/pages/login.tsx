@@ -10,9 +10,10 @@ import { StatusButton } from "@/components/ui/status-button"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldSeparator } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 
-// Demo credentials: any username with password "engage" succeeds; TOTP code 123456.
+// Demo credentials: any username with password "engage" succeeds; TOTP code 123456; any backup code shaped xxxxx-xxxx.
 const DEMO_PASSWORD = "engage"
 const TURNSTILE_AFTER = 3
+const BACKUP_RE = /^[a-z0-9]{5}-[a-z0-9]{4}$/i
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -21,8 +22,8 @@ export function LoginPage() {
   const [username, setUsername] = useState("picard_fan")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
-  const [step, setStep] = useState<"password" | "totp">("password")
-  const [totp, setTotp] = useState("")
+  const [step, setStep] = useState<"password" | "totp" | "backup">("password")
+  const [code, setCode] = useState("")
   const [human, setHuman] = useState(false)
   const [busy, setBusy] = useState(false)
   const needTurnstile = failures >= TURNSTILE_AFTER
@@ -52,37 +53,47 @@ export function LoginPage() {
     }, 400)
   }
 
-  if (step === "totp") {
+  if (step !== "password") {
+    const backup = step === "backup"
     return (
-      <AuthFrame title="二步验证" description="打开验证器应用，输入 6 位动态码。">
+      <AuthFrame title="二步验证" description="打开验证器应用，输入 6 位动态验证码，或使用一个未使用的备用码。">
         <form
           onSubmit={(e) => {
             e.preventDefault()
-            if (totp === "123456") finish()
-            else setError("验证码不正确或已过期")
+            if (backup ? BACKUP_RE.test(code.trim()) : code === "123456") finish()
+            else setError(backup ? "备用码无效或已被使用" : "验证码不正确或已过期")
           }}
         >
           <FieldGroup>
             <Field data-invalid={!!error || undefined}>
-              <FieldLabel htmlFor="totp">动态验证码</FieldLabel>
+              <FieldLabel htmlFor="code">{backup ? "二步验证备用码" : "动态验证码"}</FieldLabel>
               <Input
-                id="totp"
-                inputMode="numeric"
+                key={step}
+                id="code"
+                inputMode={backup ? "text" : "numeric"}
                 autoComplete="one-time-code"
                 autoFocus
-                maxLength={6}
-                value={totp}
-                onChange={(e) => setTotp(e.target.value.replace(/\D/g, ""))}
-                className="h-12 text-center font-mono text-xl tracking-[0.5em]"
+                maxLength={backup ? 64 : 6}
+                value={code}
+                onChange={(e) => setCode(backup ? e.target.value : e.target.value.replace(/\D/g, ""))}
+                className={backup ? "font-mono" : "h-12 text-center font-mono text-xl tracking-[0.5em]"}
                 aria-invalid={!!error || undefined}
               />
-              {error ? <FieldError>{error}</FieldError> : <FieldDescription>原型演示码：123456</FieldDescription>}
+              {error ? <FieldError>{error}</FieldError> : <FieldDescription>{backup ? "原型：任意 xxxxx-xxxx 格式都可以通过" : "原型演示码：123456"}</FieldDescription>}
             </Field>
-            <Button type="submit" disabled={totp.length !== 6}>
+            <Button type="submit" disabled={backup ? !code.trim() : code.length !== 6}>
               验证并登录
             </Button>
-            <Button type="button" variant="ghost" render={<Link to="/recover" />} nativeButton={false}>
-              验证器不在身边？使用恢复码
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setStep(backup ? "totp" : "backup")
+                setCode("")
+                setError(null)
+              }}
+            >
+              {backup ? "改用动态验证码" : "改用备用码"}
             </Button>
           </FieldGroup>
         </form>
@@ -123,7 +134,7 @@ export function LoginPage() {
           <Field>
             <div className="flex items-center justify-between">
               <FieldLabel htmlFor="password">密码</FieldLabel>
-              <Link to="/recover" className="text-sm text-muted-foreground hover:text-foreground">
+              <Link to="/about#recovery" className="text-sm text-muted-foreground hover:text-foreground">
                 忘记密码？
               </Link>
             </div>

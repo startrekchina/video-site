@@ -55,7 +55,7 @@ type State = {
   sessions: SessionInfo[]
   passkeys: { id: string; name: string; createdAt: string }[]
   totpEnabled: boolean
-  recoveryCodesLeft: number
+  backupCodesLeft: number
   loginFailures: number
 }
 
@@ -162,7 +162,7 @@ function initial(scenario: Scenario): State {
     sessions: [],
     passkeys: [],
     totpEnabled: false,
-    recoveryCodesLeft: 10,
+    backupCodesLeft: 10,
     loginFailures: 0,
   }
   if (scenario === "guest") return base
@@ -175,7 +175,7 @@ function initial(scenario: Scenario): State {
     favorites: seeded ? ["star-trek-the-next-generation", "star-trek-strange-new-worlds", "star-trek-ii-the-wrath-of-khan", "star-trek-deep-space-nine"] : [],
     playlists: seeded ? PLAYLISTS.map((p) => ({ ...p, items: [...p.items], owner: p.owner === "picard_fan" ? me.username : p.owner })) : PLAYLISTS.filter((p) => p.visibility === "public" && p.owner !== "picard_fan").map((p) => ({ ...p })),
     sessions: [
-      { id: "s1", device: "Chrome · Windows", location: "上海", lastActive: "当前会话", current: true },
+      { id: "s1", device: "Chrome · Windows", location: "上海", lastActive: "正在使用", current: true },
       ...(seeded
         ? [
             { id: "s2", device: "Safari · iPhone", location: "上海", lastActive: "2 小时前", current: false },
@@ -185,7 +185,7 @@ function initial(scenario: Scenario): State {
     ],
     passkeys: seeded ? [{ id: "k1", name: "iCloud 钥匙串", createdAt: "2026-06-05" }] : [],
     totpEnabled: seeded,
-    recoveryCodesLeft: seeded ? 7 : 10,
+    backupCodesLeft: seeded ? 7 : 10,
   }
 }
 
@@ -232,13 +232,6 @@ export const actions = {
   },
   logout() {
     actions.setScenario("guest")
-  },
-  registerAs(username: string) {
-    const s = initial("new-member")
-    s.me = { ...s.me!, username }
-    sessionStorage.setItem("proto-scenario", "new-member")
-    state = s
-    listeners.forEach((l) => l())
   },
   failLogin() {
     set((s) => ({ loginFailures: s.loginFailures + 1 }))
@@ -320,8 +313,8 @@ export const actions = {
   setTotp(on: boolean) {
     set({ totpEnabled: on })
   },
-  regenerateRecoveryCodes() {
-    set({ recoveryCodesLeft: 10 })
+  regenerateBackupCodes() {
+    set({ backupCodesLeft: 10 })
   },
   ban(memberId: string, cascade: boolean) {
     set((s) => {

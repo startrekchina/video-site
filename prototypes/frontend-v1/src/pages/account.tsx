@@ -7,7 +7,7 @@ import { useActiveSection } from "@/lib/use-active-section"
 import { LineNav } from "@/components/ui/line-nav"
 import { StatusButton, type ButtonStatus } from "@/components/ui/status-button"
 import { Page, PageHeading, PageHeadingDescription, PageHeadingTagline, PageHeadingTitle, Panel, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel"
-import { RecoveryCodes } from "@/components/site/recovery-codes"
+import { BackupCodes } from "@/components/site/backup-codes"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
@@ -38,7 +38,7 @@ function PasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
       <DialogContent>
         <DialogHeader>
           <DialogTitle>修改密码</DialogTitle>
-          <DialogDescription>修改后，其他设备上的会话会退出。</DialogDescription>
+          <DialogDescription>修改后，其他设备会退出登录。</DialogDescription>
         </DialogHeader>
         <form
           onSubmit={async (e) => {
@@ -97,7 +97,7 @@ function TotpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: b
           <>
             <DialogHeader>
               <DialogTitle>开启二步验证</DialogTitle>
-              <DialogDescription>用验证器应用（1Password、Google Authenticator 等）扫描二维码，然后输入 6 位动态码。</DialogDescription>
+              <DialogDescription>用验证器应用（1Password、Google Authenticator 等）扫描二维码，然后输入 6 位动态验证码。</DialogDescription>
             </DialogHeader>
             <div className="flex items-center gap-4">
               <div className="dot-grid grid size-32 shrink-0 grid-cols-8 grid-rows-8 gap-px rounded-lg border bg-white p-2" aria-label="二维码占位">
@@ -111,7 +111,7 @@ function TotpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: b
               </div>
             </div>
             <Field>
-              <FieldLabel htmlFor="totp-new">动态码</FieldLabel>
+              <FieldLabel htmlFor="totp-new">动态验证码</FieldLabel>
               <Input id="totp-new" inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} className="font-mono tracking-[0.4em]" />
               <FieldDescription>原型：任意 6 位数字</FieldDescription>
             </Field>
@@ -120,7 +120,7 @@ function TotpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: b
                 disabled={code.length !== 6}
                 onClick={() => {
                   actions.setTotp(true)
-                  actions.regenerateRecoveryCodes()
+                  actions.regenerateBackupCodes()
                   setStep("codes")
                 }}
               >
@@ -131,10 +131,10 @@ function TotpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: b
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle>二步验证已开启</DialogTitle>
-              <DialogDescription>这是新的恢复码，旧恢复码已作废。验证器丢失时，用它们登录或重设密码。</DialogDescription>
+              <DialogTitle>保存二步验证备用码</DialogTitle>
+              <DialogDescription>每个备用码仅可使用一次（用于在遗失验证器时替代动态验证码登录），不能重设密码。请存放在密码管理器或安全离线位置。</DialogDescription>
             </DialogHeader>
-            <RecoveryCodes />
+            <BackupCodes />
             <DialogFooter>
               <Button onClick={() => onOpenChange(false)}>我已保存</Button>
             </DialogFooter>
@@ -148,7 +148,7 @@ function TotpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: b
 const SECTIONS = [
   { title: "登录方式", href: "#methods" },
   { title: "通行密钥", href: "#passkeys" },
-  { title: "登录会话", href: "#sessions" },
+  { title: "登录设备", href: "#sessions" },
 ]
 
 export function AccountPage() {
@@ -156,7 +156,7 @@ export function AccountPage() {
   const sessions = useStore((s) => s.sessions)
   const passkeys = useStore((s) => s.passkeys)
   const totp = useStore((s) => s.totpEnabled)
-  const codesLeft = useStore((s) => s.recoveryCodesLeft)
+  const codesLeft = useStore((s) => s.backupCodesLeft)
   const [pwOpen, setPwOpen] = useState(false)
   const [totpOpen, setTotpOpen] = useState(false)
   const [codesOpen, setCodesOpen] = useState(false)
@@ -180,7 +180,7 @@ export function AccountPage() {
       </aside>
       <PageHeading>
         <PageHeadingTagline>账号与安全</PageHeadingTagline>
-        <PageHeadingTitle>管理登录方式、二步验证和登录会话。</PageHeadingTitle>
+        <PageHeadingTitle>管理登录方式、二步验证和登录设备。</PageHeadingTitle>
         <PageHeadingDescription className="font-mono text-sm">
         <dl className="flex flex-wrap gap-x-6 gap-y-1">
           <div>
@@ -219,15 +219,15 @@ export function AccountPage() {
             icon={<ShieldCheckIcon />}
             title={
               <span className="flex items-center gap-2">
-                二步验证（TOTP）
+                二步验证
                 {totp ? <Tag className="text-success">已开启</Tag> : <Tag>未开启</Tag>}
               </span>
             }
-            meta={totp ? "登录时需要输入验证器中的动态码" : "即使密码泄露，账号也不会被盗"}
+            meta={totp ? "密码登录时需要验证器中的动态验证码或备用码" : "即使密码泄露，账号也不会被盗"}
             action={
               totp ? (
                 <Button variant="ghost" size="sm" className="text-destructive" onClick={() => actions.setTotp(false)}>
-                  解绑
+                  关闭
                 </Button>
               ) : (
                 <Button size="sm" onClick={() => setTotpOpen(true)}>
@@ -236,24 +236,26 @@ export function AccountPage() {
               )
             }
           />
-          <Row
-            icon={<FingerprintIcon />}
-            title="恢复码"
-            meta={`还剩 ${codesLeft} / 10 个可用`}
-            action={
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  actions.regenerateRecoveryCodes()
-                  setSeed((s) => s + 1)
-                  setCodesOpen(true)
-                }}
-              >
-                重新生成
-              </Button>
-            }
-          />
+          {totp && (
+            <Row
+              icon={<FingerprintIcon />}
+              title="二步验证备用码"
+              meta={`还剩 ${codesLeft} / 10 个可用；用于在遗失验证器时替代动态验证码`}
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    actions.regenerateBackupCodes()
+                    setSeed((s) => s + 1)
+                    setCodesOpen(true)
+                  }}
+                >
+                  重新生成
+                </Button>
+              }
+            />
+          )}
         </ul>
       </Panel>
       <Separator />
@@ -276,7 +278,7 @@ export function AccountPage() {
           </StatusButton>
         </PanelHeader>
         {passkeys.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">绑定通行密钥后，可以用指纹、面容或设备 PIN 免密码登录。</p>
+          <p className="px-4 py-6 text-sm text-muted-foreground">添加通行密钥后，可以用指纹、面容或设备 PIN 免密码登录。</p>
         ) : (
           <ul className="divide-y divide-line">
             {passkeys.map((k) => (
@@ -300,11 +302,11 @@ export function AccountPage() {
       <Panel id="sessions" className="scroll-mt-16">
         <PanelHeader>
           <PanelTitle>
-            登录会话<PanelTitleSup>({sessions.length})</PanelTitleSup>
+            登录设备<PanelTitleSup>({sessions.length})</PanelTitleSup>
           </PanelTitle>
           {sessions.length > 1 && (
             <Button variant="outline" size="sm" onClick={() => actions.revokeOtherSessions()}>
-              退出其他会话
+              退出其他设备
             </Button>
           )}
         </PanelHeader>
@@ -337,10 +339,10 @@ export function AccountPage() {
       <Dialog open={codesOpen} onOpenChange={setCodesOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新的恢复码</DialogTitle>
-            <DialogDescription>旧的恢复码已全部作废。这些码只显示这一次。</DialogDescription>
+            <DialogTitle>保存二步验证备用码</DialogTitle>
+            <DialogDescription>旧的备用码已全部作废。新备用码只显示这一次，请妥善保存。</DialogDescription>
           </DialogHeader>
-          <RecoveryCodes seed={seed} />
+          <BackupCodes seed={seed} />
           <DialogFooter>
             <Button onClick={() => setCodesOpen(false)}>我已保存</Button>
           </DialogFooter>

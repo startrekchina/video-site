@@ -19,9 +19,7 @@ import { LibraryPage } from "@/pages/library"
 import { LoginPage } from "@/pages/login"
 import { NotFoundPage } from "@/pages/not-found"
 import { PlaylistPage, PublicPlaylistsPage } from "@/pages/playlist"
-import { RecoverPage } from "@/pages/recover"
 import { RegisterPage } from "@/pages/register"
-import { ResetPage } from "@/pages/reset"
 import { TitlePage } from "@/pages/title"
 import { WatchPage } from "@/pages/watch"
 
@@ -34,8 +32,6 @@ const router = createBrowserRouter([
         children: [
           { path: "/login", element: <LoginPage /> },
           { path: "/register", element: <RegisterPage /> },
-          { path: "/recover", element: <RecoverPage /> },
-          { path: "/reset/:token", element: <ResetPage /> },
         ],
       },
     ],

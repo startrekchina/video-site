@@ -15,27 +15,27 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 
 const STEPS = [
   { title: "拿到邀请码", body: "向已加入的朋友索要。每位成员的邀请额度有限，邀请码只能用一次，过期作废。" },
-  { title: "设置用户名和密码", body: "不需要邮箱或手机号。注册后可以绑定通行密钥，以后不用输密码。" },
-  { title: "保存恢复码", body: "注册完成时会拿到 10 个恢复码。忘记密码时，只能靠它们自己找回账号。" },
+  { title: "注册账号", body: "设置用户名和密码，填写常用邮箱。" },
+  { title: "验证邮箱", body: "点击验证邮件里的链接后登录。之后可以在账号页添加通行密钥、开启二步验证。" },
 ]
 
 const FEATURES = [
   { icon: <SubtitlesIcon />, title: "中英字幕随时切换", body: "中文、英文、关闭，播放时一键切换。" },
   { icon: <MonitorSmartphoneIcon />, title: "进度跨设备同步", body: "手机上看到一半，换到电脑上从同一处接着看。" },
   { icon: <ListVideoIcon />, title: "收藏和片单", body: "整理自己的片单，也可以公开给站内其他成员。" },
-  { icon: <ShieldCheckIcon />, title: "账号安全", body: "通行密钥、二步验证、恢复码，按需开启。" },
+  { icon: <ShieldCheckIcon />, title: "账号安全", body: "通行密钥、二步验证和备用码，按需开启。" },
 ]
 
 const RULES = [
   "账号只给自己用，不要借给别人。",
-  "邀请只发给信得过的朋友。你邀请的人违反守则时，你也可能被连带处理。",
-  "不要转发播放地址。地址很快失效，而且只对你自己的账号有效。",
+  "邀请只发给信得过的朋友。若成员严重违规，其账号以及经他直接或间接邀请加入的成员账号可能一同被封禁。",
+  "不要把站内视频转发或分享到站外。",
 ]
 
 const FAQ = [
   { q: "怎么拿到邀请码？", a: "只能向已加入的成员索要。本站没有申请入口。" },
-  { q: "需要提供邮箱或手机号吗？", a: "不需要，用户名和密码就够了。" },
-  { q: "忘记密码怎么办？", a: "用注册时拿到的恢复码自己重设。恢复码也丢了的话，请邀请你的人转告管理员，管理员可以生成一次性重置链接。" },
+  { q: "需要提供邮箱或手机号吗？", a: "需要邮箱并完成验证，不需要手机号。" },
+  { q: "忘记密码怎么办？", a: "在登录页点「忘记密码？」，通过注册邮箱重设。开启了二步验证的，登录时仍需输入动态验证码或备用码。管理员无法代为重设密码。" },
   { q: "用什么设备看？", a: "电脑、手机、平板上的现代浏览器都可以，不需要安装 App。" },
 ]
 
@@ -63,11 +63,11 @@ function BoardingPass({ code }: { code: string }) {
         </div>
         <div className="flex flex-col gap-0.5">
           <dt className="font-sans text-xs text-muted-foreground">邮箱</dt>
-          <dd>不需要</dd>
+          <dd>需验证</dd>
         </div>
         <div className="flex flex-col gap-0.5">
-          <dt className="font-sans text-xs text-muted-foreground">恢复码</dt>
-          <dd>10 个</dd>
+          <dt className="font-sans text-xs text-muted-foreground">二步验证</dt>
+          <dd>可开启</dd>
         </div>
         <div className="flex flex-col gap-0.5">
           <dt className="font-sans text-xs text-muted-foreground">邀请人</dt>
