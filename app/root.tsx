@@ -6,6 +6,7 @@ import { themeInitScript } from "@/lib/theme";
 import { currentMember } from "@/lib/member.server";
 import { catalogSummary } from "@/lib/catalog.server";
 import { presentationNavigation } from "@/lib/catalog";
+import { pageTitle } from "@/lib/site";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Page } from "@/components/site/panel";
@@ -43,6 +44,8 @@ export function shouldRevalidate(args: ShouldRevalidateFunctionArgs) {
   return !args.formMethod && presentationNavigation(args.currentUrl, args.nextUrl) ? false : args.defaultShouldRevalidate;
 }
 export function headers({ errorHeaders }: Route.HeadersArgs) { return errorHeaders ?? {}; }
+// Routes without their own meta (home, error pages) inherit the bare site name.
+export const meta = () => pageTitle();
 
 export default function App({ loaderData }: Route.ComponentProps) {
   return <SiteShell member={loaderData.member} catalog={loaderData.catalog}><Outlet /></SiteShell>;

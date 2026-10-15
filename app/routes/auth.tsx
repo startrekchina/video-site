@@ -12,13 +12,16 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { authClient, authError, call } from "@/lib/auth-client";
 import { safeNext } from "@/lib/security.server";
+import { pageTitle } from "@/lib/site";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const url = new URL(request.url);
   return data({ page: url.pathname, siteKey: context.cloudflare.env.TURNSTILE_SITE_KEY,
     next: safeNext(url.searchParams.get("next"), context.cloudflare.env.APP_ORIGIN) });
 }
-export const meta = () => [{ title: "账号 · 星际迷航中国" }];
+const pageTitles: Record<string, string> = { "/login": "登录", "/register": "注册", "/forgot-password": "找回密码", "/reset-password": "重设密码",
+  "/reset-password/complete": "密码已重设", "/verify-email": "邮箱验证", "/verify-pending": "等待邮箱验证" };
+export const meta = ({ location }: Route.MetaArgs) => pageTitle(pageTitles[location.pathname] ?? "账号");
 
 export default function AuthPage(props: Route.ComponentProps) {
   const [params] = useSearchParams();
@@ -38,14 +41,19 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
   const verified = config.page === "/verify-email";
   const resend = config.page === "/verify-pending";
   const second = login && step !== "password";
+  // Better Auth sends an expired or used reset link back here with ?error= instead of a token.
+  const resetInvalid = reset && (params.has("error") || !params.get("token"));
   const title = second ? "二步验证" : login ? "登录" : register ? inviteStep ? "创建账号" : "使用邀请码注册" : reset ? "重设密码" : verified ? "邮箱验证" : resend ? "等待邮箱验证" : "找回密码";
-  const description = verified ? (params.has("error") ? "验证链接无效或已过期，请重新申请邮件。" : "邮箱已验证，请正常登录。")
-    : resend ? (params.get("delivery") && params.get("delivery") !== "accepted" ? "注册已完成，但验证邮件发送遇到问题或暂未确认。若未收到，可稍后重新发送。"
-      : "账号注册已成功。请查收邮件并点击链接完成验证；若未收到，请检查垃圾箱或稍后重试。")
-    : second ? "打开验证器应用，输入 6 位动态码，或使用一个未用备用码。"
+  const description = verified ? (params.get("error") === "EMAIL_CHANGE_ACCOUNT" ? "该链接已使用，或不属于当前登录的账号。如需修改邮箱，请到「账号与安全」重新提交。"
+      : params.has("error") ? "验证链接无效或已过期。注册验证请重新发送验证邮件；修改邮箱请到「账号与安全」重新提交。" : "邮箱已验证。")
+    : resend ? (params.get("delivery") === "accepted" ? "账号注册已成功。请查收邮件并点击链接完成验证；若未收到，请检查垃圾邮件或稍后重试。"
+      : params.get("delivery") ? "账号已注册，但验证邮件可能没有发出。若几分钟后仍未收到，请在下方重新发送。"
+      : "输入注册邮箱，重新发送验证邮件。链接 1 小时内有效。")
+    : second ? "打开验证器应用，输入 6 位动态验证码，或使用一个未使用的备用码。"
     : login ? "星际舰队档案馆是邀请制的私人观看站，仅对受邀成员开放。"
     : register ? inviteStep ? "用户名注册后不可修改，其他成员能看到它。注册完成后需要验证邮箱。" : "本站只对受邀成员开放。请输入朋友发给你的邀请码。"
-    : "通过注册邮箱获取链接，1 小时内有效。";
+    : resetInvalid ? "重设链接无效或已过期，请重新申请重设邮件。"
+    : reset ? "请设置新密码。保存后，所有设备都会退出登录。" : "通过注册邮箱获取重设链接，1 小时内有效。";
   const needsCaptcha = !reset && !verified && !second;
   async function submit(form: HTMLFormElement) {
     const fields = Object.fromEntries(new FormData(form));
@@ -66,26 +74,28 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
         window.location.assign(`/verify-pending?delivery=${encodeURIComponent(result.delivery ?? "unknown")}`);
       } else if (reset) {
         if (fields.newPassword !== fields.confirmPassword) throw new Error("两次密码输入不一致。");
-        if (!params.get("token")) throw new Error("链接缺少凭证，请重新申请邮件。");
+        if (!params.get("token")) throw new Error("重设链接无效或已过期，请重新申请重设邮件。");
         await call("/api/auth/reset-password", { token: params.get("token"), newPassword: fields.newPassword });
         window.location.replace("/reset-password/complete");
       } else {
         await call(`/api/auth/${resend ? "send-verification-email" : "request-password-reset"}`, { email: fields.email,
           ...(resend ? { callbackURL: `${window.location.origin}/verify-email` } : { redirectTo: `${window.location.origin}/reset-password` }) }, captcha);
-        setMessage("若该邮箱已注册，系统已发出重置或验证邮件。请检查收件箱和垃圾邮件箱，若未收到可稍后重试。");
+        setMessage(resend ? "如果该邮箱已注册且尚未验证，你会收到一封新的验证邮件，链接 1 小时内有效。请检查收件箱和垃圾邮件，若未收到可稍后重试。"
+          : "如果该邮箱已注册，你会收到一封重设密码邮件，链接 1 小时内有效。请检查收件箱和垃圾邮件，若未收到可稍后重试。");
       }
     } finally { if (needsCaptcha) { setCaptcha(""); setGeneration(value => value + 1); } }
   }
-  if (config.page === "/reset-password/complete") return <AuthFrame title="密码已重置" description="请使用新密码重新登录。">
+  if (config.page === "/reset-password/complete") return <AuthFrame title="密码已重设" description="请使用新密码重新登录。">
     <div className="grid gap-6">
-      <Alert role="status"><CircleCheckIcon aria-hidden="true" /><AlertTitle>旧会话已撤销</AlertTitle>
-        <AlertDescription>已绑定的通行密钥和未用备用码仍然保留。已开启二步验证时，登录仍需完成验证。</AlertDescription></Alert>
+      <Alert role="status"><CircleCheckIcon aria-hidden="true" /><AlertTitle>所有设备已退出登录</AlertTitle>
+        <AlertDescription>已添加的通行密钥和未使用的备用码仍然保留。开启了二步验证的，登录时仍需输入动态验证码或备用码。</AlertDescription></Alert>
       <Button nativeButton={false} render={<Link to="/login" replace />} className="w-full">前往登录</Button>
     </div>
   </AuthFrame>;
   return <AuthFrame title={title} description={description} aside={login ? <span>还没有账号？请向已加入的朋友索要邀请码，然后<Link to="/register" className="link-underline text-foreground">注册</Link>。</span>
     : <span>已经有账号？<Link to="/login" className="link-underline text-foreground">登录</Link>{!register && <> · <Link to="/register" className="link-underline text-foreground">邀请码注册</Link></>}</span>}>
     {verified ? <div className="grid gap-3"><Link className="underline" to="/login">前往登录</Link><Link className="underline" to="/verify-pending">重新发送验证邮件</Link></div>
+      : resetInvalid ? <Button nativeButton={false} render={<Link to="/forgot-password" />} className="w-full">重新申请重设邮件</Button>
       : register && !inviteStep ? <form onSubmit={event => { event.preventDefault(); setInviteStep(true); }}><FieldGroup>
         <Field id="invitationCode" label="邀请码" value={inviteCode} onChange={event => setInviteCode(event.target.value)} required autoComplete="off" maxLength={512} className="h-11 font-mono tracking-wider" autoFocus />
         <Button type="submit" disabled={!inviteCode.trim()}>继续</Button>
@@ -102,9 +112,9 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
         {second && <Field id="code" name="code" label={step === "totp" ? "动态验证码" : "二步验证备用码"} required autoFocus autoComplete="one-time-code" inputMode={step === "totp" ? "numeric" : "text"} pattern={step === "totp" ? "[0-9]{6}" : undefined} maxLength={step === "totp" ? 6 : 64} className={step === "totp" ? "h-12 text-center font-mono text-xl tracking-[0.5em]" : "font-mono"} />}
         {needsCaptcha && <Turnstile key={generation} siteKey={config.siteKey} onToken={setCaptcha} />}
         <StatusButton type="submit" status={busy ? "loading" : "idle"} disabled={needsCaptcha && !captcha}>{second ? "验证并登录" : login ? "登录" : register ? "创建账号" : reset ? "保存新密码" : "发送邮件"}</StatusButton>
-        {second && <Button type="button" variant="ghost" onClick={() => setStep(step === "totp" ? "backup" : "totp")}>{step === "totp" ? "改用备用码" : "改用动态码"}</Button>}
+        {second && <Button type="button" variant="ghost" onClick={() => setStep(step === "totp" ? "backup" : "totp")}>{step === "totp" ? "改用备用码" : "改用动态验证码"}</Button>}
         {register && <Button type="button" variant="ghost" disabled={busy} onClick={() => setInviteStep(false)}>换一个邀请码</Button>}
-        {reset && <p className="text-xs text-muted-foreground">若保存失败或重置链接已失效，请重新申请重置邮件。</p>}
+        {reset && <p className="text-xs text-muted-foreground">若保存失败或重设链接已失效，请重新申请重设邮件。</p>}
       </FieldGroup></form>}
   </AuthFrame>;
 }

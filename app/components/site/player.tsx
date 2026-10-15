@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChange, onTracksChange }: { unitId: string; source: PlaybackSource; startSeconds: number; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: PlaybackSource["tracks"]) => void }) {
   const container = useRef<HTMLDivElement>(null), retry = useRef<() => void>(() => {});
   const frame = useRef<HTMLDivElement>(null), selectSubtitle = useRef<(id: string) => void>(() => {});
-  // Only video failures offer reconnecting; subtitle failures are retried by choosing the track again.
-  const [notice, setNotice] = useState<{ text: string; reconnect: boolean } | null>(null);
+  // Only video failures offer reconnecting (or signing in again after 401/403); subtitle failures are retried by choosing the track again.
+  const [notice, setNotice] = useState<{ text: string; reconnect: boolean; login?: true } | null>(null);
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
@@ -25,10 +25,19 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
     // ready gates position tracking: the element reports 0 before the saved start is applied.
     let disposed = false, ready = false, failed = false, playing = false, position = startSeconds, restoreTo: number | null = null;
     // shown mirrors the notice kind so a subtitle success clears only its own notice.
-    let shown: "video" | "subtitle" | "other" | null = null;
-    const show = (text: string | null, kind: "video" | "subtitle" | "other" = "other") => { shown = text === null ? null : kind; setNotice(text === null ? null : { text, reconnect: kind === "video" }); };
+    type Kind = "video" | "login" | "subtitle" | "other";
+    let shown: Kind | null = null;
+    const show = (text: string | null, kind: Kind = "other") => {
+      shown = text === null ? null : kind;
+      // The notice sits below the player, out of sight in fullscreen: leave fullscreen when it carries a button, otherwise echo it inside the player.
+      if (text !== null && art && (art.fullscreen || art.fullscreenWeb)) {
+        if (kind === "video" || kind === "login") { if (art.fullscreen) art.fullscreen = false; if (art.fullscreenWeb) art.fullscreenWeb = false; }
+        else art.notice.show = text;
+      }
+      setNotice(text === null ? null : kind === "login" ? { text, reconnect: false, login: true } : { text, reconnect: kind === "video" });
+    };
     // A video failure outranks other notices until a reconnect, so its recovery button is never replaced.
-    const say = (text: string, kind: "video" | "subtitle" | "other" = "other") => { if (kind === "video" || !failed) show(text, kind); };
+    const say = (text: string, kind: Kind = "other") => { if (kind === "video" || kind === "login" || !failed) show(text, kind); };
     let subtitleJob: Promise<void> = Promise.resolve();
     const absolute = (url: string) => new URL(url, location.origin).href;
     const label = (text: string) => text.replace(/[&<>"']/gu, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
@@ -52,7 +61,7 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
           };
           if ("message" in loaded) { fail(loaded.message, loaded.remove); return; }
           try { await art.subtitle.switch(loaded.url, { name: label(track.displayName), type: "vtt", escape: true }); }
-          catch { if (!disposed && choice === selected) fail("字幕暂时无法加载，请重新选择字幕重试。"); return; }
+          catch { if (!disposed && choice === selected) fail("字幕加载失败，请再次选择该字幕重试。"); return; }
           finally { URL.revokeObjectURL(loaded.url); }
         }
         if (disposed || choice !== selected) return;
@@ -67,7 +76,7 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
       selected = id;
       onSubtitleChange(id);
       if (id === "off" && art) art.subtitle.show = false;
-      void changeSubtitle().catch(() => say("字幕暂时无法加载，请重新选择字幕重试。", "subtitle"));
+      void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕重试。", "subtitle"));
     };
     selectSubtitle.current = select;
     // The recovery canplay handler below restores the position and the play state.
@@ -92,7 +101,7 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
         if (failed || disposed) return;
         failed = true;
         const status = await fetch(absolute(source.url), { method: "HEAD", credentials: "same-origin", cache: "no-store" }).then(response => response.status, () => 0);
-        if (!disposed && failed) say(mediaErrorMessage(status), "video");
+        if (!disposed && failed) say(mediaErrorMessage(status), status === 401 || status === 403 ? "login" : "video");
       });
       // Pauses caused by a failure or a reconnect reload are not the member's choice.
       player.on("video:play", () => { playing = true; });
@@ -103,13 +112,13 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
         if (restoreTo === null) return;
         const target = restoreTo; restoreTo = null;
         if (Math.abs(player.currentTime - target) > 1) player.currentTime = target;
-        if (playing) void player.play().catch(() => say("浏览器未允许自动恢复播放，请点击播放。"));
+        if (playing) void player.play().catch(() => say("浏览器阻止了自动播放，请点击播放继续观看。"));
       });
       (container.current as HTMLDivElement & { art?: Artplayer }).art = player;
-      void changeSubtitle().catch(() => say("字幕暂时无法加载，请重新选择字幕重试。", "subtitle"));
+      void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕重试。", "subtitle"));
     }).catch(() => say("播放器加载失败，请刷新页面后重试。"));
     return () => { disposed = true; selectSubtitle.current = () => {}; art?.destroy(false); };
   }, [unitId]);
   useEffect(() => selectSubtitle.current(subtitle), [subtitle]);
-  return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom))]"><div ref={container} className="size-full" /></div>{notice && <div className="flex flex-wrap items-center gap-3 p-4" role="status"><p>{notice.text}</p>{notice.reconnect && <Button size="sm" onClick={() => retry.current()}>重新连接</Button>}</div>}</div>;
+  return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom))]"><div ref={container} className="size-full" /></div>{notice && <div className="flex flex-wrap items-center gap-3 p-4" role="status"><p>{notice.text}</p>{notice.reconnect && <Button size="sm" onClick={() => retry.current()}>重新连接</Button>}{notice.login && <Button size="sm" onClick={() => location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`)}>重新登录</Button>}</div>}</div>;
 }

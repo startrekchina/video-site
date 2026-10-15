@@ -81,29 +81,30 @@ it("removes a missing subtitle from the menu but keeps a transient failure selec
   expect(callbacks.onSubtitleChange).toHaveBeenCalledExactlyOnceWith("off");
   expect(state.art.subtitle.switch).not.toHaveBeenCalled(); expect(state.art.subtitle.show).toBe(false);
   expect(state.art.setting.update).toHaveBeenLastCalledWith({ name: "subtitle-lang", html: "字幕", selector: [{ html: "关闭", id: "off", default: true }] });
-  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("已从选项中移除"), reconnect: false });
+  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("已从字幕选项中移除"), reconnect: false });
   cleanups.forEach(cleanup => cleanup?.()); state.effects.length = 0; state.refs.length = 0; state.refIndex = 0; vi.clearAllMocks();
   fetch.mockResolvedValueOnce(new Response(null, { status: 503 }));
   callbacks = await mount();
   expect(callbacks.onTracksChange).not.toHaveBeenCalled();
   expect(callbacks.onSubtitleChange).toHaveBeenCalledExactlyOnceWith("off");
   expect(state.art.setting.update).toHaveBeenLastCalledWith({ name: "subtitle-lang", html: "字幕", selector: [{ html: "English", id: "en", default: false }, { html: "关闭", id: "off", default: true }] });
-  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请重新选择字幕"), reconnect: false });
+  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请再次选择该字幕"), reconnect: false });
 });
 
 it("classifies each failure once and never retries the video by itself", async () => {
   const { default: Artplayer } = await import("artplayer") as unknown as { default: { RECONNECT_TIME_MAX?: number } };
   await mount(); fetch.mockClear(); state.message.mockClear();
   expect(Artplayer.RECONNECT_TIME_MAX).toBe(0);
-  for (const [reply, text] of [
-    [async () => new Response(null, { status: 401 }), "登录已失效"],
-    [async () => new Response(null, { status: 404 }), "媒体暂时不可用"],
-    [async () => { throw new TypeError("offline"); }, "播放连接中断"],
+  // A lost sign-in offers signing in again; reconnecting would only fail with 401 again.
+  for (const [reply, text, action] of [
+    [async () => new Response(null, { status: 401 }), "登录已失效", { reconnect: false, login: true }],
+    [async () => new Response(null, { status: 404 }), "片源暂时无法播放", { reconnect: true }],
+    [async () => { throw new TypeError("offline"); }, "播放连接中断", { reconnect: true }],
   ] as const) {
     fetch.mockImplementationOnce(reply);
     await Promise.all([emit("video:error"), emit("video:error")]); await emit("video:error");
     expect(fetch).toHaveBeenCalledExactlyOnceWith("http://localhost:6120/media/source", { method: "HEAD", credentials: "same-origin", cache: "no-store" });
-    expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining(text), reconnect: true });
+    expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining(text), ...action });
     // Cached leading bytes can fire canplay without a reconnect; that must not seek into the failed range again.
     state.art.currentTime = 0; await emit("video:canplay"); expect(state.art.currentTime).toBe(0); expect(state.art.url).toBe("");
     (state.refs[1].current as () => void)(); expect(state.message).toHaveBeenLastCalledWith(null); state.art.url = "";
@@ -123,7 +124,7 @@ it("reconnects once to the last position and play state, and offers reconnecting
   expect(state.art.currentTime).toBe(1234); expect(state.art.play).toHaveBeenCalledOnce();
   // The restored range fails again: classified again, no automatic second restore.
   fetch.mockClear(); fetch.mockResolvedValueOnce(new Response(null, { status: 404 })); await emit("video:error");
-  expect(fetch).toHaveBeenCalledOnce(); expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("媒体暂时不可用"), reconnect: true });
+  expect(fetch).toHaveBeenCalledOnce(); expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("片源暂时无法播放"), reconnect: true });
   state.art.currentTime = 0; state.art.play.mockClear(); await emit("video:canplay");
   expect(state.art.currentTime).toBe(0); expect(state.art.play).not.toHaveBeenCalled();
 });
@@ -135,7 +136,7 @@ it("never lets subtitle or late autoplay notices replace a video failure's recon
   fetch.mockResolvedValueOnce(new Response(null, { status: 401 }));
   select("off"); select("en"); await new Promise(resolve => setTimeout(resolve, 0)); await new Promise(resolve => setTimeout(resolve, 0));
   expect(state.message).toHaveBeenCalledTimes(1);
-  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("登录已失效"), reconnect: true });
+  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("登录已失效"), reconnect: false, login: true });
   // A resume attempt that rejects only after the restored range has failed again stays silent.
   await emit("video:play");
   let reject: (error: Error) => void = () => {};
@@ -143,7 +144,7 @@ it("never lets subtitle or late autoplay notices replace a video failure's recon
   (state.refs[1].current as () => void)(); await emit("video:canplay");
   fetch.mockResolvedValueOnce(new Response(null, { status: 404 })); await emit("video:error");
   reject(new Error("Fictional autoplay restriction")); await new Promise(resolve => setTimeout(resolve, 0));
-  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("媒体暂时不可用"), reconnect: true });
+  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("片源暂时无法播放"), reconnect: true });
 });
 
 it("clears a subtitle notice after choosing the track again succeeds and keeps a deliberate seek to zero", async () => {
@@ -151,7 +152,7 @@ it("clears a subtitle notice after choosing the track again succeeds and keeps a
   state.art.subtitle.switch.mockRejectedValueOnce(new Error("Fictional subtitle parse failure"));
   const callbacks = await mount();
   expect(callbacks.onSubtitleChange).toHaveBeenCalledExactlyOnceWith("off"); expect(state.art.subtitle.show).toBe(false);
-  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请重新选择字幕"), reconnect: false });
+  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请再次选择该字幕"), reconnect: false });
   (state.refs[3].current as (id: string) => void)("en"); await new Promise(resolve => setTimeout(resolve, 0)); await new Promise(resolve => setTimeout(resolve, 0));
   expect(state.art.subtitle.switch).toHaveBeenCalledTimes(2); expect(state.art.subtitle.show).toBe(true);
   expect(state.message).toHaveBeenLastCalledWith(null);
@@ -159,6 +160,15 @@ it("clears a subtitle notice after choosing the track again succeeds and keeps a
   fetch.mockResolvedValueOnce(new Response(null, { status: 503 })); await emit("video:error");
   (state.refs[1].current as () => void)(); state.art.currentTime = 50; await emit("video:canplay");
   expect(state.art.currentTime).toBe(0);
+});
+
+it("leaves fullscreen for a failure that needs a button and echoes other notices inside the player", async () => {
+  const art = Object.assign(state.art, { fullscreen: false, fullscreenWeb: true, notice: { show: "" } });
+  state.art.subtitle.switch.mockRejectedValueOnce(new Error("Fictional subtitle parse failure"));
+  await mount();
+  expect(art.notice.show).toContain("请再次选择该字幕"); expect(art.fullscreenWeb).toBe(true);
+  fetch.mockResolvedValueOnce(new Response(null, { status: 503 })); await emit("video:error");
+  expect(art.fullscreenWeb).toBe(false);
 });
 
 it("returns to the saved start when the first load fails before the player is ready", async () => {

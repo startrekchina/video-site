@@ -5,6 +5,7 @@ import type { Route } from "./+types/admin";
 import { pageMember } from "@/lib/member.server";
 import { adminHttp } from "@/lib/admin.server";
 import { call } from "@/lib/auth-client";
+import { pageTitle } from "@/lib/site";
 import { cn } from "@/lib/utils";
 import { Page, PageHeading, PageHeadingTitle, PageHeadingDescription, PageHeadingTagline, Panel, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel";
 import { Field, useAction } from "@/components/site/account-form";
@@ -65,7 +66,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const roots = tab === "tree" ? await read<TreeMember[]>("roots") : [];
   return data({ members, invitations, roots, stats, tab, self: current.member.user_id, totp: !!current.member.twoFactorEnabled, now: Date.now() }, { headers: current.headers });
 }
-export const meta = () => [{ title: "管理后台 · 星际迷航中国" }];
+export const meta = () => pageTitle("管理后台");
 export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
   const action = useAction(); const revalidator = useRevalidator(); const navigate = useNavigate(); const [params] = useSearchParams();
   const page = Number(params.get("page") ?? 1);
@@ -76,7 +77,7 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
   const [operationId, setOperationId] = useState<string | null>(null);
   async function change(id: string, operation: string, body: object) {
     const result = await call<{ changed: number; failedNotifications: number }>("/admin/members/" + id + "/" + operation, body);
-    setDialog(null); revalidator.revalidate(); action.setMessage("已更新 " + result.changed + " 个成员。" + (result.failedNotifications ? "其中 " + result.failedNotifications + " 封通知发送失败或未确认，封禁仍已生效。" : ""));
+    setDialog(null); revalidator.revalidate(); action.setMessage("已更新 " + result.changed + " 个成员。" + (result.failedNotifications ? "其中 " + result.failedNotifications + " 封通知邮件可能未送出，封禁已生效。" : ""));
   }
   function show(kind: NonNullable<DialogState>["kind"], member: AdminMember) {
     action.clear(); setCascade(false);
@@ -95,7 +96,7 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
       {[["成员", admin.stats.active], ["已封禁", admin.stats.banned], ["未使用邀请码", admin.stats.validUnused]].map(([title, value], i) =>
         <div key={title} className={cn("flex flex-col gap-1 px-4 py-3", i > 0 && "border-l border-line")}><span className="text-sm text-muted-foreground">{title}</span><span className="font-mono text-2xl font-medium tabular-nums">{value}</span></div>)}
     </div>
-    <div className="px-4 py-3 text-xs text-muted-foreground">封禁、解封、调整额度和身份须绑定二步验证，并在五分钟内<Link className="link-underline text-foreground" to="/login?next=/admin">重新登录</Link>。{!admin.totp && <Link className="link-underline text-foreground" to="/account">前往绑定验证器</Link>}</div>
+    <div className="px-4 py-3 text-xs text-muted-foreground">封禁、解除封禁、调整额度和身份须开启二步验证，并在 5 分钟内<Link className="link-underline text-foreground" to="/login?next=/admin">重新登录</Link>。{!admin.totp && <Link className="link-underline text-foreground" to="/account">前往开启二步验证</Link>}</div>
     {!dialog && !created && <div className="empty:hidden px-4 pb-4">{action.feedback}</div>}
     <Separator /><Panel><Tabs value={admin.tab} onValueChange={value => navigate(location(String(value)))} className="gap-0">
       <PanelHeader className="flex-wrap py-3"><PanelTitle><span className="whitespace-nowrap">成员与邀请</span><PanelTitleSup>({admin.stats.total})</PanelTitleSup></PanelTitle>
@@ -103,7 +104,7 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
       <TabsContent value="members">
         <Form method="get" className="screen-line-bottom flex flex-wrap items-center gap-3 px-4 py-3"><input type="hidden" name="tab" value="members" />
           <InputGroup className="max-w-xs min-w-0 flex-1"><InputGroupAddon><SearchIcon /></InputGroupAddon><InputGroupInput key={params.get("q")} name="q" defaultValue={params.get("q") ?? ""} maxLength={30} placeholder="搜索用户名" aria-label="搜索成员" /></InputGroup>
-          <Button type="submit" variant="ghost" size="sm">搜索</Button><span className="ml-auto shrink-0 font-mono text-xs whitespace-nowrap text-muted-foreground">{admin.stats.active} 活跃 · {admin.stats.banned} 封禁</span>
+          <Button type="submit" variant="ghost" size="sm">搜索</Button><span className="ml-auto shrink-0 font-mono text-xs whitespace-nowrap text-muted-foreground">{admin.stats.active} 正常 · {admin.stats.banned} 已封禁</span>
         </Form>
         <div className="no-scrollbar scroll-fade-x overflow-x-auto"><table className="w-full min-w-[42rem] text-sm whitespace-nowrap">
           <thead><tr className="border-b border-line text-left text-xs text-muted-foreground"><th className="px-4 py-2 font-medium">成员</th><th className="px-2 py-2 font-medium">邀请人</th><th className="px-2 py-2 font-medium">邀请了</th><th className="px-2 py-2 font-medium">额度</th><th className="px-2 py-2 font-medium">最近活跃</th><th className="w-12 px-2 py-2"><span className="sr-only">操作</span></th></tr></thead>
@@ -131,7 +132,7 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
         <InviteList invitations={admin.invitations} codes={codes} now={admin.now} self={admin.self} showIssuer busy={action.busy} revoke={id => void action.run(async () => {
           await call("/invites/" + id + "/revoke", {}); revalidator.revalidate(); action.setMessage("邀请码已作废。");
         })} />{!admin.invitations.length && <p className="px-4 py-8 text-center text-sm text-muted-foreground">还没有邀请码。</p>}
-        <p className="px-4 py-3 text-xs text-muted-foreground">邀请码明文仅在生成后展示一次。仅可作废自己发出的未使用邀请码。</p>
+        <p className="px-4 py-3 text-xs text-muted-foreground">邀请码只在生成后显示一次。仅可作废自己发出的未使用邀请码。</p>
       </TabsContent>
       <TabsContent value="tree"><div className="no-scrollbar overflow-x-auto"><ul className="dot-grid min-w-fit px-4 py-4">{admin.roots.map(member => <TreeNode key={member.user_id} member={member} depth={0} />)}</ul></div>
         {!admin.roots.length && <p className="px-4 py-8 text-center text-sm text-muted-foreground">还没有邀请关系。</p>}</TabsContent>
@@ -141,9 +142,9 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
     <Dialog open={!!dialog} onOpenChange={value => { if (!value && !action.busy) { setDialog(null); action.clear(); } }}><DialogContent>
       <DialogHeader><DialogTitle>{dialog?.kind === "quota" ? "调整邀请额度" : dialog?.kind === "ban" ? "封禁 " : dialog?.kind === "unban" ? "解除封禁 " : "调整管理员身份 "}{dialog?.kind !== "quota" && <span className="font-mono">{dialog?.member.username}</span>}</DialogTitle>
         <DialogDescription>{dialog?.kind === "quota" ? dialog.member.username + " 当前总额度 " + dialog.member.total + "，默认值为 2。"
-          : dialog?.kind === "ban" ? "封禁后立即无法登录，所有登录会话失效，正在进行的播放也会很快终止。"
-          : dialog?.kind === "unban" ? "仅解除这个成员的封禁，不恢复旧会话或已作废的邀请码，不连带解封。"
-          : dialog?.member.role === "admin" ? "取消管理员身份后，该成员将失去后台权限。" : "提升后，该成员可以使用管理后台。敏感管理操作仍需绑定二步验证并在近期重新登录验证身份。"}</DialogDescription></DialogHeader>
+          : dialog?.kind === "ban" ? "封禁后，该成员会立即退出所有设备，无法再登录，也无法开始新的播放（正在播放的视频可能不会马上停止）；其未使用的邀请码同时作废。"
+          : dialog?.kind === "unban" ? "仅解除这个成员的封禁，不会恢复其已退出的登录和已作废的邀请码，也不连带解除其他成员的封禁。"
+          : dialog?.member.role === "admin" ? "取消管理员身份后，该成员将失去后台权限。" : "提升后，该成员可以使用管理后台。敏感管理操作仍需开启二步验证，并在 5 分钟内重新登录。"}</DialogDescription></DialogHeader>
       {action.feedback}
       {dialog?.kind === "quota" ? <form onSubmit={event => { event.preventDefault(); const total = Number(new FormData(event.currentTarget).get("total")); void action.run(() => change(dialog.member.user_id, "quota", { total })); }}>
         <Field id="quota" name="total" label="邀请总额度" type="number" required min={dialog.member.occupied} step="1" defaultValue={dialog.member.total} className="w-32 font-mono" help={"当前占用 " + dialog.member.occupied + "，总额度不得低于占用数。"} />
@@ -160,7 +161,7 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
             })}>{dialog?.kind === "ban" ? "确认封禁" + (cascade ? "（" + (1 + (dialog.preview?.active ?? 0)) + " 人）" : "") : "确认"}</StatusButton></DialogFooter>
         </>}
     </DialogContent></Dialog>
-    <Dialog open={!!created} onOpenChange={value => { if (!value) setCreated(null); }}><DialogContent><DialogHeader><DialogTitle>邀请码已生成</DialogTitle><DialogDescription>默认 30 天内有效，原码只在本次生成后显示。请通过私信发送给朋友。</DialogDescription></DialogHeader>
+    <Dialog open={!!created} onOpenChange={value => { if (!value) setCreated(null); }}><DialogContent><DialogHeader><DialogTitle>邀请码已生成</DialogTitle><DialogDescription>默认 30 天内有效。邀请码只在生成后显示一次，请复制后通过私信发给朋友。</DialogDescription></DialogHeader>
       <code className="break-all rounded-lg border bg-muted p-3 font-mono text-sm">{created}</code><div className="flex flex-wrap gap-2"><CopyButton variant="outline" size="sm" text={created ?? ""}>复制邀请码</CopyButton><CopyButton variant="outline" size="sm" text={() => window.location.origin + "/register?code=" + encodeURIComponent(created ?? "")}>复制注册链接</CopyButton></div><DialogFooter><Button onClick={() => setCreated(null)}>完成</Button></DialogFooter>
     </DialogContent></Dialog>
   </Page>;

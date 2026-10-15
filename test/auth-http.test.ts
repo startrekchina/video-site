@@ -69,7 +69,8 @@ it("does not verify or log in orphaned or banned identities through any auth ent
   expect((await http("/sign-in/username", { username: "Nova", password })).status).toBe(403);
   expect(await (await http("/get-session", undefined, cookie)).json()).toBeNull();
   const token = await createEmailVerificationToken(env.BETTER_AUTH_SECRET, user.email, undefined, 3600);
-  expect((await http(`/verify-email?token=${token}`)).status).toBe(403);
+  const refused = await http(`/verify-email?token=${token}`);
+  expect(refused.status).toBe(302); expect(refused.headers.get("Location")).toBe(`${env.APP_ORIGIN}/verify-email?error=INVALID_TOKEN`);
   expect((await http("/two-factor/enable", { password }, cookie)).status).toBe(401);
   expect((await http("/passkey/generate-register-options", undefined, cookie)).status).toBe(401);
   expect((await http("/request-password-reset", { email: orphan.email, redirectTo: `${env.APP_ORIGIN}/reset-password` })).status).toBe(200);
@@ -104,11 +105,16 @@ it("requires the original member session to replace email and preserves the old 
   const needsLogin = await authHttp(new Request(links[0]), env);
   expect(needsLogin.status).toBe(302); expect(needsLogin.headers.get("Location")).toBe(`${env.APP_ORIGIN}/login?next=/account/email-confirm`);
   expect(needsLogin.headers.get("Location")).not.toContain("token="); expect(needsLogin.headers.getSetCookie()[0]).toContain("HttpOnly");
-  await expect(authHttp(new Request(links[0], { headers: { Cookie: other } }), env)).resolves.toHaveProperty("status", 403);
+  const wrongAccount = `${env.APP_ORIGIN}/verify-email?error=EMAIL_CHANGE_ACCOUNT`;
+  const foreign = await authHttp(new Request(links[0], { headers: { Cookie: other } }), env);
+  expect(foreign.status).toBe(302); expect(foreign.headers.get("Location")).toBe(wrongAccount);
+  const missing = await authHttp(request("/account/email-confirm"), env);
+  expect(missing.status).toBe(303); expect(missing.headers.get("Location")).toBe(`${env.APP_ORIGIN}/verify-email?error=INVALID_TOKEN`);
   const resumed = await authHttp(request("/account/email-confirm", undefined, cookies(needsLogin, cookie)), env);
   expect(resumed.status).toBe(302); expect(resumed.headers.getSetCookie().join(";")).toContain("Max-Age=0");
   expect(await env.DB.prepare('SELECT email, emailVerified FROM "user" WHERE id = ?').bind(nova.id).first()).toEqual({ email: "replacement@example.test", emailVerified: 1 });
-  expect((await authHttp(new Request(links[0], { headers: { Cookie: cookie } }), env)).status).toBe(403);
+  const reused = await authHttp(new Request(links[0], { headers: { Cookie: cookie } }), env);
+  expect(reused.status).toBe(302); expect(reused.headers.get("Location")).toBe(wrongAccount);
 });
 
 it("checks reset GET without consumption and revokes old sessions in the password write even if native cleanup later fails", async () => {

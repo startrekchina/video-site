@@ -78,7 +78,7 @@ export async function adminHttp(request: Request, env: Env, identity = createReq
   const actorId = current.member.user_id;
   const totp = await env.DB.prepare("SELECT id FROM twoFactor WHERE userId = ? AND verified = 1").bind(actorId).first();
   if (!current.member.twoFactorEnabled || !totp || new Date(current.session.createdAt).getTime() <= now - settings.session.freshAge * 1000) {
-    throw new APIError("FORBIDDEN", { code: "FRESH_SESSION_REQUIRED", message: "请先绑定二步验证，并在五分钟内重新登录。" });
+    throw new APIError("FORBIDDEN", { code: "FRESH_SESSION_REQUIRED", message: "此操作需要已开启二步验证，并在 5 分钟内重新登录。请重新登录后再试。" });
   }
   const key = `admin:${actorId}`;
   const limit = await env.DB.prepare(`INSERT INTO rate_limit_counters (key, operation, occurred_at, count, expires_at)
@@ -118,14 +118,14 @@ export async function adminHttp(request: Request, env: Env, identity = createReq
   }
   if (!result.meta.changes) {
     const occupied = await env.DB.prepare(`SELECT ${occupiedSql} AS n FROM member_profiles AS p WHERE user_id = ?`).bind(now, targetId).first<number>("n");
-    throw new APIError("CONFLICT", { code: operation === "quota" ? "QUOTA_EXHAUSTED" : "ADMIN_CHANGE_REJECTED", message: operation === "quota" ? `总额度不得低于当前占用（${occupied ?? 0}）。` : "目标状态已变化，或操作受到管理员保护。" });
+    throw new APIError("CONFLICT", { code: operation === "quota" ? "QUOTA_EXHAUSTED" : "ADMIN_CHANGE_REJECTED", message: operation === "quota" ? `总额度不得低于当前占用（${occupied ?? 0}）。` : "操作未生效：该成员状态可能已变化，或此操作涉及你自己或最后一位管理员。请刷新页面后查看。" });
   }
   const notificationResults = await Promise.all(notifications.map(async member => {
     try {
       const email = await env.DB.prepare('SELECT email FROM "user" WHERE id = ?').bind(member.user_id).first<string>("email");
       if (!email) return false;
       const attempt = await reserveMail(env, email, "admin_notification");
-      await deliverMail(env, attempt, "你的账号已被封禁，无法访问成员功能。如有疑问，请联系站点管理员。", member.user_id);
+      await deliverMail(env, attempt, "你的账号已被封禁，无法访问成员功能。如有疑问，可直接回复本邮件。", member.user_id);
       const status = await env.DB.prepare("SELECT status FROM email_deliveries WHERE id = ?").bind(attempt.id).first<string>("status");
       return status === "accepted";
     } catch { return false; }

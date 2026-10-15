@@ -59,7 +59,7 @@ export async function invitationsHttp(request: Request, env: Env, identity = cre
     .bind(crypto.randomUUID(), await sha256(code), body.operationId, now, expiry, userId, ...actor, now).run();
   const row = await env.DB.prepare("SELECT id, expires_at, used_at, revoked_at FROM invitations WHERE issuer_user_id = ? AND operation_id = ?")
     .bind(userId, body.operationId).first<{ id: string; expires_at: number; used_at: number | null; revoked_at: number | null }>();
-  if (!row) throw new APIError("CONFLICT", { code: "QUOTA_EXHAUSTED", message: "邀请额度已用完或账号已停用。" });
+  if (!row) throw new APIError("CONFLICT", { code: "QUOTA_EXHAUSTED", message: "邀请额度已用完或账号已被封禁。" });
   if (row.used_at || row.revoked_at || row.expires_at <= now) throw new APIError("CONFLICT", { code: "INVITATION_USED", message: "本次发码已经结束，请使用新的操作。" });
   return Response.json({ data: { id: row.id, code, expiresAt: row.expires_at }, requestId: request.headers.get("X-Site-Request-Id") ?? crypto.randomUUID() }, { headers: current.headers });
 }

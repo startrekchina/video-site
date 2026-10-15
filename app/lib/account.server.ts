@@ -15,7 +15,7 @@ export async function accountHttp(request: Request, env: Env, identity = createR
   if (request.method !== "POST" || !match) return new Response(null, { status: 404 });
   checkWrite(request, env);
   const token = await env.DB.prepare("SELECT token FROM session WHERE id = ? AND userId = ?").bind(match[1], current.member.user_id).first<string>("token");
-  if (!token) throw new APIError("NOT_FOUND", { code: "NOT_FOUND", message: "会话不存在。" });
+  if (!token) throw new APIError("NOT_FOUND", { code: "NOT_FOUND", message: "该登录设备不存在或已退出。" });
   const result = await identity.auth().api.revokeSession({ headers: request.headers, body: { token }, returnHeaders: true });
   identity.invalidate();
   if (match[1] === current.session.id) result.headers.append("Set-Cookie", privateCookie(env, "session", "", 0));

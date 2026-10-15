@@ -5,6 +5,7 @@ import type { Route } from "./+types/invites";
 import { pageMember } from "@/lib/member.server";
 import { invitationsHttp } from "@/lib/invitations.server";
 import { call } from "@/lib/auth-client";
+import { pageTitle } from "@/lib/site";
 import { Page, PageHeading, PageHeadingTitle, PageHeadingDescription, PageHeadingTagline, Panel, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel";
 import { InviteList, type Invitation } from "@/components/site/invite-list";
 import { Field, useAction } from "@/components/site/account-form";
@@ -22,7 +23,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const result = await response.json() as { data: InviteData };
   return data({ ...result.data, now: Date.now() }, { headers: current.headers });
 }
-export const meta = () => [{ title: "邀请 · 星际迷航中国" }];
+export const meta = () => pageTitle("邀请");
 export default function InvitesPage({ loaderData: invites }: Route.ComponentProps) {
   const action = useAction(); const revalidator = useRevalidator();
   const [operation, setOperation] = useState<{ id: string; expiresAt?: number } | null>(null);
@@ -47,15 +48,15 @@ export default function InvitesPage({ loaderData: invites }: Route.ComponentProp
     </div>
     <div className="flex flex-wrap items-center justify-center gap-3 py-4">
       <StatusButton className="gap-2 pr-2.5 pl-3 shadow-[inset_0_0_1px] shadow-foreground/20" variant="secondary" size="sm" disabled={left <= 0} status={action.busy ? "loading" : "idle"} onClick={() => create()}><PlusIcon />生成邀请码</StatusButton>
-      <Button variant="ghost" size="sm" disabled={action.busy || left <= 0} onClick={() => { action.clear(); setExpiryOpen(true); }}>设置有效期</Button>
+      <Button variant="ghost" size="sm" disabled={action.busy || left <= 0} onClick={() => { action.clear(); setExpiryOpen(true); }}>指定有效期生成</Button>
       {left <= 0 && <span className="text-sm text-muted-foreground">额度已用完，可以联系管理员调整。</span>}
     </div>
     {!expiryOpen && !created && <div className="empty:hidden px-4 pb-4">{action.feedback}</div>}
     <Separator /><Panel><PanelHeader><PanelTitle>我发出的邀请码<PanelTitleSup>({invites.invitations.length})</PanelTitleSup></PanelTitle></PanelHeader>
       {!invites.invitations.length ? <Empty className="rounded-none py-12"><EmptyHeader><EmptyMedia variant="icon"><TicketIcon /></EmptyMedia><EmptyTitle>还没有发出邀请码</EmptyTitle><EmptyDescription>生成后把注册链接通过私信发给朋友即可。</EmptyDescription></EmptyHeader></Empty>
         : <><InviteList invitations={invites.invitations} now={invites.now} codes={codes} busy={action.busy} revoke={id => void action.run(async () => {
-          await call("/invites/" + id + "/revoke", {}); revalidator.revalidate(); action.setMessage("邀请码已作废，未用额度已释放。");
-        })} /><p className="screen-line-top px-4 py-3 text-xs text-muted-foreground">邀请码仅在本次生成后显示一次，请及时复制保存。已使用的邀请码将计入额度，未使用码作废或过期后会自动返还额度。</p></>}
+          await call("/invites/" + id + "/revoke", {}); revalidator.revalidate(); action.setMessage("邀请码已作废，额度已返还。");
+        })} /><p className="screen-line-top px-4 py-3 text-xs text-muted-foreground">邀请码只在生成后显示一次，请及时复制保存。已使用的邀请码会计入额度，未使用的邀请码作废或过期后会自动返还额度。</p></>}
     </Panel>
     <Dialog open={!!created} onOpenChange={value => { if (!value) { setCreated(null); action.clear(); } }}><DialogContent>
       <DialogHeader><DialogTitle>邀请码已生成</DialogTitle><DialogDescription>有效至 {created && new Date(created.expiresAt).toLocaleString("zh-CN")}。请通过私信把注册链接发给朋友。</DialogDescription></DialogHeader>

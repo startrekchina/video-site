@@ -204,5 +204,6 @@ it("renders the watch page from D1 and leaves missing objects to the media reque
   await env.MEDIA_BUCKET.delete("fictional-private-object");
   expect(await page("/watch/episode-unit")).toContain(video);
   expect((await http(video)).status).toBe(404);
-  expect(await page("/watch/movie-unit")).toContain("暂无可播放片源");
+  const moviePage = await page("/watch/movie-unit");
+  expect(moviePage).toContain("片源暂缺。"); expect(moviePage).toContain("<title>测试信号 · 星际舰队档案馆</title>");
 }, 60000);

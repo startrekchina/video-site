@@ -78,7 +78,7 @@ export function createSiteAuth(env: Env, identity: RequestIdentity) {
         await readMember();
       }
       if (ctx.path === "/change-password" && ctx.body?.revokeOtherSessions !== true) {
-        throw new APIError("BAD_REQUEST", { code: "SESSION_REVOCATION_REQUIRED", message: "修改密码必须撤销其他会话。" });
+        throw new APIError("BAD_REQUEST", { code: "SESSION_REVOCATION_REQUIRED", message: "修改密码时必须同时退出其他设备。" });
       }
       for (const field of ["callbackURL", "redirectTo"]) {
         const value = ctx.body?.[field] ?? ctx.query?.[field];
@@ -89,28 +89,30 @@ export function createSiteAuth(env: Env, identity: RequestIdentity) {
         }
       }
       if (ctx.path === "/verify-email") {
+        // Members open this link from mail, so failures land on the verification page rather than a JSON body.
+        const invalid = (error = "INVALID_TOKEN") => ctx.redirect(`${env.APP_ORIGIN}/verify-email?error=${error}`);
         let payload: { email?: string; updateTo?: string };
         try {
           const token = ctx.query?.token;
           if (typeof token !== "string" || token.length > 8192) throw new Error();
           payload = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0))));
           if (!payload || typeof payload !== "object") throw new Error();
-        } catch { throw new APIError("UNAUTHORIZED", { code: "INVALID_TOKEN", message: "验证链接无效。" }); }
+        } catch { throw invalid(); }
         // The decoded data is only a restrictive gate. Better Auth still verifies the JWT before any mutation.
         if (payload.updateTo) {
           const current = await readMember().catch(error => { if (error instanceof APIError && error.body?.code === "MEMBERSHIP_REQUIRED") return null; throw error; });
           if (!current) {
             const token = ctx.query?.token;
-            if (typeof token !== "string" || token.length > 3584) throw new APIError("BAD_REQUEST", { code: "INVALID_TOKEN", message: "验证链接无效。" });
+            if (typeof token !== "string" || token.length > 3584) throw invalid();
             ctx.setHeader("Set-Cookie", privateCookie(env, "email-change", token, 3600));
             // Keep the signed link away from the login page's third-party captcha script.
             throw ctx.redirect(`${env.APP_ORIGIN}/login?next=/account/email-confirm`);
           }
-          if (current.member.email !== payload.email) throw new APIError("FORBIDDEN", { code: "AUTH_INVALID", message: "请使用申请修改邮箱的账号登录。" });
+          if (current.member.email !== payload.email) throw invalid("EMAIL_CHANGE_ACCOUNT");
         } else if (payload.email) {
           const id = await env.DB.prepare('SELECT id FROM "user" WHERE email = ?').bind(payload.email).first<string>("id");
-          if (!id) throw new APIError("UNAUTHORIZED", { code: "INVALID_TOKEN", message: "验证链接无效。" });
-          await memberById(env, id, false);
+          if (!id) throw invalid();
+          await memberById(env, id, false).catch(error => { if (error instanceof APIError && error.body?.code === "MEMBERSHIP_REQUIRED") throw invalid(); throw error; });
         }
       }
       if (ctx.path === "/request-password-reset" || ctx.path === "/send-verification-email" || ctx.path === "/change-email") {
@@ -156,7 +158,7 @@ export async function authHttp(request: Request, env: Env, identity = createRequ
   const emailResume = url.pathname === "/account/email-confirm";
   if (emailResume) {
     const token = cookieValue(request, cookieName(env, "email-change"));
-    if (request.method !== "GET" || !token || !/^[A-Za-z0-9_.-]{1,3584}$/.test(token)) return Response.json({ code: "INVALID_TOKEN", message: "验证凭证已失效，请重新申请修改邮箱。" }, { status: 400 });
+    if (request.method !== "GET" || !token || !/^[A-Za-z0-9_.-]{1,3584}$/.test(token)) return new Response(null, { status: 303, headers: { Location: `${env.APP_ORIGIN}/verify-email?error=INVALID_TOKEN` } });
     url.pathname = "/api/auth/verify-email";
     url.search = ""; url.searchParams.set("token", token); url.searchParams.set("callbackURL", `${env.APP_ORIGIN}/verify-email`);
     request = new Request(url, { headers: request.headers });

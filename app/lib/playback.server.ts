@@ -6,7 +6,7 @@ type Resource = { id: string | null; object_key: string; byte_length: number; r2
 const fail = (status: "UNAUTHORIZED" | "BAD_REQUEST" | "NOT_FOUND" | "SERVICE_UNAVAILABLE", code: string, message: string): never => { throw new APIError(status, { code, message }); };
 const missing = (id: string | null): never => {
   if (id) console.info(JSON.stringify({ event: "media_missing", resourceId: id }));
-  return fail("NOT_FOUND", "MEDIA_MISSING", "媒体暂时不可用。");
+  return fail("NOT_FOUND", "MEDIA_MISSING", "片源暂时无法播放。");
 };
 async function storage<T>(read: () => Promise<T>) {
   try { return await read(); } catch { return fail("SERVICE_UNAVAILABLE", "MEDIA_UNAVAILABLE", "媒体服务暂时不可用，请稍后重试。"); }
@@ -47,7 +47,7 @@ export async function playbackHttp(request: Request, env: Env, identity = create
   const file = await env.DB.withSession("first-primary").prepare(`SELECT f.id, f.object_key, f.byte_length, f.r2_etag
     FROM (SELECT 1 ${liveMemberSql}) AS active LEFT JOIN ${media ? "media_files" : "subtitle_tracks"} f ON f.id = ? AND f.format = ?`)
     .bind(native.session.userId, native.session.id, new Date().toISOString(), match[2], media ? "mp4" : "vtt").first<Resource>();
-  if (!file) return fail("UNAUTHORIZED", "AUTH_REQUIRED", "会话已失效，请重新登录。");
+  if (!file) return fail("UNAUTHORIZED", "AUTH_REQUIRED", "登录已失效，请重新登录。");
   if (!["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
   const etag = file.r2_etag;
   if (!file.id || !etag) return missing(file.id);

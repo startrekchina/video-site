@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { expect, it, vi } from "vitest";
 import { seedCatalog } from "./fixtures/catalog";
 import { catalog } from "@/lib/catalog.server";
-import { inspectR2Media, mediaIdentity, syncMedia } from "@/lib/media-sync.server";
+import { inspectR2Media, mediaIdentity, subtitleLabel, syncMedia } from "@/lib/media-sync.server";
 import { probeD1 } from "./fixtures/d1-probe";
 
 const key = "library/series/920001/S01/E01.mp4", subtitleKey = "library/series/920001/S01/E01.zh-CN.main.vtt";
@@ -19,12 +19,30 @@ it("accepts canonical TMDB names and multiple subtitle identities without guessi
   for (const bad of ["series/920001/S01/E01.mp4", "library/series/920001/S001/E01.mp4", "library/series/0/S01/E01.mp4", "library/series/920001/S01/E00.mp4", "library/series/920001/S01/E01.ass", "library/series/920001/S01/E01.fr.main.vtt", "library/movie/910001/movie.vtt"]) expect(mediaIdentity(bad)).toBeNull();
 });
 
+it("labels synced subtitles by language and relabels older synced rows without touching imported names", async () => {
+  expect([subtitleLabel("zh-CN", "zh-CN.main"), subtitleLabel("zh-TW", "zh-TW.main"), subtitleLabel("en", "en.sdh")]).toEqual(["中文", "繁体中文", "英文（sdh）"]);
+  const index = env.TEST_MIGRATIONS.findIndex(item => item.name === "0014_subtitle_display_names.sql");
+  expect(index).toBeGreaterThan(0);
+  await reset(); await applyD1Migrations(env.DB, env.TEST_MIGRATIONS.slice(0, index));
+  const tracks = [["zh-CN", "zh-CN.main", "中文 · zh-CN.main"], ["zh-HK", "zh-HK.main", "中文 · zh-HK.main"], ["en", "en.sdh", "English · en.sdh"], ["en", "en.main", "English"]];
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO works (id, kind, tmdb_id) VALUES ('movie', 'movie', 910001)"),
+    env.DB.prepare("INSERT INTO playable_units (id, kind, work_id, tmdb_id, duration_seconds) VALUES ('unit', 'movie', 'movie', 910001, 4)"),
+    ...tracks.map(([language, trackKey, name], n) => env.DB.prepare(`INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256)
+      VALUES (?, 'unit', ?, 'vtt', ?, ?, ?, 8, 'hash')`).bind(`track-${n}`, language, name, trackKey, `library/movie/910001/movie.${trackKey}.vtt`)),
+  ]);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS.slice(index, index + 1));
+  expect((await env.DB.prepare("SELECT display_name FROM subtitle_tracks ORDER BY id").all<{ display_name: string }>()).results.map(row => row.display_name))
+    .toEqual(["中文", "繁体中文", "英文（sdh）", "English"]);
+});
+
 it("validates actual R2 MP4 and VTT, links placeholders, skips a repeat and preserves member progress", async () => {
   await media(); await env.MEDIA_BUCKET.put(subtitleKey, vtt);
   await env.DB.prepare("INSERT INTO watch_progress VALUES ('nova','episode-unit',2,0,100,1)").run();
   expect((await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0]).toMatchObject({ durationSeconds: null, playable: false });
   expect(await syncMedia(env)).toMatchObject({ linked: 2, conflicts: 0, failed: 0 });
   expect(await syncMedia(env)).toMatchObject({ linked: 0, skipped: 2 });
+  expect(await env.DB.prepare("SELECT display_name FROM subtitle_tracks").first("display_name")).toBe("中文");
   expect((await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0]).toMatchObject({ durationSeconds: 4, playable: true, positionSeconds: 2, revision: 1 });
   const row = await env.DB.prepare("SELECT byte_length, checksum_sha256, r2_etag FROM media_files").first<{ byte_length: number; checksum_sha256: string; r2_etag: string }>();
   expect(row?.byte_length).toBe(video().length); expect(row?.checksum_sha256).toMatch(/^[a-f0-9]{64}$/); expect(row?.r2_etag).toBeTruthy();

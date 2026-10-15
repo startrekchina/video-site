@@ -9,7 +9,7 @@ export async function memberById(env: Env, id: string, verified = true) {
   const member = await env.DB.prepare(`SELECT p.*, u.username, u.displayUsername, u.email, u.emailVerified, u.twoFactorEnabled
     FROM member_profiles AS p JOIN "user" AS u ON u.id = p.user_id WHERE p.user_id = ?`).bind(id).first<Member>();
   if (!member || member.registration_state !== "completed" || member.status !== "active" || (verified && !member.emailVerified)) {
-    throw new APIError("FORBIDDEN", { code: "MEMBERSHIP_REQUIRED", message: "账号尚未完成验证或已被停用。" });
+    throw new APIError("FORBIDDEN", { code: "MEMBERSHIP_REQUIRED", message: "账号尚未完成注册和邮箱验证，或已被封禁。" });
   }
   return member;
 }
@@ -23,7 +23,7 @@ export const liveMemberSql = `FROM member_profiles p JOIN "user" u ON u.id = p.u
 export async function memberForSession(env: Env, session: NativeSession["session"]) {
   const member = await env.DB.withSession("first-primary").prepare(`SELECT p.*, u.username, u.displayUsername, u.email, u.emailVerified, u.twoFactorEnabled
     ${liveMemberSql}`).bind(session.userId, session.id, new Date().toISOString()).first<Member>();
-  if (!member) throw new APIError("FORBIDDEN", { code: "MEMBERSHIP_REQUIRED", message: "账号尚未完成验证或已被停用。" });
+  if (!member) throw new APIError("FORBIDDEN", { code: "MEMBERSHIP_REQUIRED", message: "账号尚未完成注册和邮箱验证，或已被封禁。" });
   return member;
 }
 

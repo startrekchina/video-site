@@ -6,6 +6,7 @@ import { pageMember } from "@/lib/member.server";
 import { createAuth } from "@/lib/auth.server";
 import { settings } from "@/lib/settings.server";
 import { authClient, authError, call } from "@/lib/auth-client";
+import { pageTitle } from "@/lib/site";
 import { useActiveSection } from "@/lib/use-active-section";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
 import { Page, PageHeading, PageHeadingTitle, PageHeadingDescription, PageHeadingTagline, Panel, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel";
@@ -33,10 +34,10 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     email: current.member.email, totp: !!current.member.twoFactorEnabled, passwordUpdatedAt, backupCodesLeft, backupCodeTotal: settings.backupCodeCount,
     sessions: sessions.results.map(row => ({ ...row, userAgent: row.userAgent?.slice(0, 160), current: row.id === current.session.id })), passkeys: passkeys.results }, { headers: current.headers });
 }
-export const meta = () => [{ title: "账号与安全 · 星际迷航中国" }];
-const SECTIONS = [{ title: "登录方式", href: "#methods" }, { title: "通行密钥", href: "#passkeys" }, { title: "登录会话", href: "#sessions" }];
+export const meta = () => pageTitle("账号与安全");
+const SECTIONS = [{ title: "登录方式", href: "#methods" }, { title: "通行密钥", href: "#passkeys" }, { title: "登录设备", href: "#sessions" }];
 type DialogState = "password" | "email" | "totp-enable" | "totp-disable" | "totp-verify" | "backup" | "codes" | "delete-passkey" | null;
-const TITLES = { password: "修改密码", email: "修改注册邮箱", "totp-enable": "开启二步验证", "totp-disable": "关闭二步验证", "totp-verify": "绑定验证器",
+const TITLES = { password: "修改密码", email: "修改注册邮箱", "totp-enable": "开启二步验证", "totp-disable": "关闭二步验证", "totp-verify": "设置验证器",
   backup: "重新生成备用码", codes: "保存二步验证备用码", "delete-passkey": "删除通行密钥" };
 function Row({ icon, title, meta, action }: { icon: ReactNode; title: ReactNode; meta?: ReactNode; action?: ReactNode }) {
   return <li className="flex items-center gap-4 p-4 pr-2 transition-[background-color] ease-out hover:bg-accent-muted"><IconTile>{icon}</IconTile>
@@ -80,10 +81,10 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
       if (dialog === "password") {
         if (fields.newPassword !== fields.confirmPassword) throw new Error("两次密码输入不一致。");
         await call("/api/auth/change-password", { currentPassword: fields.currentPassword, newPassword: fields.newPassword, revokeOtherSessions: true });
-        setDialog(null); action.setMessage("密码已修改，其他会话已退出。");
+        setDialog(null); action.setMessage("密码已修改，其他设备已退出登录。");
       } else if (dialog === "email") {
         await call("/api/auth/change-email", { newEmail: fields.newEmail, callbackURL: window.location.origin + "/verify-email" });
-        setDialog(null); action.setMessage("验证邮件已发送。确认新邮箱前，当前邮箱保持不变；请在当前登录会话中打开邮件链接完成确认。");
+        setDialog(null); action.setMessage("请到新邮箱查收验证邮件，并在 1 小时内点击链接完成修改；打开链接时如需登录，请登录本账号。确认前，当前邮箱保持不变。若未收到，请检查垃圾邮件或稍后重试。");
       } else if (dialog === "totp-enable") {
         const result = await call<{ totpURI: string; backupCodes: string[] }>("/api/auth/two-factor/enable", { password: fields.password });
         setSetup(result); setDialog("totp-verify");
@@ -103,7 +104,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
   const needsPassword = dialog === "totp-enable" || dialog === "totp-disable" || dialog === "backup";
   return <Page narrow className="relative">
     <aside className="absolute inset-y-0 left-full hidden pl-8 xl:block" aria-label="本页导航"><div className="sticky top-24"><LineNav items={SECTIONS} activeHref={"#" + active} /></div></aside>
-    <PageHeading><PageHeadingTagline>账号与安全</PageHeadingTagline><PageHeadingTitle>管理登录方式、二步验证和登录会话。</PageHeadingTitle>
+    <PageHeading><PageHeadingTagline>账号与安全</PageHeadingTagline><PageHeadingTitle>管理登录方式、二步验证和登录设备。</PageHeadingTitle>
       <PageHeadingDescription className="font-mono text-sm"><dl className="flex flex-wrap gap-x-6 gap-y-1">
         {[["用户名", account.username], ["身份", account.role === "admin" ? "管理员" : "成员"], ["加入于", new Date(account.joinedAt).toLocaleDateString("zh-CN")]].map(([title, value]) =>
           <div key={title}><dt className="inline">{title} </dt><dd className="inline text-foreground">{value}</dd></div>)}</dl></PageHeadingDescription></PageHeading>
@@ -112,9 +113,9 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
       <Row icon={<KeyRoundIcon />} title="密码" meta={account.passwordUpdatedAt ? "上次修改于 " + new Date(account.passwordUpdatedAt).toLocaleDateString("zh-CN") : "使用用户名和密码登录"}
         action={<Button variant="outline" size="sm" onClick={() => open("password")}>修改</Button>} />
       <Row icon={<MailIcon />} title="注册邮箱" meta={account.email} action={<Button variant="outline" size="sm" onClick={() => open("email")}>修改</Button>} />
-      <Row icon={<ShieldCheckIcon />} title={<span className="flex flex-wrap items-center gap-2">二步验证（TOTP）{account.totp ? <Tag className="text-success">已开启</Tag> : <Tag>未开启</Tag>}</span>}
-        meta={account.totp ? "密码登录时需要验证器中的动态码或备用码" : "给密码登录增加一层保护"}
-        action={account.totp ? <Button variant="ghost" size="sm" className="text-destructive" onClick={() => open("totp-disable")}>解绑</Button> : <Button size="sm" onClick={() => open("totp-enable")}>开启</Button>} />
+      <Row icon={<ShieldCheckIcon />} title={<span className="flex flex-wrap items-center gap-2">二步验证{account.totp ? <Tag className="text-success">已开启</Tag> : <Tag>未开启</Tag>}</span>}
+        meta={account.totp ? "密码登录时需要验证器中的动态验证码或备用码" : "给密码登录增加一层保护"}
+        action={account.totp ? <Button variant="ghost" size="sm" className="text-destructive" onClick={() => open("totp-disable")}>关闭</Button> : <Button size="sm" onClick={() => open("totp-enable")}>开启</Button>} />
       {account.totp && <Row icon={<FingerprintIcon />} title="二步验证备用码" meta={"还剩 " + account.backupCodesLeft + " / " + account.backupCodeTotal + " 个可用；用于在遗失验证器时替代动态验证码"}
         action={<Button variant="outline" size="sm" onClick={() => open("backup")}>重新生成</Button>} />}
     </ul></Panel><Separator />
@@ -122,18 +123,18 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
       <StatusButton size="sm" status={action.busy ? "loading" : "idle"} onClick={() => void action.run(async () => {
         const result = await authClient.passkey.addPasskey({ name: "我的设备" });
         if (result?.error) throw new Error(authError(result.error));
-        if (!result?.data) throw new Error("通行密钥绑定未完成。");
+        if (!result?.data) throw new Error("通行密钥添加未完成。");
         revalidator.revalidate(); action.setMessage("通行密钥已添加。");
       })}>添加</StatusButton></PanelHeader>
-      {!account.passkeys.length ? <p className="px-4 py-6 text-sm text-muted-foreground">绑定通行密钥后，可以用指纹、面容或设备 PIN 免密码登录。</p>
+      {!account.passkeys.length ? <p className="px-4 py-6 text-sm text-muted-foreground">添加通行密钥后，可以用指纹、面容或设备 PIN 免密码登录。</p>
         : <ul className="divide-y divide-line">{account.passkeys.map(key => <Row key={key.id} icon={<FingerprintIcon />} title={key.name || "通行密钥"} meta={"添加于 " + new Date(key.createdAt).toLocaleDateString("zh-CN")}
           action={<Button variant="ghost" size="icon-sm" aria-label={"删除 " + (key.name || "通行密钥")} onClick={() => { setSelectedKey(key); open("delete-passkey"); }}><Trash2Icon /></Button>} />)}</ul>}
     </Panel><Separator />
-    <Panel id="sessions" className="scroll-mt-16"><PanelHeader><PanelTitle>登录会话<PanelTitleSup>({account.sessions.length})</PanelTitleSup></PanelTitle>
+    <Panel id="sessions" className="scroll-mt-16"><PanelHeader><PanelTitle>登录设备<PanelTitleSup>({account.sessions.length})</PanelTitleSup></PanelTitle>
       {account.sessions.length > 1 && <Button variant="outline" size="sm" disabled={action.busy} onClick={() => void action.run(async () => {
         for (const session of account.sessions) if (!session.current) await revoke(session.id);
-        revalidator.revalidate(); action.setMessage("其他会话已退出。");
-      })}>退出其他会话</Button>}</PanelHeader>
+        revalidator.revalidate(); action.setMessage("其他设备已退出登录。");
+      })}>退出其他设备</Button>}</PanelHeader>
       <ul className="divide-y divide-line">{account.sessions.map(session => <Row key={session.id} icon={/iPhone|iPad|Android/.test(session.userAgent ?? "") ? <SmartphoneIcon /> : <LaptopIcon />}
         title={<span className="flex flex-wrap items-center gap-2">{device(session.userAgent)}{session.current && <Tag>当前</Tag>}</span>}
         meta={"最近活跃于 " + new Date(session.updatedAt).toLocaleString("zh-CN")}
@@ -142,12 +143,12 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
     </Panel>
     <Dialog open={dialog !== null} onOpenChange={value => { if (!value) close(); }}><DialogContent showCloseButton={dialog !== "codes" || saved}>
       <DialogHeader><DialogTitle>{dialog ? TITLES[dialog] : ""}</DialogTitle><DialogDescription>
-        {dialog === "password" ? "修改后，其他设备上的会话会退出。"
-          : dialog === "email" ? "当前邮箱：" + account.email + "。新邮箱验证前，旧邮箱仍然有效。会话过期时请重新登录。"
+        {dialog === "password" ? "修改后，其他设备会退出登录。"
+          : dialog === "email" ? "当前邮箱：" + account.email + "。验证邮件会发到新邮箱，链接 1 小时内有效；完成验证前，当前邮箱保持不变。"
           : dialog === "totp-enable" ? "先确认当前密码，再将密钥添加到验证器应用中。"
-          : dialog === "totp-disable" ? "确认当前密码后解绑验证器。"
-          : dialog === "totp-verify" ? "在验证器应用中手动添加下方密钥，然后输入 6 位动态码。"
-          : dialog === "backup" ? "旧的备用码将全部作废。新的码只在本次流程显示，请离线保存。"
+          : dialog === "totp-disable" ? "确认当前密码后关闭二步验证。"
+          : dialog === "totp-verify" ? "在验证器应用中手动添加下方密钥，然后输入 6 位动态验证码。"
+          : dialog === "backup" ? "旧的备用码将全部作废。新备用码只显示这一次，请妥善保存。"
           : dialog === "codes" ? "每个备用码仅可使用一次（用于在遗失验证器时替代动态验证码登录），不能重设密码。请存放在密码管理器或安全离线位置。"
           : "删除后，无法再用此通行密钥登录。其他登录方式保持有效。"}
       </DialogDescription></DialogHeader>
@@ -166,7 +167,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
             <div className="dot-grid flex size-24 shrink-0 items-center justify-center rounded-lg border"><ShieldCheckIcon className="size-10 text-muted-foreground" /></div>
             <div className="min-w-0 text-sm"><div className="text-muted-foreground">手动输入密钥：</div><code className="mt-1 block font-mono text-xs break-all">{new URL(setup.totpURI).searchParams.get("secret")}</code>
               <CopyButton variant="ghost" size="sm" text={new URL(setup.totpURI).searchParams.get("secret") ?? ""}>复制密钥</CopyButton></div></div>
-            <Field id="totpCode" name="code" label="动态码" inputMode="numeric" pattern="[0-9]{6}" required maxLength={6} autoComplete="one-time-code" className="font-mono tracking-[0.4em]" /></>}
+            <Field id="totpCode" name="code" label="动态验证码" inputMode="numeric" pattern="[0-9]{6}" required maxLength={6} autoComplete="one-time-code" className="font-mono tracking-[0.4em]" /></>}
         </FieldGroup><DialogFooter className="mt-6"><Button type="button" variant="outline" disabled={action.busy} onClick={close}>取消</Button>
           <StatusButton type="submit" status={action.busy ? "loading" : "idle"}>{dialog === "totp-verify" ? "验证并开启" : dialog === "totp-enable" ? "继续" : dialog === "email" ? "发送验证邮件" : "确认"}</StatusButton></DialogFooter></form>}
     </DialogContent></Dialog>

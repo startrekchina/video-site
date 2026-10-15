@@ -16,6 +16,12 @@ export function mediaIdentity(key: string): Identity | null {
   return { kind: series ? "series" : "movie", tmdbId, season, episode, language: subtitle?.[1] ?? null, trackKey: subtitle ? `${subtitle[1]}.${subtitle[2]}` : null };
 }
 const identityKey = (value: Pick<Identity, "kind" | "tmdbId" | "season" | "episode">) => `${value.kind}:${value.tmdbId}:${value.season}:${value.episode}`;
+// Members see the language; only a language's extra tracks add the uploader's track name. Migration 0014 applies the same rule to older rows.
+export function subtitleLabel(language: string, trackKey: string) {
+  const base = /^zh-(TW|HK|MO|Hant)/iu.test(language) ? "繁体中文" : language.startsWith("zh") ? "中文" : "英文";
+  const name = trackKey.slice(language.length + 1);
+  return name === "main" ? base : `${base}（${name}）`;
+}
 function requireValid(condition: unknown) { if (!condition) throw new Error("MEDIA_INVALID"); }
 async function consume(body: ReadableStream<Uint8Array>, signal: AbortSignal, accept: (chunk: Uint8Array) => void) {
   const reader = body.getReader(), cancel = () => { void reader.cancel().catch(() => {}); };
@@ -105,7 +111,7 @@ export async function syncMedia(env: Env) {
             result.skipped++; continue;
           }
           if (identity.language) await db.prepare(`INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256, r2_etag)
-            VALUES (?, ?, ?, 'vtt', ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), unitId, identity.language, `${identity.language.startsWith("zh") ? "中文" : "English"} · ${identity.trackKey}`, identity.trackKey, object.key, inspected.byteLength, inspected.checksum, object.etag).run();
+            VALUES (?, ?, ?, 'vtt', ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), unitId, identity.language, subtitleLabel(identity.language, identity.trackKey!), identity.trackKey, object.key, inspected.byteLength, inspected.checksum, object.etag).run();
           else await db.batch([
             db.prepare("UPDATE playable_units SET duration_seconds = ? WHERE id = ?").bind(inspected.durationSeconds!, unitId),
             db.prepare(`INSERT INTO media_files (id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag)
