@@ -16,17 +16,19 @@ export async function memberById(env: Env, id: string, verified = true) {
 type NativeSession = Pick<ReturnType<typeof createAuth>["$Infer"]["Session"], "session">;
 type Identity = { member: Member; session: NativeSession["session"] };
 
+// The single live-membership rule for a native session; bind userId, sessionId and the current ISO time.
+export const liveMemberSql = `FROM member_profiles p JOIN "user" u ON u.id = p.user_id JOIN session s ON s.userId = u.id
+    WHERE p.user_id = ? AND s.id = ? AND s.expiresAt > ? AND p.registration_state = 'completed'
+      AND p.status = 'active' AND u.emailVerified = 1`;
 export async function memberForSession(env: Env, session: NativeSession["session"]) {
   const member = await env.DB.withSession("first-primary").prepare(`SELECT p.*, u.username, u.displayUsername, u.email, u.emailVerified, u.twoFactorEnabled
-    FROM member_profiles p JOIN "user" u ON u.id = p.user_id JOIN session s ON s.userId = u.id
-    WHERE p.user_id = ? AND s.id = ? AND s.expiresAt > ? AND p.registration_state = 'completed'
-      AND p.status = 'active' AND u.emailVerified = 1`).bind(session.userId, session.id, new Date().toISOString()).first<Member>();
+    ${liveMemberSql}`).bind(session.userId, session.id, new Date().toISOString()).first<Member>();
   if (!member) throw new APIError("FORBIDDEN", { code: "MEMBERSHIP_REQUIRED", message: "账号尚未完成验证或已被停用。" });
   return member;
 }
 
 export function createRequestIdentity(request: Request, env: Env) {
-  let pending: Promise<Identity | null> | undefined, auth: ReturnType<typeof createAuth> | undefined;
+  let pending: Promise<Identity | null> | undefined, native: Promise<NativeSession | null> | undefined, auth: ReturnType<typeof createAuth> | undefined;
   const cookies = new Map<string, string>();
   const capture = (headers: Headers) => { for (const cookie of headers.getSetCookie()) cookies.set(cookie.split("=")[0], cookie); };
   const headers = (response = new Headers()) => {
@@ -41,19 +43,19 @@ export function createRequestIdentity(request: Request, env: Env) {
     if (!session) return null;
     return { member: await memberForSession(env, session.session), session: session.session };
   }
+  // Native session only; callers that skip memberForSession must apply liveMemberSql themselves.
+  const session = () => native ??= (async () => {
+    const result = await nativeAuth().api.getSession({ headers: request.headers, returnHeaders: true });
+    capture(result.headers); return result.response;
+  })();
   return {
-    auth: nativeAuth, headers,
-    invalidate() { pending = undefined; },
+    auth: nativeAuth, headers, session,
+    invalidate() { pending = undefined; native = undefined; },
     // Only server-owned native results may populate this request's identity.
-    accept(session: NativeSession | null, responseHeaders: Headers) {
-      capture(responseHeaders); return pending = resolve(session);
+    accept(result: NativeSession | null, responseHeaders: Headers) {
+      capture(responseHeaders); native = Promise.resolve(result); return pending = resolve(result);
     },
-    current() {
-      return pending ??= (async () => {
-        const result = await nativeAuth().api.getSession({ headers: request.headers, returnHeaders: true });
-        capture(result.headers); return resolve(result.response);
-      })();
-    },
+    current() { return pending ??= session().then(resolve); },
   };
 }
 export type RequestIdentity = ReturnType<typeof createRequestIdentity>;

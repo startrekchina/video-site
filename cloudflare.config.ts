@@ -99,10 +99,8 @@ export default defineConfig(({ mode = "development" }) => {
         MEDIA_BUCKET: bindings.r2({ name: e.mediaBucket }),
         // Auxiliary only: quotas are decided by exact D1 counters (requirements 6.3.2).
         AUTH_RATE_LIMITER: rateLimit(1, 10),
-        PLAYBACK_RATE_LIMITER: rateLimit(2, 30),
         ADMIN_RATE_LIMITER: rateLimit(3, 30),
         EMAIL_RATE_LIMITER: rateLimit(4, 5),
-        PLAYBACK_HMAC_KEY: bindings.secret(),
         BETTER_AUTH_SECRET: bindings.secret(),
         TURNSTILE_SECRET_KEY: bindings.secret(),
         BACKUP_ENCRYPTION_KEY: bindings.secret(),
