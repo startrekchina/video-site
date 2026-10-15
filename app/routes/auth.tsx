@@ -11,13 +11,12 @@ import { FieldGroup, FieldSeparator, Field as FieldContainer, FieldLabel } from 
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { authClient, authError, call } from "@/lib/auth-client";
-import { csrfData, safeNext } from "@/lib/security.server";
+import { safeNext } from "@/lib/security.server";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const csrf = await csrfData(request, context.cloudflare.env);
   const url = new URL(request.url);
-  return data({ page: url.pathname, csrfToken: csrf.csrfToken, siteKey: context.cloudflare.env.TURNSTILE_SITE_KEY,
-    next: safeNext(url.searchParams.get("next"), context.cloudflare.env.APP_ORIGIN) }, { headers: csrf.headers });
+  return data({ page: url.pathname, siteKey: context.cloudflare.env.TURNSTILE_SITE_KEY,
+    next: safeNext(url.searchParams.get("next"), context.cloudflare.env.APP_ORIGIN) });
 }
 export const meta = () => [{ title: "账号 · 星际迷航中国" }];
 
@@ -63,7 +62,7 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
         window.location.assign(config.next);
       } else if (register) {
         if (fields.password !== fields.confirmPassword) throw new Error("两次密码输入不一致。");
-        const result = await call<{ delivery: string | null }>("/auth/register", { ...fields, csrfToken: config.csrfToken }, captcha);
+        const result = await call<{ delivery: string | null }>("/auth/register", fields, captcha);
         window.location.assign(`/verify-pending?delivery=${encodeURIComponent(result.delivery ?? "unknown")}`);
       } else if (reset) {
         if (fields.newPassword !== fields.confirmPassword) throw new Error("两次密码输入不一致。");

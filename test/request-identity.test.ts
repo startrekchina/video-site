@@ -5,7 +5,7 @@ import worker from "../workers/app";
 import { createRequestIdentity, currentMember, requireMember } from "@/lib/member.server";
 import { accountHttp } from "@/lib/account.server";
 import { adminHttp } from "@/lib/admin.server";
-import { csrf, login, member, request } from "./fixtures/auth";
+import { login, member, request } from "./fixtures/auth";
 import { seedCatalog } from "./fixtures/catalog";
 import { probeD1 } from "./fixtures/d1-probe";
 
@@ -95,7 +95,7 @@ it("keeps rolling cookies on HTML, data and errors and keeps unrelated cookies s
     const response = await send(request(path, undefined, cookie)); expect(response.status).toBe(status);
     const cookies = response.headers.getSetCookie(); expect(cookies.filter(value => value.startsWith("session="))).toHaveLength(1);
     expect(cookies.find(value => value.startsWith("session="))).not.toContain("Max-Age=0");
-    if (path.startsWith("/account")) expect(cookies.some(value => value.startsWith("csrf="))).toBe(true);
+    expect(cookies.some(value => value.startsWith("csrf="))).toBe(false);
     const token = await env.DB.prepare("SELECT token FROM session WHERE userId = ?").bind(userId).first<string>("token");
     expect(await response.text()).not.toContain(token!);
   }
@@ -106,10 +106,10 @@ it("keeps rolling cookies on HTML, data and errors and keeps unrelated cookies s
 }, 60000);
 
 it("clears the current session instead of returning its earlier renewal after self revocation", async () => {
-  const anti = await csrf(cookie), sessionId = await env.DB.prepare("SELECT id FROM session WHERE userId = ?").bind(userId).first<string>("id");
+  const anti = { cookie }, sessionId = await env.DB.prepare("SELECT id FROM session WHERE userId = ?").bind(userId).first<string>("id");
   await env.DB.prepare("UPDATE session SET updatedAt = ?, expiresAt = ? WHERE userId = ?")
     .bind(new Date(Date.now() - 2 * 86400000).toISOString(), new Date(Date.now() + 28 * 86400000).toISOString(), userId).run();
-  const input = request(`/account/sessions/${sessionId}/revoke`, { csrfToken: anti.token }, anti.cookie), identity = createRequestIdentity(input, runtime);
+  const input = request(`/account/sessions/${sessionId}/revoke`, {}, anti.cookie), identity = createRequestIdentity(input, runtime);
   const response = await accountHttp(input, runtime, identity);
   expect(response.status).toBe(200); expect(response.headers.getSetCookie().filter(value => value.startsWith("session="))).toHaveLength(1);
   expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
@@ -123,7 +123,7 @@ it("keeps administrator SQL gates effective after the request identity has been 
     env.DB.prepare('UPDATE "user" SET twoFactorEnabled = 1 WHERE id = ?').bind(userId),
     env.DB.prepare('INSERT INTO twoFactor (id, secret, backupCodes, userId, verified) VALUES (?, ?, ?, ?, 1)').bind("fictional-factor", "fictional-encrypted", "fictional-codes", userId),
   ]);
-  const anti = await csrf(cookie), input = request(`/admin/members/${target.id}/quota`, { total: 9, csrfToken: anti.token }, anti.cookie);
+  const input = request(`/admin/members/${target.id}/quota`, { total: 9 }, cookie);
   const identity = createRequestIdentity(input, runtime); await requireMember(input, runtime, identity);
   await env.DB.prepare("UPDATE member_profiles SET role = 'member' WHERE user_id = ?").bind(userId).run();
   await expect(adminHttp(input, runtime, identity)).rejects.toMatchObject({ statusCode: 409 });

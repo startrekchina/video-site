@@ -3,7 +3,7 @@ import { createAuth } from "./auth.server";
 import { registerWithInvitation, sha256 } from "./registration.server";
 import { createRequestIdentity, memberById, memberForSession, type RequestIdentity } from "./member.server";
 import { deliverMail, finishUnsentMail, reserveMail, type MailAttempt } from "./mail.server";
-import { checkCsrf, checkOrigin, cookieName, cookieValue, privateCookie } from "./security.server";
+import { checkOrigin, cookieName, cookieValue, privateCookie } from "./security.server";
 
 const anonymous = new Set(["/register", "/sign-in/username", "/request-password-reset", "/send-verification-email", "/reset-password",
   "/verify-email", "/two-factor/verify-totp", "/two-factor/verify-backup-code", "/passkey/generate-authenticate-options", "/passkey/verify-authentication", "/get-session"]);
@@ -62,8 +62,8 @@ export function createSiteAuth(env: Env, identity: RequestIdentity) {
     hooks: { before: [{ matcher: () => true, handler: createAuthMiddleware(async ctx => {
       const request = ctx.request;
       if (!request) return;
+      // Better Auth already refuses non-JSON bodies here (415), so registration needs only the origin check.
       if (request.method !== "GET") checkOrigin(request, env);
-      if (ctx.path === "/register") await checkCsrf(request, env, ctx.body?.csrfToken);
       const readMember = async () => {
         const result = await getSession()({ ...ctx, headers: request.headers, method: "GET", asResponse: false, returnHeaders: true, returnStatus: false, query: { disableCookieCache: true } });
         renewedCookies.push(...result.headers.getSetCookie());

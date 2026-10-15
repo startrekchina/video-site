@@ -1,6 +1,6 @@
 import { APIError } from "better-auth/api";
 import { createRequestIdentity, requireMember } from "./member.server";
-import { checkCsrf, readJson } from "./security.server";
+import { checkWrite, readJson } from "./security.server";
 import { sha256 } from "./registration.server";
 import { settings } from "./settings.server";
 
@@ -30,8 +30,8 @@ export async function invitationsHttp(request: Request, env: Env, identity = cre
     return Response.json({ data: { invitations: rows.results, total: current.member.invite_quota, occupied, unlimited: current.member.role === "admin" }, requestId: request.headers.get("X-Site-Request-Id") ?? crypto.randomUUID() }, { headers: current.headers });
   }
   if (request.method !== "POST") return new Response(null, { status: 404 });
+  checkWrite(request, env);
   const body = await readJson(request);
-  await checkCsrf(request, env, body.csrfToken);
   const actor = [userId, current.session.id, new Date(now).toISOString()];
   const revoke = /^\/invites\/([^/]+)\/revoke$/.exec(path);
   if (revoke) {

@@ -4,7 +4,6 @@ import { BanIcon, ChevronDownIcon, ChevronRightIcon, MoreHorizontalIcon, PlusIco
 import type { Route } from "./+types/admin";
 import { pageMember } from "@/lib/member.server";
 import { adminHttp } from "@/lib/admin.server";
-import { csrfData } from "@/lib/security.server";
 import { call } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { Page, PageHeading, PageHeadingTitle, PageHeadingDescription, PageHeadingTagline, Panel, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel";
@@ -53,8 +52,6 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
   const current = await pageMember(request, env, context.identity);
   if (current.member.role !== "admin") throw data({ message: "需要管理员权限。" }, { status: 403, headers: current.headers });
-  const csrf = await csrfData(request, env);
-  for (const cookie of csrf.headers.getSetCookie()) current.headers.append("Set-Cookie", cookie);
   const query = new URL(request.url).searchParams;
   const tab = query.get("tab") === "invites" ? "invites" : query.get("tab") === "tree" ? "tree" : "members";
   async function read<T>(path: string) {
@@ -66,7 +63,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const members = tab === "members" ? await read<AdminMember[]>("data") : [];
   const invitations = tab === "invites" ? await read<Invitation[]>("invitations") : [];
   const roots = tab === "tree" ? await read<TreeMember[]>("roots") : [];
-  return data({ members, invitations, roots, stats, tab, csrfToken: csrf.csrfToken, self: current.member.user_id, totp: !!current.member.twoFactorEnabled, now: Date.now() }, { headers: current.headers });
+  return data({ members, invitations, roots, stats, tab, self: current.member.user_id, totp: !!current.member.twoFactorEnabled, now: Date.now() }, { headers: current.headers });
 }
 export const meta = () => [{ title: "管理后台 · 星际迷航中国" }];
 export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
@@ -78,7 +75,7 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
   const [created, setCreated] = useState<string | null>(null);
   const [operationId, setOperationId] = useState<string | null>(null);
   async function change(id: string, operation: string, body: object) {
-    const result = await call<{ changed: number; failedNotifications: number }>("/admin/members/" + id + "/" + operation, { ...body, csrfToken: admin.csrfToken });
+    const result = await call<{ changed: number; failedNotifications: number }>("/admin/members/" + id + "/" + operation, body);
     setDialog(null); revalidator.revalidate(); action.setMessage("已更新 " + result.changed + " 个成员。" + (result.failedNotifications ? "其中 " + result.failedNotifications + " 封通知发送失败或未确认，封禁仍已生效。" : ""));
   }
   function show(kind: NonNullable<DialogState>["kind"], member: AdminMember) {
@@ -128,11 +125,11 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
       <TabsContent value="invites"><div className="screen-line-bottom flex flex-wrap items-center gap-3 px-4 py-3">
         <StatusButton size="sm" status={action.busy ? "loading" : "idle"} onClick={() => void action.run(async () => {
           const id = operationId ?? crypto.randomUUID(); setOperationId(id);
-          const result = await call<{ id: string; code: string }>("/invites/create", { operationId: id, csrfToken: admin.csrfToken });
+          const result = await call<{ id: string; code: string }>("/invites/create", { operationId: id });
           setCodes(values => ({ ...values, [result.id]: result.code })); setCreated(result.code); setOperationId(null); revalidator.revalidate();
         })}><PlusIcon />生成邀请码</StatusButton><span className="text-xs text-muted-foreground">管理员生成不受额度限制</span></div>
         <InviteList invitations={admin.invitations} codes={codes} now={admin.now} self={admin.self} showIssuer busy={action.busy} revoke={id => void action.run(async () => {
-          await call("/invites/" + id + "/revoke", { csrfToken: admin.csrfToken }); revalidator.revalidate(); action.setMessage("邀请码已作废。");
+          await call("/invites/" + id + "/revoke", {}); revalidator.revalidate(); action.setMessage("邀请码已作废。");
         })} />{!admin.invitations.length && <p className="px-4 py-8 text-center text-sm text-muted-foreground">还没有邀请码。</p>}
         <p className="px-4 py-3 text-xs text-muted-foreground">邀请码明文仅在生成后展示一次。仅可作废自己发出的未使用邀请码。</p>
       </TabsContent>

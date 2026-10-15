@@ -29,8 +29,10 @@
 
 开发者 2026-10-15 确认。业务页面凭证（`csrf` cookie 加 HMAC）沿用自建认证方案的通用基线；cookie 固定 24 小时过期且不续期，页面开着跨过过期时刻后提交失败，已复现播放续期因此返回 `403`，第五阶段进度上报同样受影响。现有来源校验已拒绝缺 Origin、跨站及同站子域请求，页面凭证不提供额外防护。改为与 Better Auth 1.7.7 原生模型一致：来源校验、Fetch Metadata、`SameSite=Lax` 会话 Cookie、仅接受 JSON 这类非简单请求，不使用页面凭证。
 
-- [ ] 业务写入统一经一个入口：Origin 等于 `APP_ORIGIN`，拒绝 `cross-site` / `same-site` Fetch Metadata，要求 `Content-Type: application/json`；删除页面凭证、`csrf` cookie 及各 loader 与表单的传递。注册入口同样要求 JSON。
-- [ ] 同步 B 6.1.1、6.9.4、6.12、7.1 与本计划 6.1.1；测试覆盖跨站、缺 Origin、非 JSON 拒绝及同源 JSON 成功。
+- [x] 业务写入统一经一个入口：Origin 等于 `APP_ORIGIN`，拒绝 `cross-site` / `same-site` Fetch Metadata，要求 `Content-Type: application/json`；删除页面凭证、`csrf` cookie 及各 loader 与表单的传递。注册入口同样要求 JSON。
+- [x] 同步 B 6.1.1、6.9.4、6.12、7.1 与本计划 6.1.1；测试覆盖跨站、缺 Origin、非 JSON 拒绝及同源 JSON 成功。
+
+本地自检（2026-10-15）：类型检查与全量 Workers 测试通过；新增来源/Fetch Metadata/非 JSON 拒绝用例，管理员高影响操作在跨站、同站或非 JSON 请求下被拒且成员状态不变。注册入口由 Better Auth 原生拒绝非 JSON（`415`），站点只叠加来源校验。
 
 验收：账号、邀请、管理和注册写入在同源 JSON 下成功；跨站、缺 Origin 或非 JSON 请求被拒且无副作用；页面打开时长不影响提交。
 
@@ -80,9 +82,9 @@ Workers 静态资源默认 `Cache-Control: public, max-age=0, must-revalidate`�
 - 路由模块负责 loader / action 的输入输出，认证、D1 查询、签名、R2 和备份逻辑放在 `*.server.ts` 或 Worker 服务端模块。浏览器构建不能引用 Secrets、数据库绑定或对象存储键。
 - 每个受保护的 loader、action 和资源路由都单独校验会话、成员状态和权限，不能只依赖父布局 loader；框架的数据请求、预取和直接 HTTP 请求也受同一规则约束。`userId` 和角色取自服务端会话，不接受客户端指定当前身份。
 - 会话 Cookie 按 Better Auth 的签名不透明 token 设置，生产命名 `__Host-session`，使用 `HttpOnly; Secure; SameSite=Lax; Path=/` 且无 `Domain`。D1 按原生 schema 保存 token 原值，Cookie 签名 Secret 独立保管；不再要求哈希会话表。库 Cookie 名映射和本地 HTTP 开发例外须实测，不能把本地属性当作生产验收。期限与改密行为见 6.3.3。
-- 站点业务写入走 action 或非 GET 接口，校验 Origin 与 `APP_ORIGIN`、Fetch Metadata，并保留业务 CSRF token。Better Auth 入口使用库原生 Origin / Fetch Metadata / SameSite 防护，不再强制附加自定义 `csrfToken`；服务端 API 的包装入口同样先完成跨站检查，不能以内部调用跳过防护。验证邮件 GET 是 6.0.1 明确的例外。trustedOrigins 限于本环境，同源凭证，不开放跨域媒体；回跳限定本站。
+- 站点业务写入走 action 或非 GET 接口，统一经 `checkWrite` 校验 Origin 等于 `APP_ORIGIN`、拒绝 `cross-site` / `same-site` Fetch Metadata，并只接受 `Content-Type: application/json`，不使用页面凭证（T4.7）。Better Auth 入口使用库原生 Origin / Fetch Metadata / SameSite 防护，不再强制附加自定义 `csrfToken`；服务端 API 的包装入口同样先完成跨站检查，不能以内部调用跳过防护。验证邮件 GET 是 6.0.1 明确的例外。trustedOrigins 限于本环境，同源凭证，不开放跨域媒体；回跳限定本站。
 - 站点业务 JSON action 成功结构为 `{ data, requestId }`，失败为 `{ error: { code, message, fieldErrors?, challenge? }, requestId }`。Better Auth API 保留原生 JSON、状态码、Cookie 与重定向，认证客户端消费 `code/message`、二步挑战及库客户端类型；中文文案由前端映射，不把全部库端点重写成业务 action。页面表单可 `303` 回跳，媒体返回字节流。
-- `400` 表示格式或字段不合法；`401` 表示未认证或凭证无效；`403` 表示已认证但权限不足、CSRF 或挑战未满足；`404` 表示资源不存在或不可见；`409` 表示已消费、版本冲突或额度不足；`429` 表示限流；依赖暂不可用返回 `503`，意外错误返回脱敏 `500`。限流提供可重试信息，不能泄露内部 SQL、栈、R2 key 或上游原始错误。
+- `400` 表示格式或字段不合法；`401` 表示未认证或凭证无效；`403` 表示已认证但权限不足、来源校验（`CSRF_INVALID`）或挑战未满足；`404` 表示资源不存在或不可见；`409` 表示已消费、版本冲突或额度不足；`429` 表示限流；依赖暂不可用返回 `503`，意外错误返回脱敏 `500`。限流提供可重试信息，不能泄露内部 SQL、栈、R2 key 或上游原始错误。
 - 稳定错误码至少区分 `AUTH_REQUIRED`、`AUTH_INVALID`、`CSRF_INVALID`、`TURNSTILE_REQUIRED`、`FRESH_SESSION_REQUIRED`、`INVITATION_INVALID`、`INVITATION_EXPIRED`、`INVITATION_USED`、`INVITATION_REVOKED`、`QUOTA_EXHAUSTED` 和 `REVISION_CONFLICT`；前端按 code 处理，不解析中文 message。邀请码无效使用 `400`，其已用/过期/作废及额度不足使用 `409`。
 - 受保护 HTML 页面未登录时跳转登录页；6.5 列明的公开页无需登录，受保护 JSON 和媒体接口返回错误。登录、邮箱找回保留库脱敏语义；注册可返回库的用户名/邮箱冲突码，不能承诺注册入口完全隐藏账号存在性。邀请码失败仍明确区分状态，不返回邀请人的私人资料。
 - 登录态 HTML、loader 数据、认证 action、邀请凭证和媒体响应使用 `Cache-Control: private, no-store`，禁止共享缓存绕过鉴权。公开静态资源可以按文件版本缓存；静态资源、重定向、错误和媒体响应同样带 `X-Robots-Tag: noindex`。Workers 静态资源头与 Worker 生成响应头分别配置，不能假定其中一处覆盖另一处。

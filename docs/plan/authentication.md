@@ -29,7 +29,7 @@
 | 三条密码恢复路径、注册即发恢复码 | 邮箱找回 + 二步备用码；移除管理员重置（6.4） |
 | 独立 TOTP 加密/AAD、时间步账本、10 次挑战 | 原生加密/账号锁定/5 次挑战，接受跨挑战码复用边界（6.3.1） |
 | 每项管理操作一次性 TOTP 证明 | TOTP 已绑定 + 5 分钟新鲜登录会话（6.5.1） |
-| 所有认证端点强制自定义 csrfToken/精确账号限流 | 库 Origin/Fetch Metadata 和 IP+路径限流，业务防护单独保持（6.1.1、6.3.2） |
+| 所有认证端点强制自定义 csrfToken/精确账号限流 | 库 Origin/Fetch Metadata 和 IP+路径限流；业务写入同样只校验来源并要求 JSON（[T4.7](foundation.md#t47-业务写入来源与-json-校验)），业务配额单独保持（6.1.1、6.3.2） |
 | 所有认证写入同批回滚、JWT 单一且一次消费 | 原生多步写入与 JWT 生命周期，注册以业务完成门禁隔离部分状态（6.0、6.2.2） |
 
 库事实依据为 POC `spike/auth-poc-report` 的 workerd 结果与 1.7.7 发布源码；当前官方资料核对于 2026-10-06：[自有数据库](https://better-auth.com/docs/concepts/database)、[会话](https://better-auth.com/docs/concepts/session-management)、[用户名](https://better-auth.com/docs/plugins/username)、[二步验证](https://better-auth.com/docs/plugins/2fa)、[通行密钥](https://better-auth.com/docs/plugins/passkey)、[改邮箱与改密](https://better-auth.com/docs/concepts/users-accounts)、[安全防护](https://better-auth.com/docs/reference/security)、[captcha](https://better-auth.com/docs/plugins/captcha)。官方新版本说明不能自动覆盖锁定版本行为；差异用正式集成用例验证。
@@ -99,9 +99,9 @@
 | `POST /api/auth/two-factor/verify-totp`、`/two-factor/verify-backup-code` | 已通过密码的待二步流程；库对应已登录操作 | 由库挑战 Cookie 绑定，提交 code/备用码；不接受 trustDevice，备用码不能重设密码。挑战期限、次数、账号锁与限流按 6.3。 |
 | `POST /api/auth/sign-out`、本站 `GET /account/sessions`、`POST /account/sessions/:id/revoke` | 本人有效会话 | 退出清 Cookie；本站列表用 ID 与脱敏设备信息，不返回其他人的凭证，撤销在服务端映射本人的 token。 |
 | `POST /api/auth/change-password`、`/two-factor/enable`、`/two-factor/disable`、`/two-factor/generate-backup-codes` | 正常成员，仅自己 | 使用原生 currentPassword/newPassword 或 password 字段；改密设置 `revokeOtherSessions=true`，备用码/TOTP 材料按库本次流程展示，敏感会话与密码确认不改成自定义证明。 |
-| `GET /invites/data`、`POST /invites/create`、`POST /invites/:id/revoke` | 正常成员，仅自己发出的码；管理员不限额度 | 发码接收 `operationId, expiresAt?` 和 CSRF；返回本次原码、ID、状态/期限及剩余额度，列表返回状态和已使用成员的必要站内标识。不能作废已用码；重复作废自己的未用码幂等成功。 |
+| `GET /invites/data`、`POST /invites/create`、`POST /invites/:id/revoke` | 正常成员，仅自己发出的码；管理员不限额度 | 发码接收 `operationId, expiresAt?`，经业务写入来源与 JSON 校验；返回本次原码、ID、状态/期限及剩余额度，列表返回状态和已使用成员的必要站内标识。不能作废已用码；重复作废自己的未用码幂等成功。 |
 | `GET /admin/members/data`、`/stats`、`/invitations`、`/roots`、`/:id/invited`、`/:id/ban-preview` | 正常管理员 | 分页返回角色、状态、额度及邀请关系；全站统计独立计数，搜索用户名上限 30 字符。成员/邀请码/各层邀请链每页 20 条，连带预览返回总数及前 20 个站内标识，实际提交重检范围。无邀请码原码/哈希、密码哈希、TOTP/备用码密文或会话凭证。 |
-| `POST /admin/members/:id/ban`、`/quota`、`/role`、`/unban` | 正常管理员，已绑定 TOTP 且会话新鲜 | 接收 `cascade`、`total`、`role` 或单个解封目标，带业务 CSRF；5 分钟内新建会话可执行多次操作，不绑定 operation/target、不一次消费。旧会话重新正常登录。无 `/reset-link`；自封禁/自降权/末位管理员与邀请链边界仍在业务原子批次中保护，解封不恢复会话/邀请码、不额外发信。 |
+| `POST /admin/members/:id/ban`、`/quota`、`/role`、`/unban` | 正常管理员，已绑定 TOTP 且会话新鲜 | 接收 `cascade`、`total`、`role` 或单个解封目标，经业务写入来源与 JSON 校验；5 分钟内新建会话可执行多次操作，不绑定 operation/target、不一次消费。旧会话重新正常登录。无 `/reset-link`；自封禁/自降权/末位管理员与邀请链边界仍在业务原子批次中保护，解封不恢复会话/邀请码、不额外发信。 |
 
 ## 业务原子边界与故障处置
 
@@ -184,7 +184,7 @@
 #### T4.5.5 有证据的业务查询收尾
 
 - [x] 根据 T4.5.1 基线检查 `catalog.server.ts`、root 与页面之间的统计/作品读取，以及管理/邀请读取；仅合并同请求确有重复或串行瓶颈的查询，没有证据的路径记录“无需改动”。同请求内可复用与请求参数/用户绑定的结果；不建设通用仓储或插件式缓存层。共享片库只读缓存按[片库缓存边界](catalog.md#服务端片库缓存边界)评估，不作为本专项必做项。
-- [ ] 保持紧凑卡片、当前作品/首页限定范围、搜索/分页/排序、本人进度/收藏隔离和缺媒体行为；现有管理员原子权限 SQL、业务 CSRF、幂等/配额和失败处理不得裁剪。新增或修改 SQL 用真实 D1 夹具验证语义、扫描量和必要索引，不仅 mock 返回值。
+- [ ] 保持紧凑卡片、当前作品/首页限定范围、搜索/分页/排序、本人进度/收藏隔离和缺媒体行为；现有管理员原子权限 SQL、业务写入来源与 JSON 校验、幂等/配额和失败处理不得裁剪。新增或修改 SQL 用真实 D1 夹具验证语义、扫描量和必要索引，不仅 mock 返回值。
 
 验收：每项 SQL 改动都能对应一条基线证据及前后预算；不引入整库单集返回或 payload 膨胀，无瓶颈路径不为统一风格重构。
 

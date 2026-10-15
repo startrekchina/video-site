@@ -5,7 +5,6 @@ import type { Route } from "./+types/account";
 import { pageMember } from "@/lib/member.server";
 import { createAuth } from "@/lib/auth.server";
 import { settings } from "@/lib/settings.server";
-import { csrfData } from "@/lib/security.server";
 import { authClient, authError, call } from "@/lib/auth-client";
 import { useActiveSection } from "@/lib/use-active-section";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
@@ -23,8 +22,6 @@ import { LineNav } from "@/components/ui/line-nav";
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
   const current = await pageMember(request, env, context.identity);
-  const csrf = await csrfData(request, env);
-  for (const cookie of csrf.headers.getSetCookie()) current.headers.append("Set-Cookie", cookie);
   const sessions = await env.DB.prepare("SELECT id, createdAt, updatedAt, userAgent FROM session WHERE userId = ? AND expiresAt > ? ORDER BY createdAt DESC")
     .bind(current.member.user_id, new Date().toISOString()).all<{ id: string; createdAt: string; updatedAt: string; userAgent: string | null }>();
   const passkeys = await env.DB.prepare("SELECT id, name, createdAt FROM passkey WHERE userId = ? ORDER BY createdAt DESC")
@@ -34,7 +31,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const backupCodesLeft = current.member.twoFactorEnabled ? (await createAuth(env).api.viewBackupCodes({ body: { userId: current.member.user_id } })).backupCodes.length : 0;
   return data({ username: current.member.displayUsername ?? current.member.username, role: current.member.role, joinedAt: current.member.created_at,
     email: current.member.email, totp: !!current.member.twoFactorEnabled, passwordUpdatedAt, backupCodesLeft, backupCodeTotal: settings.backupCodeCount,
-    csrfToken: csrf.csrfToken, sessions: sessions.results.map(row => ({ ...row, userAgent: row.userAgent?.slice(0, 160), current: row.id === current.session.id })), passkeys: passkeys.results }, { headers: current.headers });
+    sessions: sessions.results.map(row => ({ ...row, userAgent: row.userAgent?.slice(0, 160), current: row.id === current.session.id })), passkeys: passkeys.results }, { headers: current.headers });
 }
 export const meta = () => [{ title: "账号与安全 · 星际迷航中国" }];
 const SECTIONS = [{ title: "登录方式", href: "#methods" }, { title: "通行密钥", href: "#passkeys" }, { title: "登录会话", href: "#sessions" }];
@@ -75,7 +72,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
     setDialog(null); setSetup(null); setCodes([]); action.clear();
   }
   function showCodes(value: string[]) { setCodes(value); setSaved(false); setSetup(null); setDialog("codes"); }
-  async function revoke(id: string) { await call("/account/sessions/" + id + "/revoke", { csrfToken: account.csrfToken }); }
+  async function revoke(id: string) { await call("/account/sessions/" + id + "/revoke", {}); }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const fields = Object.fromEntries(new FormData(event.currentTarget));

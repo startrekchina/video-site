@@ -3,7 +3,7 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { beforeAll, expect, it, vi } from "vitest";
 import worker from "../workers/app";
 import { seedCatalog } from "./fixtures/catalog";
-import { csrf, login, member, request } from "./fixtures/auth";
+import { login, member, request } from "./fixtures/auth";
 import { probeD1 } from "./fixtures/d1-probe";
 
 beforeAll(async () => {
@@ -27,7 +27,6 @@ it("bounds repeated identity and media work in real Worker requests", async () =
     env.DB.prepare("UPDATE subtitle_tracks SET r2_etag = ? WHERE id = 'zh'").bind(subtitle!.etag),
   ]);
   const runtime = { ...env, APP_ENV: "development" };
-  const protection = await csrf(cookie); cookie = protection.cookie;
   async function measure(label: string, input: Request, status: number, budget: number, sessionReads: number) {
     const probe = probeD1(env.DB), ctx = createExecutionContext();
     const start = performance.now();
@@ -57,13 +56,13 @@ it("bounds repeated identity and media work in real Worker requests", async () =
   await env.DB.prepare('UPDATE "user" SET emailVerified = 1, twoFactorEnabled = 1 WHERE username = ?').bind("kepler").run();
   await env.DB.prepare('INSERT INTO twoFactor (id, secret, backupCodes, userId, verified) SELECT ?, ?, ?, id, 1 FROM "user" WHERE username = ?')
     .bind("fictional-factor", "fictional-encrypted", "fictional-codes", "kepler").run();
-  await measure("admin-write", request("/admin/members/nova/quota", { total: 3, csrfToken: protection.token }, cookie), 200, 6, 1);
+  await measure("admin-write", request("/admin/members/nova/quota", { total: 3 }, cookie), 200, 6, 1);
   await measure("guest", request("/"), 200, 0, 0);
   await measure("invalid-cookie", request("/series", undefined, "session=invalid"), 302, 0, 0);
   await env.DB.prepare("UPDATE session SET updatedAt = ?, expiresAt = ?").bind(new Date(Date.now() - 2 * 86400000).toISOString(), new Date(Date.now() + 28 * 86400000).toISOString()).run();
   await measure("rolling-watch", request("/watch/episode-unit.data", undefined, cookie), 200, 7, 1);
   const ownSession = await env.DB.prepare('SELECT s.id FROM session s JOIN "user" u ON u.id = s.userId WHERE u.username = ?').bind("kepler").first<string>("id");
   // Native authoritative, target-ownership and delete-hook lookups remain necessary library work.
-  await measure("self-revoke", request(`/account/sessions/${ownSession}/revoke`, { csrfToken: protection.token }, cookie), 200, 10, 4);
+  await measure("self-revoke", request(`/account/sessions/${ownSession}/revoke`, {}, cookie), 200, 10, 4);
   await measure("revoked", request("/watch/episode-unit", undefined, cookie), 302, 1, 1);
 }, 60000);
