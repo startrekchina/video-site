@@ -2,7 +2,6 @@ import { env } from "cloudflare:workers";
 import { APIError } from "better-auth/api";
 import { createAuth } from "@/lib/auth.server";
 import { authHttp } from "@/lib/auth-http.server";
-import { csrfData } from "@/lib/security.server";
 
 export const password = "Fictional 1701 password";
 let ip = 0;
@@ -23,10 +22,6 @@ export function request(path: string, body?: object, cookie = "", headers: Recor
 export async function http(path: string, body?: object, cookie = "", headers: Record<string, string> = {}) {
   try { return await authHttp(request(`/api/auth${path}`, body, cookie, headers), env); }
   catch (error) { if (error instanceof APIError) return Response.json(error.body, { status: error.statusCode, headers: error.headers }); throw error; }
-}
-export async function csrf(cookie = "") {
-  const result = await csrfData(request("/register", undefined, cookie), env);
-  return { token: result.csrfToken, cookie: cookies(new Response(null, { headers: result.headers }), cookie) };
 }
 export async function member(username = "Nova", verified = true, parent: string | null = null) {
   const user = (await createAuth(env).api.signUpEmail({ body: { name: username, username, email: `${username.toLowerCase()}@example.test`, password } })).user;

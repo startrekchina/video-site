@@ -10,7 +10,7 @@ export type SubtitleLang = "zh" | "en" | "off"
 
 const SUBS: { lang: SubtitleLang; label: string; url: string }[] = [
   { lang: "zh", label: "中文", url: zhVtt },
-  { lang: "en", label: "English", url: enVtt },
+  { lang: "en", label: "英文", url: enVtt },
   { lang: "off", label: "关闭", url: "" },
 ]
 

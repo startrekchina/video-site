@@ -2,6 +2,7 @@ import { useState } from "react"
 import { ArrowRightIcon, FingerprintIcon, TicketIcon } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 
+import { authClient, authError } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/site/panel"
 import { Button } from "@/components/ui/button"
@@ -229,7 +230,8 @@ function FieldTag({ n, color, children }: { n: string; color: string; children: 
 }
 
 function SignIn({ className }: { className?: string }) {
-  const navigate = useNavigate()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
   return (
     <div className={cn("flex flex-col gap-3 p-4", className)}>
       <FieldTag n="02" color="bg-[#cc99cc]">
@@ -240,8 +242,15 @@ function SignIn({ className }: { className?: string }) {
           variant="secondary"
           size="sm"
           className="shadow-[inset_0_0_1px] shadow-foreground/20"
+          disabled={busy}
           onClick={() => {
-            navigate("/login")
+            setBusy(true)
+            setError("")
+            void authClient.signIn.passkey().then(result => {
+              if (result?.error) throw new Error(authError(result.error))
+              if (!result?.data) throw new Error("通行密钥登录未完成。")
+              window.location.assign("/")
+            }).catch((reason: Error) => { setError(reason.message); setBusy(false) })
           }}
         >
           <FingerprintIcon data-icon="inline-start" />
@@ -250,6 +259,7 @@ function SignIn({ className }: { className?: string }) {
         <Link to="/login" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
           密码登录
         </Link>
+        {error && <p role="alert" className="w-full text-sm text-destructive">{error}</p>}
       </div>
     </div>
   )

@@ -5,12 +5,12 @@ import { createAuth } from "@/lib/auth.server";
 import { adminHttp } from "@/lib/admin.server";
 import { invitationsHttp } from "@/lib/invitations.server";
 import { accountHttp } from "@/lib/account.server";
-import { csrf, login, member, request } from "./fixtures/auth";
+import { login, member, request } from "./fixtures/auth";
 
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => Response.json(String(input).includes("/siteverify") ? { success: true, hostname: "localhost", action: "auth" } : { status: "error" }))); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 async function setupAdmin(name = "Admiral") {
-  const user = await member(name); const anti = await csrf(await login(name));
+  const user = await member(name); const anti = { cookie: await login(name) };
   await env.DB.batch([
     env.DB.prepare("UPDATE member_profiles SET role = 'admin' WHERE user_id = ?").bind(user.id),
     env.DB.prepare('UPDATE "user" SET twoFactorEnabled = 1 WHERE id = ?').bind(user.id),
@@ -20,14 +20,14 @@ async function setupAdmin(name = "Admiral") {
   } });
   return { ...anti, user };
 }
-const adminPost = (id: string, action: string, anti: { cookie: string; token: string }, body: object = {}) =>
-  adminHttp(request(`/admin/members/${id}/${action}`, { ...body, csrfToken: anti.token }, anti.cookie), env);
-const issue = (anti: { cookie: string; token: string }, operationId = crypto.randomUUID()) =>
-  invitationsHttp(request("/invites/create", { operationId, csrfToken: anti.token }, anti.cookie), env);
+const adminPost = (id: string, action: string, anti: { cookie: string }, body: object = {}) =>
+  adminHttp(request(`/admin/members/${id}/${action}`, body, anti.cookie), env);
+const issue = (anti: { cookie: string }, operationId = crypto.randomUUID()) =>
+  invitationsHttp(request("/invites/create", { operationId }, anti.cookie), env);
 
 it("serves real admin totals, filtered pages and invitation trees without credentials", async () => {
   const admin = await setupAdmin(); const root = await member("Root"); await member("Branch", true, root.id);
-  const anti = await csrf(await login("Root")); const issued = await (await issue(anti)).json() as { data: { code: string } };
+  const anti = { cookie: await login("Root") }; const issued = await (await issue(anti)).json() as { data: { code: string } };
   const read = async (path: string, cookie = admin.cookie) => (await adminHttp(request("/admin/members/" + path, undefined, cookie), env)).json() as Promise<{ data: unknown }>;
   expect((await read("stats?q=branch")).data).toMatchObject({ total: 3, active: 3, filtered: 1, roots: 2, validUnused: 1, invitationCount: 1 });
   expect((await read("data?q=branch")).data).toEqual([expect.objectContaining({ username: "Branch", invitedBy: "Root", childCount: 0 })]);
@@ -44,7 +44,7 @@ it("serves real admin totals, filtered pages and invitation trees without creden
 });
 
 it("enforces exact concurrent quota, idempotent issue/revoke, expiry and permanent used occupancy", async () => {
-  const user = await member(); const anti = await csrf(await login()); const operationId = crypto.randomUUID();
+  const user = await member(); const anti = { cookie: await login() }; const operationId = crypto.randomUUID();
   const same = await Promise.all([issue(anti, operationId), issue(anti, operationId)]);
   const values = await Promise.all(same.map(response => response.json())) as { data: { id: string; code: string } }[];
   expect(values[0].data).toEqual(values[1].data);
@@ -53,9 +53,10 @@ it("enforces exact concurrent quota, idempotent issue/revoke, expiry and permane
   const listing = await invitationsHttp(request("/invites/data", undefined, anti.cookie), env);
   const result = await listing.json() as { data: { occupied: number; invitations: object[] } };
   expect(result.data.occupied).toBe(2); expect(JSON.stringify(result)).not.toContain(values[0].data.code); expect(JSON.stringify(result)).not.toContain("code_hash");
-  for (let i = 0; i < 2; i++) expect((await invitationsHttp(request(`/invites/${values[0].data.id}/revoke`, { csrfToken: anti.token }, anti.cookie), env)).status).toBe(200);
+  for (let i = 0; i < 2; i++) expect((await invitationsHttp(request(`/invites/${values[0].data.id}/revoke`, {}, anti.cookie), env)).status).toBe(200);
   await issue(anti);
-  await env.DB.prepare("UPDATE invitations SET expires_at = ? WHERE issuer_user_id = ? AND revoked_at IS NULL").bind(Date.now() - 1, user.id).run();
+  // Workers time only advances on I/O, so the invitation just issued can share this millisecond; backdate creation too.
+  await env.DB.prepare("UPDATE invitations SET created_at = ?, expires_at = ? WHERE issuer_user_id = ? AND revoked_at IS NULL").bind(Date.now() - 2, Date.now() - 1, user.id).run();
   await issue(anti);
   const child = await member("Quinn", true, user.id);
   await env.DB.prepare("UPDATE invitations SET used_by_user_id = ?, used_at = ? WHERE id = ?").bind(child.id, Date.now(), values[0].data.id).run();
@@ -66,22 +67,26 @@ it("enforces exact concurrent quota, idempotent issue/revoke, expiry and permane
 it("allows admins unlimited issue without a fresh session, and refuses foreign invitations or sessions", async () => {
   const admin = await setupAdmin(); await env.DB.prepare("UPDATE session SET createdAt = ? WHERE userId = ?").bind(new Date(Date.now() - 600000).toISOString(), admin.user.id).run();
   for (let i = 0; i < 4; i++) expect((await issue(admin)).status).toBe(200);
-  const user = await member(); const anti = await csrf(await login());
+  const user = await member(); const anti = { cookie: await login() };
   const created = await issue(admin); const data = await created.json() as { data: { id: string } };
-  await expect(invitationsHttp(request(`/invites/${data.data.id}/revoke`, { csrfToken: anti.token }, anti.cookie), env)).rejects.toMatchObject({ statusCode: 409 });
+  await expect(invitationsHttp(request(`/invites/${data.data.id}/revoke`, {}, anti.cookie), env)).rejects.toMatchObject({ statusCode: 409 });
   const foreign = await env.DB.prepare("SELECT id FROM session WHERE userId = ?").bind(admin.user.id).first<string>("id");
-  await expect(accountHttp(request(`/account/sessions/${foreign}/revoke`, { csrfToken: anti.token }, anti.cookie), env)).rejects.toMatchObject({ statusCode: 404 });
+  await expect(accountHttp(request(`/account/sessions/${foreign}/revoke`, {}, anti.cookie), env)).rejects.toMatchObject({ statusCode: 404 });
   const sessions = await accountHttp(request("/account/sessions", undefined, anti.cookie), env);
   const text = await sessions.text(); expect(text).not.toMatch(/"token"|"ipAddress"/); expect(text).not.toContain(admin.user.id);
   expect(await env.DB.prepare("SELECT count(*) AS n FROM session WHERE userId = ?").bind(user.id).first<number>("n")).toBe(1);
 });
 
-it("requires live role, verified TOTP, fresh creation time and CSRF for all high-impact actions", async () => {
+it("requires live role, verified TOTP, fresh creation time and a same-origin JSON request for all high-impact actions", async () => {
   const admin = await setupAdmin(); const target = await member();
   await env.DB.prepare("UPDATE session SET createdAt = ? WHERE userId = ?").bind(new Date(Date.now() - 301000).toISOString(), admin.user.id).run();
   for (const action of ["ban", "unban", "quota", "role"]) await expect(adminPost(target.id, action, admin, { cascade: false, total: 2, role: "admin" })).rejects.toMatchObject({ body: { code: "FRESH_SESSION_REQUIRED" } });
   await env.DB.prepare("UPDATE session SET createdAt = ? WHERE userId = ?").bind(new Date().toISOString(), admin.user.id).run();
-  await expect(adminPost(target.id, "ban", { ...admin, token: "0".repeat(64) }, { cascade: false })).rejects.toMatchObject({ body: { code: "CSRF_INVALID" } });
+  const url = `/admin/members/${target.id}/ban`;
+  for (const [headers, code] of [[{ Origin: "https://evil.invalid" }, "CSRF_INVALID"], [{ "Sec-Fetch-Site": "same-site" }, "CSRF_INVALID"], [{ "Content-Type": "text/plain" }, "INVALID_INPUT"]] as const) {
+    await expect(adminHttp(request(url, { cascade: false }, admin.cookie, headers), env)).rejects.toMatchObject({ body: { code } });
+  }
+  expect(await env.DB.prepare("SELECT status FROM member_profiles WHERE user_id = ?").bind(target.id).first<string>("status")).toBe("active");
   await env.DB.prepare("UPDATE twoFactor SET verified = 0 WHERE userId = ?").bind(admin.user.id).run();
   await expect(adminPost(target.id, "ban", admin, { cascade: false })).rejects.toMatchObject({ body: { code: "FRESH_SESSION_REQUIRED" } });
   await env.DB.prepare("UPDATE member_profiles SET role = 'member' WHERE user_id = ?").bind(admin.user.id).run();
@@ -94,7 +99,7 @@ it("atomically cascades through ordinary descendants and stops at another admin;
   const preview = await (await adminHttp(request("/admin/members/" + target.id + "/ban-preview", undefined, admin.cookie), env)).json() as { data: { total: number; active: number; members: { username: string }[] } };
   expect(preview.data.total).toBe(2); expect(preview.data.active).toBe(2);
   expect(preview.data.members.map(row => row.username).sort()).toEqual(["Child", "Leaf"]);
-  const targetCookie = await login("Root"); const anti = await csrf(targetCookie); await issue(anti);
+  const targetCookie = await login("Root"); const anti = { cookie: targetCookie }; await issue(anti);
   const result = await adminPost(target.id, "ban", admin, { cascade: true });
   const body = await result.json() as { data: { changed: number; failedNotifications: number } }; expect(body.data.failedNotifications).toBe(3); expect(body.data.changed).toBe(3);
   const descendants = await adminHttp(request(`/admin/members/${target.id}/invited`, undefined, admin.cookie), env);
@@ -154,7 +159,7 @@ it("rejects self changes and parallel removal of the last administrator at the S
 });
 
 it("does not partially ban a chain if native session cleanup fails, and quota cannot fall below occupied", async () => {
-  const admin = await setupAdmin(); const target = await member(); const anti = await csrf(await login()); await issue(anti);
+  const admin = await setupAdmin(); const target = await member(); const anti = { cookie: await login() }; await issue(anti);
   await expect(adminPost(target.id, "quota", admin, { total: 0 })).rejects.toMatchObject({ body: { code: "QUOTA_EXHAUSTED" } });
   await env.DB.prepare("CREATE TRIGGER fictional_ban_failure BEFORE DELETE ON session BEGIN SELECT RAISE(ABORT, 'Fictional ban failure'); END").run();
   await expect(adminPost(target.id, "ban", admin, { cascade: false })).rejects.toThrow();

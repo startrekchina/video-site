@@ -1,6 +1,6 @@
 import { APIError } from "better-auth/api";
-import { requireMember } from "./member.server";
-import { checkCsrf, readJson } from "./security.server";
+import { createRequestIdentity, requireMember } from "./member.server";
+import { checkWrite, readJson } from "./security.server";
 import { sha256 } from "./registration.server";
 import { settings } from "./settings.server";
 
@@ -18,8 +18,8 @@ async function invitationCode(env: Env, userId: string, operationId: string) {
   return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function invitationsHttp(request: Request, env: Env) {
-  const current = await requireMember(request, env);
+export async function invitationsHttp(request: Request, env: Env, identity = createRequestIdentity(request, env)) {
+  const current = await requireMember(request, env, identity);
   const userId = current.member.user_id;
   const now = Date.now();
   const path = new URL(request.url).pathname;
@@ -30,8 +30,8 @@ export async function invitationsHttp(request: Request, env: Env) {
     return Response.json({ data: { invitations: rows.results, total: current.member.invite_quota, occupied, unlimited: current.member.role === "admin" }, requestId: request.headers.get("X-Site-Request-Id") ?? crypto.randomUUID() }, { headers: current.headers });
   }
   if (request.method !== "POST") return new Response(null, { status: 404 });
+  checkWrite(request, env);
   const body = await readJson(request);
-  await checkCsrf(request, env, body.csrfToken);
   const actor = [userId, current.session.id, new Date(now).toISOString()];
   const revoke = /^\/invites\/([^/]+)\/revoke$/.exec(path);
   if (revoke) {
@@ -59,7 +59,7 @@ export async function invitationsHttp(request: Request, env: Env) {
     .bind(crypto.randomUUID(), await sha256(code), body.operationId, now, expiry, userId, ...actor, now).run();
   const row = await env.DB.prepare("SELECT id, expires_at, used_at, revoked_at FROM invitations WHERE issuer_user_id = ? AND operation_id = ?")
     .bind(userId, body.operationId).first<{ id: string; expires_at: number; used_at: number | null; revoked_at: number | null }>();
-  if (!row) throw new APIError("CONFLICT", { code: "QUOTA_EXHAUSTED", message: "邀请额度已用完或账号已停用。" });
+  if (!row) throw new APIError("CONFLICT", { code: "QUOTA_EXHAUSTED", message: "邀请额度已用完或账号已被封禁。" });
   if (row.used_at || row.revoked_at || row.expires_at <= now) throw new APIError("CONFLICT", { code: "INVITATION_USED", message: "本次发码已经结束，请使用新的操作。" });
   return Response.json({ data: { id: row.id, code, expiresAt: row.expires_at }, requestId: request.headers.get("X-Site-Request-Id") ?? crypto.randomUUID() }, { headers: current.headers });
 }

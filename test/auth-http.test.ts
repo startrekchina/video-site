@@ -7,7 +7,7 @@ import { createAuth } from "@/lib/auth.server";
 import { sha256 } from "@/lib/registration.server";
 import { reserveMail, deliverMail, finishUnsentMail } from "@/lib/mail.server";
 import { authHttp } from "@/lib/auth-http.server";
-import { cookies, csrf, http, login, member, password, request } from "./fixtures/auth";
+import { cookies, http, login, member, password, request } from "./fixtures/auth";
 
 let links: string[];
 let postalStatus: "success" | "error" | "timeout";
@@ -28,11 +28,12 @@ async function invite(code = "fictional-invitation") {
   return code;
 }
 
-it("protects both registration paths with origin, CSRF, captcha and persistent IP limits", async () => {
-  const code = await invite(); const anti = await csrf();
-  const body = { username: "Nova", email: "nova@example.test", password, invitationCode: code, csrfToken: anti.token };
+it("protects both registration paths with origin, JSON-only bodies, captcha and persistent IP limits", async () => {
+  const code = await invite(); const anti = { cookie: "" };
+  const body = { username: "Nova", email: "nova@example.test", password, invitationCode: code };
   expect((await http("/register", body, anti.cookie, { Origin: "https://evil.invalid" })).status).toBe(403);
-  expect((await http("/register", { ...body, csrfToken: "0".repeat(64) }, anti.cookie)).status).toBe(403);
+  expect((await http("/register", body, anti.cookie, { "Sec-Fetch-Site": "same-site" })).status).toBe(403);
+  for (const type of ["text/plain", "application/x-www-form-urlencoded"]) expect((await http("/register", body, anti.cookie, { "Content-Type": type })).status).toBe(415);
   expect((await http("/register", body, anti.cookie, { "x-captcha-response": "" })).status).toBe(400);
   expect(await count("registration_attempts")).toBe(0);
   for (let i = 0; i < 3; i++) {
@@ -45,8 +46,8 @@ it("protects both registration paths with origin, CSRF, captcha and persistent I
 
 it.each(["success", "error", "timeout"] as const)("retains completed registration after Postal %s and grants access only after verification", async status => {
   postalStatus = status;
-  const anti = await csrf();
-  const response = await http("/register", { username: "Nova", email: "NOVA@example.test", password, invitationCode: await invite(), csrfToken: anti.token }, anti.cookie);
+  const anti = { cookie: "" };
+  const response = await http("/register", { username: "Nova", email: "NOVA@example.test", password, invitationCode: await invite() }, anti.cookie);
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ status: "pending_verification", delivery: status === "success" ? "accepted" : status === "error" ? "failed" : "unknown" });
   expect(cookies(response)).not.toContain("session="); expect(await count("member_profiles")).toBe(1);
@@ -68,7 +69,8 @@ it("does not verify or log in orphaned or banned identities through any auth ent
   expect((await http("/sign-in/username", { username: "Nova", password })).status).toBe(403);
   expect(await (await http("/get-session", undefined, cookie)).json()).toBeNull();
   const token = await createEmailVerificationToken(env.BETTER_AUTH_SECRET, user.email, undefined, 3600);
-  expect((await http(`/verify-email?token=${token}`)).status).toBe(403);
+  const refused = await http(`/verify-email?token=${token}`);
+  expect(refused.status).toBe(302); expect(refused.headers.get("Location")).toBe(`${env.APP_ORIGIN}/verify-email?error=INVALID_TOKEN`);
   expect((await http("/two-factor/enable", { password }, cookie)).status).toBe(401);
   expect((await http("/passkey/generate-register-options", undefined, cookie)).status).toBe(401);
   expect((await http("/request-password-reset", { email: orphan.email, redirectTo: `${env.APP_ORIGIN}/reset-password` })).status).toBe(200);
@@ -103,11 +105,16 @@ it("requires the original member session to replace email and preserves the old 
   const needsLogin = await authHttp(new Request(links[0]), env);
   expect(needsLogin.status).toBe(302); expect(needsLogin.headers.get("Location")).toBe(`${env.APP_ORIGIN}/login?next=/account/email-confirm`);
   expect(needsLogin.headers.get("Location")).not.toContain("token="); expect(needsLogin.headers.getSetCookie()[0]).toContain("HttpOnly");
-  await expect(authHttp(new Request(links[0], { headers: { Cookie: other } }), env)).resolves.toHaveProperty("status", 403);
+  const wrongAccount = `${env.APP_ORIGIN}/verify-email?error=EMAIL_CHANGE_ACCOUNT`;
+  const foreign = await authHttp(new Request(links[0], { headers: { Cookie: other } }), env);
+  expect(foreign.status).toBe(302); expect(foreign.headers.get("Location")).toBe(wrongAccount);
+  const missing = await authHttp(request("/account/email-confirm"), env);
+  expect(missing.status).toBe(303); expect(missing.headers.get("Location")).toBe(`${env.APP_ORIGIN}/verify-email?error=INVALID_TOKEN`);
   const resumed = await authHttp(request("/account/email-confirm", undefined, cookies(needsLogin, cookie)), env);
   expect(resumed.status).toBe(302); expect(resumed.headers.getSetCookie().join(";")).toContain("Max-Age=0");
   expect(await env.DB.prepare('SELECT email, emailVerified FROM "user" WHERE id = ?').bind(nova.id).first()).toEqual({ email: "replacement@example.test", emailVerified: 1 });
-  expect((await authHttp(new Request(links[0], { headers: { Cookie: cookie } }), env)).status).toBe(403);
+  const reused = await authHttp(new Request(links[0], { headers: { Cookie: cookie } }), env);
+  expect(reused.status).toBe(302); expect(reused.headers.get("Location")).toBe(wrongAccount);
 });
 
 it("checks reset GET without consumption and revokes old sessions in the password write even if native cleanup later fails", async () => {
@@ -183,8 +190,8 @@ it("never lets a pre-hook renewal replace the fresh cookie issued by a password 
 });
 
 it("lets a failed registration correct input and retry without claiming an existing identity", async () => {
-  await member(); const anti = await csrf(); const invitationCode = await invite();
-  const body = { username: "Nova", email: "other@example.test", password, invitationCode, csrfToken: anti.token };
+  await member(); const anti = { cookie: "" }; const invitationCode = await invite();
+  const body = { username: "Nova", email: "other@example.test", password, invitationCode };
   const failed = await http("/register", body, anti.cookie); expect(failed.status).toBe(400);
   const result = await http("/register", { ...body, username: "Other" }, cookies(failed, anti.cookie));
   expect(result.status).toBe(200);
@@ -195,8 +202,8 @@ it("lets a failed registration correct input and retry without claiming an exist
 });
 
 it("starts a new attempt with a replacement invitation after native user creation fails", async () => {
-  const anti = await csrf();
-  const body = { username: "Nova", email: "nova@example.test", password, invitationCode: await invite(), csrfToken: anti.token };
+  const anti = { cookie: "" };
+  const body = { username: "Nova", email: "nova@example.test", password, invitationCode: await invite() };
   await env.DB.exec('CREATE TRIGGER reject_registration BEFORE INSERT ON "user" BEGIN SELECT RAISE(ABORT, \'Injected user creation failure\'); END;');
   const failed = await http("/register", body, anti.cookie); expect(failed.status).toBeGreaterThanOrEqual(400);
   const failedCookie = cookies(failed, anti.cookie); expect(failedCookie).not.toBe(anti.cookie);
@@ -215,8 +222,8 @@ it("starts a new attempt with a replacement invitation after native user creatio
 });
 
 it("starts another registration after a completed attempt in the same browser and preserves replay", async () => {
-  const anti = await csrf();
-  const firstBody = { username: "Nova", email: "nova@example.test", password, invitationCode: await invite(), csrfToken: anti.token };
+  const anti = { cookie: "" };
+  const firstBody = { username: "Nova", email: "nova@example.test", password, invitationCode: await invite() };
   const first = await http("/register", firstBody, anti.cookie); expect(first.status).toBe(200);
   const firstCookie = cookies(first, anti.cookie);
   const nextBody = { ...firstBody, username: "Quinn", email: "quinn@example.test", invitationCode: await invite("fictional-next-invitation") };
@@ -228,8 +235,8 @@ it("starts another registration after a completed attempt in the same browser an
 });
 
 it("validates a changed invitation independently of the completed registration cookie", async () => {
-  const anti = await csrf();
-  const body = { username: "Nova", email: "nova@example.test", password, invitationCode: await invite(), csrfToken: anti.token };
+  const anti = { cookie: "" };
+  const body = { username: "Nova", email: "nova@example.test", password, invitationCode: await invite() };
   const first = await http("/register", body, anti.cookie); expect(first.status).toBe(200);
   const invitationCode = await invite("fictional-next-invitation");
   const next = await http("/register", { ...body, invitationCode }, cookies(first, anti.cookie));

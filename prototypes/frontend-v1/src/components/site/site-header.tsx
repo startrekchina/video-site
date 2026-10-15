@@ -94,7 +94,7 @@ function UserMenu() {
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => navigate("/account#passkeys")}>
           <KeyRoundIcon />
-          通行密钥与二步验证
+          通行密钥
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => navigate("/invites")}>
           <TicketIcon />
@@ -154,7 +154,7 @@ export function SiteHeader() {
             {MAIN_NAV.map((n) => (
               <NavItem key={n.to} {...n} />
             ))}
-            {me.role === "admin" && <NavItem to="/admin" label="管理" />}
+            {me.role === "admin" && <NavItem to="/admin" label="管理后台" />}
           </nav>
         ) : (
           <nav className="flex items-center gap-4">

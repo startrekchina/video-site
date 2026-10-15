@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { Toaster } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { BottomRuler } from "./bottom-ruler";
 import { CommandMenu } from "./command-menu";
@@ -28,13 +29,16 @@ function UserMenu({ member }: { member: Member }) {
   const navigate = useNavigate(), [busy, setBusy] = useState(false), [error, setError] = useState("");
   return <><DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="border-none" aria-label="账号菜单"><span className="flex size-6 items-center justify-center rounded-md bg-muted font-mono text-xs text-muted-foreground uppercase inset-ring-1 inset-ring-foreground/10">{member.username.slice(0, 1)}</span><span className="sr-only">{member.username}</span></Button>} />
     <DropdownMenuContent align="end" className="w-52"><DropdownMenuGroup><DropdownMenuLabel className="flex flex-col gap-0.5"><span className="font-mono text-sm text-foreground">{member.username}</span><span className="text-xs">{member.role === "admin" ? "管理员" : "成员"}</span></DropdownMenuLabel></DropdownMenuGroup><DropdownMenuSeparator />
-      <DropdownMenuItem onClick={() => navigate("/account")}><UserIcon />账号与安全</DropdownMenuItem><DropdownMenuItem onClick={() => navigate("/account#passkeys")}><KeyRoundIcon />通行密钥与二步验证</DropdownMenuItem><DropdownMenuItem onClick={() => navigate("/invites")}><TicketIcon />邀请</DropdownMenuItem>{member.role === "admin" && <DropdownMenuItem onClick={() => navigate("/admin")}><ShieldIcon />管理后台</DropdownMenuItem>}<DropdownMenuSeparator />
+      <DropdownMenuItem onClick={() => navigate("/account")}><UserIcon />账号与安全</DropdownMenuItem><DropdownMenuItem onClick={() => navigate("/account#passkeys")}><KeyRoundIcon />通行密钥</DropdownMenuItem><DropdownMenuItem onClick={() => navigate("/invites")}><TicketIcon />邀请</DropdownMenuItem>{member.role === "admin" && <DropdownMenuItem onClick={() => navigate("/admin")}><ShieldIcon />管理后台</DropdownMenuItem>}<DropdownMenuSeparator />
       <DropdownMenuItem disabled={busy} onClick={() => { setBusy(true); setError(""); void call("/api/auth/sign-out", {}).then(() => location.assign("/login")).catch(error => { setError(error.message); setBusy(false); }); }}><LogOutIcon />{busy ? "正在退出…" : "退出登录"}</DropdownMenuItem>
     </DropdownMenuContent></DropdownMenu>{error && <p role="alert" className="absolute top-full right-2 rounded bg-background p-3 text-sm text-destructive">{error}</p>}</>;
 }
 
 function SearchTrigger({ onClick, className }: { onClick: () => void; className?: string }) {
-  return <Button data-slot="command-menu-trigger" variant="ghost" size="sm" aria-label="搜索作品" className={cn("gap-1.5 border-none px-1.5 text-muted-foreground select-none", className)} onClick={onClick}><SearchIcon /><span className="font-sans text-sm/4 font-medium sm:hidden">搜索</span><KbdGroup className="max-sm:hidden"><Kbd className="w-5 min-w-5">⌘</Kbd><Kbd className="w-5 min-w-5">K</Kbd></KbdGroup></Button>;
+  // The server cannot know the platform; Apple keys render first and other platforms switch after hydration.
+  const [mod, setMod] = useState("⌘");
+  useEffect(() => { if (!/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)) setMod("Ctrl"); }, []);
+  return <Button data-slot="command-menu-trigger" variant="ghost" size="sm" aria-label="搜索作品" className={cn("gap-1.5 border-none px-1.5 text-muted-foreground select-none", className)} onClick={onClick}><SearchIcon /><span className="font-sans text-sm/4 font-medium sm:hidden">搜索</span><KbdGroup className="max-sm:hidden"><Kbd className={mod === "⌘" ? "w-5 min-w-5" : "min-w-5"}>{mod}</Kbd><Kbd className="w-5 min-w-5">K</Kbd></KbdGroup></Button>;
 }
 
 function BottomNav({ member, onSearch }: { member: Member; onSearch: () => void }) {
@@ -54,7 +58,7 @@ export function SiteShell({ children, member, catalog }: { children: ReactNode; 
   useHotkey("k", () => setSearchOpen(open => !open), { mod: true, enabled: Boolean(member) });
   useHotkey("/", () => setSearchOpen(true), { enabled: Boolean(member) });
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
-  const navigation = member ? [...mainNavigation, ...(member.role === "admin" ? [{ to: "/admin", label: "管理" }] : [])] : guestNavigation;
+  const navigation = member ? [...mainNavigation, ...(member.role === "admin" ? [{ to: "/admin", label: "管理后台" }] : [])] : guestNavigation;
   const authPage = ["/login", "/register", "/forgot-password", "/reset-password", "/reset-password/complete", "/verify-email", "/verify-pending"].includes(pathname);
   return <TooltipProvider><div className="group/layout relative isolate content-frame has-data-[slot=auth-frame]:flex has-data-[slot=auth-frame]:min-h-svh has-data-[slot=auth-frame]:flex-col">
     <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[60] focus:rounded focus:bg-background focus:p-3">跳到正文</a>
@@ -72,5 +76,6 @@ export function SiteShell({ children, member, catalog }: { children: ReactNode; 
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40" aria-hidden><div className="h-(--fade-bottom-height) bg-linear-to-b from-transparent to-background mask-linear-[to_top,var(--background)_25%,transparent] backdrop-blur-[1px]" /><div className="bg-background pb-[env(safe-area-inset-bottom,0px)]" /><BottomRuler /></div>
     {member && <><BottomNav member={member} onSearch={() => setSearchOpen(true)} /><CommandMenu open={searchOpen} onOpenChange={setSearchOpen} works={catalog?.works ?? []} /></>}
     <ScrollToTop />
+    <Toaster />
   </div></TooltipProvider>;
 }

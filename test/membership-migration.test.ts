@@ -30,7 +30,7 @@ beforeEach(async () => {
       .bind(new Date(now).toISOString(), new Date(now).toISOString()),
     env.DB.prepare("INSERT INTO works (id, kind, tmdb_id) VALUES ('movie', 'movie', 910001)"),
     env.DB.prepare("INSERT INTO playable_units (id, kind, work_id, tmdb_id, duration_seconds) VALUES ('unit', 'movie', 'movie', 910001, 4)"),
-    env.DB.prepare("INSERT INTO invitations (id, code_hash, issuer_user_id, used_by_user_id, operation_id, created_at, expires_at, used_at) VALUES ('invite', 'fictional-digest', 'nova', 'quinn', 'fictional-operation', ?, ?, ?)")
+    env.DB.prepare("INSERT INTO invitations (id, code_hash, used_by_user_id, created_at, expires_at, used_at) VALUES ('invite', 'fictional-digest', 'quinn', ?, ?, ?)")
       .bind(now, now + 1000, now),
     env.DB.prepare("INSERT INTO email_deliveries (id, user_id, to_email_key, purpose, status, created_at) VALUES ('mail', 'nova', 'fictional-digest', 'password_reset', 'unknown', ?)").bind(now),
     env.DB.prepare("INSERT INTO watch_progress (user_id, playable_unit_id, position_seconds, completed, updated_at, revision) VALUES ('nova', 'unit', 3, 0, ?, 5)").bind(now),

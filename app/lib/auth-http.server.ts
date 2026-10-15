@@ -1,9 +1,9 @@
-import { APIError, createAuthEndpoint, createAuthMiddleware, createEmailVerificationToken } from "better-auth/api";
+import { APIError, createAuthEndpoint, createAuthMiddleware, createEmailVerificationToken, getSession } from "better-auth/api";
 import { createAuth } from "./auth.server";
 import { registerWithInvitation, sha256 } from "./registration.server";
-import { currentMember, memberById, requireMember } from "./member.server";
+import { createRequestIdentity, memberById, memberForSession, type RequestIdentity } from "./member.server";
 import { deliverMail, finishUnsentMail, reserveMail, type MailAttempt } from "./mail.server";
-import { checkCsrf, checkOrigin, cookieName, cookieValue, privateCookie } from "./security.server";
+import { checkOrigin, cookieName, cookieValue, privateCookie } from "./security.server";
 
 const anonymous = new Set(["/register", "/sign-in/username", "/request-password-reset", "/send-verification-email", "/reset-password",
   "/verify-email", "/two-factor/verify-totp", "/two-factor/verify-backup-code", "/passkey/generate-authenticate-options", "/passkey/verify-authentication", "/get-session"]);
@@ -12,7 +12,7 @@ const postPaths = new Set(["/register", "/sign-in/username", "/sign-out", "/requ
   "/two-factor/get-totp-uri", "/two-factor/generate-backup-codes", "/passkey/verify-registration", "/passkey/verify-authentication", "/passkey/delete-passkey"]);
 const getPaths = new Set(["/get-session", "/verify-email", "/passkey/generate-register-options", "/passkey/generate-authenticate-options", "/passkey/list-user-passkeys"]);
 
-export function createSiteAuth(env: Env) {
+export function createSiteAuth(env: Env, identity: RequestIdentity) {
   // Per-request state: never cache this instance across requests or Worker isolates.
   let mail: MailAttempt | undefined;
   const renewedCookies: string[] = [];
@@ -62,24 +62,23 @@ export function createSiteAuth(env: Env) {
     hooks: { before: [{ matcher: () => true, handler: createAuthMiddleware(async ctx => {
       const request = ctx.request;
       if (!request) return;
+      // Better Auth already refuses non-JSON bodies here (415), so registration needs only the origin check.
       if (request.method !== "GET") checkOrigin(request, env);
-      if (ctx.path === "/register") await checkCsrf(request, env, ctx.body?.csrfToken);
+      const readMember = async () => {
+        const result = await getSession()({ ...ctx, headers: request.headers, method: "GET", asResponse: false, returnHeaders: true, returnStatus: false, query: { disableCookieCache: true } });
+        renewedCookies.push(...result.headers.getSetCookie());
+        ctx.context.session = result.response;
+        return identity.accept(result.response, result.headers);
+      };
       if (!anonymous.has(ctx.path) && !ctx.path.startsWith("/reset-password/")) {
-        const current = await requireMember(request, env);
-        renewedCookies.push(...current.headers.getSetCookie());
-      }
-      if (ctx.path === "/get-session") {
-        const session = await createAuth(env).api.getSession({ headers: request.headers, returnHeaders: true });
-        renewedCookies.push(...session.headers.getSetCookie());
-        if (session.response) await memberById(env, session.response.user.id);
+        const current = await readMember().catch(error => { if (error instanceof APIError && error.body?.code === "MEMBERSHIP_REQUIRED") return null; throw error; });
+        if (!current) throw new APIError("UNAUTHORIZED", { code: "AUTH_REQUIRED", message: "请先登录。" });
       }
       if (ctx.path === "/two-factor/verify-totp" || ctx.path === "/two-factor/verify-backup-code") {
-        const session = await createAuth(env).api.getSession({ headers: request.headers, returnHeaders: true });
-        renewedCookies.push(...session.headers.getSetCookie());
-        if (session.response) await memberById(env, session.response.user.id);
+        await readMember();
       }
       if (ctx.path === "/change-password" && ctx.body?.revokeOtherSessions !== true) {
-        throw new APIError("BAD_REQUEST", { code: "SESSION_REVOCATION_REQUIRED", message: "修改密码必须撤销其他会话。" });
+        throw new APIError("BAD_REQUEST", { code: "SESSION_REVOCATION_REQUIRED", message: "修改密码时必须同时退出其他设备。" });
       }
       for (const field of ["callbackURL", "redirectTo"]) {
         const value = ctx.body?.[field] ?? ctx.query?.[field];
@@ -90,29 +89,30 @@ export function createSiteAuth(env: Env) {
         }
       }
       if (ctx.path === "/verify-email") {
+        // Members open this link from mail, so failures land on the verification page rather than a JSON body.
+        const invalid = (error = "INVALID_TOKEN") => ctx.redirect(`${env.APP_ORIGIN}/verify-email?error=${error}`);
         let payload: { email?: string; updateTo?: string };
         try {
           const token = ctx.query?.token;
           if (typeof token !== "string" || token.length > 8192) throw new Error();
           payload = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")), char => char.charCodeAt(0))));
           if (!payload || typeof payload !== "object") throw new Error();
-        } catch { throw new APIError("UNAUTHORIZED", { code: "INVALID_TOKEN", message: "验证链接无效。" }); }
+        } catch { throw invalid(); }
         // The decoded data is only a restrictive gate. Better Auth still verifies the JWT before any mutation.
         if (payload.updateTo) {
-          const current = await currentMember(request, env);
+          const current = await readMember().catch(error => { if (error instanceof APIError && error.body?.code === "MEMBERSHIP_REQUIRED") return null; throw error; });
           if (!current) {
             const token = ctx.query?.token;
-            if (typeof token !== "string" || token.length > 3584) throw new APIError("BAD_REQUEST", { code: "INVALID_TOKEN", message: "验证链接无效。" });
+            if (typeof token !== "string" || token.length > 3584) throw invalid();
             ctx.setHeader("Set-Cookie", privateCookie(env, "email-change", token, 3600));
             // Keep the signed link away from the login page's third-party captcha script.
             throw ctx.redirect(`${env.APP_ORIGIN}/login?next=/account/email-confirm`);
           }
-          renewedCookies.push(...current.headers.getSetCookie());
-          if (current.member.email !== payload.email) throw new APIError("FORBIDDEN", { code: "AUTH_INVALID", message: "请使用申请修改邮箱的账号登录。" });
+          if (current.member.email !== payload.email) throw invalid("EMAIL_CHANGE_ACCOUNT");
         } else if (payload.email) {
           const id = await env.DB.prepare('SELECT id FROM "user" WHERE email = ?').bind(payload.email).first<string>("id");
-          if (!id) throw new APIError("UNAUTHORIZED", { code: "INVALID_TOKEN", message: "验证链接无效。" });
-          await memberById(env, id, false);
+          if (!id) throw invalid();
+          await memberById(env, id, false).catch(error => { if (error instanceof APIError && error.body?.code === "MEMBERSHIP_REQUIRED") throw invalid(); throw error; });
         }
       }
       if (ctx.path === "/request-password-reset" || ctx.path === "/send-verification-email" || ctx.path === "/change-email") {
@@ -120,6 +120,10 @@ export function createSiteAuth(env: Env) {
           ctx.path === "/request-password-reset" ? "password_reset" : ctx.path === "/change-email" ? "email_change_verification" : "verification_resend");
       }
     }) }], after: [{ matcher: () => true, handler: createAuthMiddleware(async ctx => {
+      // The public session endpoint has already performed native verification and rolling renewal.
+      if (ctx.path === "/get-session" && ctx.context.returned && !(ctx.context.returned instanceof APIError) && ctx.context.session) {
+        await memberForSession(env, ctx.context.session.session);
+      }
       // Native dispatch replaces before-hook headers. Preserve renewals, but never overwrite a new/cleared session.
       const issued = ctx.context.responseHeaders?.getSetCookie().map(cookie => cookie.split("=")[0]) ?? [];
       for (const cookie of renewedCookies) if (!issued.includes(cookie.split("=")[0])) ctx.setHeader("Set-Cookie", cookie);
@@ -149,12 +153,12 @@ export function createSiteAuth(env: Env) {
   return { auth, finish: async () => { if (mail) await finishUnsentMail(env, mail); } };
 }
 
-export async function authHttp(request: Request, env: Env) {
+export async function authHttp(request: Request, env: Env, identity = createRequestIdentity(request, env)) {
   const url = new URL(request.url);
   const emailResume = url.pathname === "/account/email-confirm";
   if (emailResume) {
     const token = cookieValue(request, cookieName(env, "email-change"));
-    if (request.method !== "GET" || !token || !/^[A-Za-z0-9_.-]{1,3584}$/.test(token)) return Response.json({ code: "INVALID_TOKEN", message: "验证凭证已失效，请重新申请修改邮箱。" }, { status: 400 });
+    if (request.method !== "GET" || !token || !/^[A-Za-z0-9_.-]{1,3584}$/.test(token)) return new Response(null, { status: 303, headers: { Location: `${env.APP_ORIGIN}/verify-email?error=INVALID_TOKEN` } });
     url.pathname = "/api/auth/verify-email";
     url.search = ""; url.searchParams.set("token", token); url.searchParams.set("callbackURL", `${env.APP_ORIGIN}/verify-email`);
     request = new Request(url, { headers: request.headers });
@@ -183,7 +187,7 @@ export async function authHttp(request: Request, env: Env) {
   } else if (path !== "/verify-email" && !path.startsWith("/reset-password/") && ["cross-site", "same-site"].includes(request.headers.get("Sec-Fetch-Site") ?? "")) {
     return Response.json({ code: "CSRF_INVALID", message: "请求来源无效。" }, { status: 403 });
   }
-  const site = createSiteAuth(env);
+  const site = createSiteAuth(env, identity);
   try {
     const response = await site.auth.handler(request);
     if (emailResume && new URL(response.headers.get("Location") ?? "/", env.APP_ORIGIN).pathname !== "/login") {
@@ -192,5 +196,5 @@ export async function authHttp(request: Request, env: Env) {
     }
     return response;
   }
-  finally { await site.finish(); }
+  finally { identity.invalidate(); await site.finish(); }
 }

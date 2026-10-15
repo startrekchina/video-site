@@ -1,14 +1,11 @@
 import { useMemo, useState } from "react"
-import { BanIcon, LinkIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, ShieldIcon, ShieldOffIcon, UndoIcon } from "lucide-react"
+import { BanIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, ShieldIcon, ShieldOffIcon, UndoIcon } from "lucide-react"
 
 import { actions, useStore, type Member } from "@/data/store"
 import { cn, fakeLatency } from "@/lib/utils"
-import { CopyButton } from "@/components/ui/copy-button"
-import { MiddleTruncation } from "@/components/ui/middle-truncation"
 import { StatusButton } from "@/components/ui/status-button"
 import { Page, PageHeading, PageHeadingDescription, PageHeadingTagline, PageHeadingTitle, Panel, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel"
 import { StatusDot } from "@/pages/invites"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -40,7 +37,7 @@ function BanDialog({ member, onClose }: { member: Member; onClose: () => void })
           <DialogTitle>
             封禁 <span className="font-mono">{member.username}</span>
           </DialogTitle>
-          <DialogDescription>封禁后立即无法登录，所有会话失效；正在播放的视频最多 30 分钟后停止。</DialogDescription>
+          <DialogDescription>封禁后，该成员会立即退出所有设备，无法再登录，也无法开始新的播放（正在播放的视频可能不会马上停止）；其未使用的邀请码同时作废。</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2 text-sm">
           <label className={cn("flex cursor-pointer items-start gap-3 rounded-lg border p-3", !cascade && "border-foreground/40 bg-accent-muted")}>
@@ -87,33 +84,6 @@ function BanDialog({ member, onClose }: { member: Member; onClose: () => void })
   )
 }
 
-function ResetLinkDialog({ member, onClose }: { member: Member; onClose: () => void }) {
-  const url = useMemo(() => `https://video.startrekchina.org/reset/${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 12)}`, [])
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            为 <span className="font-mono">{member.username}</span> 生成的重置链接
-          </DialogTitle>
-          <DialogDescription>一次性有效，24 小时后过期。请通过站外渠道（私信）发给本人，不要公开发布。</DialogDescription>
-        </DialogHeader>
-        <div className="flex min-w-0 items-center gap-1 rounded-lg border bg-muted p-1 pl-3">
-          <MiddleTruncation className="min-w-0 flex-1 font-mono text-xs" end={8}>{url}</MiddleTruncation>
-          <CopyButton variant="ghost" size="icon-sm" text={url} aria-label="复制链接" />
-        </div>
-        <Alert>
-          <AlertTitle>对方使用后</AlertTitle>
-          <AlertDescription>所有会话失效，通行密钥和二步验证被清除，需要重新绑定。</AlertDescription>
-        </Alert>
-        <DialogFooter>
-          <Button onClick={onClose}>完成</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 function QuotaDialog({ member, onClose }: { member: Member; onClose: () => void }) {
   const [q, setQ] = useState(String(member.inviteQuota))
   return (
@@ -148,7 +118,7 @@ function QuotaDialog({ member, onClose }: { member: Member; onClose: () => void 
   )
 }
 
-type DialogState = { kind: "ban" | "reset" | "quota"; member: Member } | null
+type DialogState = { kind: "ban" | "quota"; member: Member } | null
 
 function MembersTab() {
   const me = useStore((s) => s.me)!
@@ -168,7 +138,7 @@ function MembersTab() {
           <InputGroupInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索用户名" aria-label="搜索成员" />
         </InputGroup>
         <span className="ml-auto shrink-0 font-mono text-xs whitespace-nowrap text-muted-foreground">
-          {members.filter((m) => m.status === "active").length} 活跃 · {members.filter((m) => m.status === "banned").length} 封禁
+          {members.filter((m) => m.status === "active").length} 正常 · {members.filter((m) => m.status === "banned").length} 已封禁
         </span>
       </div>
       <div className="no-scrollbar scroll-fade-x overflow-x-auto">
@@ -209,10 +179,6 @@ function MembersTab() {
                           <MoreHorizontalIcon />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => setDialog({ kind: "reset", member: m })}>
-                            <LinkIcon />
-                            生成重置链接
-                          </DropdownMenuItem>
                           {m.role === "member" && (
                             <DropdownMenuItem onClick={() => setDialog({ kind: "quota", member: m })}>
                               <PlusIcon />
@@ -246,7 +212,6 @@ function MembersTab() {
         </table>
       </div>
       {dialog?.kind === "ban" && <BanDialog member={dialog.member} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "reset" && <ResetLinkDialog member={dialog.member} onClose={() => setDialog(null)} />}
       {dialog?.kind === "quota" && <QuotaDialog member={dialog.member} onClose={() => setDialog(null)} />}
     </>
   )
@@ -277,7 +242,7 @@ function InvitesTab() {
             <span className="font-mono tracking-wide">{i.code}</span>
             <StatusDot status={i.status} />
             <span className="text-xs text-muted-foreground">
-              发出人 <span className="font-mono text-foreground">{i.issuer}</span>
+              邀请人 <span className="font-mono text-foreground">{i.issuer}</span>
               {i.usedBy && (
                 <>
                   {" "}

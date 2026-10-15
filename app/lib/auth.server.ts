@@ -3,6 +3,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { captcha, twoFactor, username } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { settings } from "./settings.server.ts";
+import { siteName } from "./site.ts";
 
 /** HTTP routing requires the third-stage business gates. The optional user ID is server-owned. */
 type Integration = { plugin: BetterAuthPlugin; beforeSession: (userId: string) => Promise<unknown>;
@@ -10,8 +11,8 @@ type Integration = { plugin: BetterAuthPlugin; beforeSession: (userId: string) =
 export function createAuth(env: Env, registrationUserId?: string, integration?: Integration) {
   const secret = env.BETTER_AUTH_SECRET;
   if (!secret || secret.length < 32) throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
-  if (secret === env.PLAYBACK_HMAC_KEY || secret === env.BACKUP_ENCRYPTION_KEY) {
-    throw new Error("Authentication, playback and backup must use independent secrets");
+  if (secret === env.BACKUP_ENCRYPTION_KEY) {
+    throw new Error("Authentication and backup must use independent secrets");
   }
   const origin = new URL(env.APP_ORIGIN);
   const secure = origin.protocol === "https:";
@@ -25,7 +26,7 @@ export function createAuth(env: Env, registrationUserId?: string, integration?: 
     && env.TURNSTILE_SECRET_KEY === "1x0000000000000000000000000000000AA";
 
   return betterAuth({
-    appName: "星际迷航中国",
+    appName: siteName,
     database: env.DB,
     baseURL: origin.origin,
     basePath: "/api/auth",
@@ -80,13 +81,14 @@ export function createAuth(env: Env, registrationUserId?: string, integration?: 
     plugins: [
       username(),
       twoFactor({
-        issuer: "StarTrekChina",
+        // Shown in authenticator apps; entries created before a rename keep their old label and still verify.
+        issuer: siteName,
         twoFactorCookieMaxAge: settings.totp.challengeTtl,
         backupCodeOptions: { amount: settings.backupCodeCount },
       }),
       passkey({
         rpID: env.WEBAUTHN_RP_ID,
-        rpName: "StarTrekChina",
+        rpName: siteName,
         origin: origin.origin,
         authenticatorSelection: { userVerification: "required" },
         registration: {

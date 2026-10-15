@@ -1,10 +1,9 @@
 import { useState } from "react"
-import { CircleAlertIcon, TicketCheckIcon } from "lucide-react"
-import { Link, useNavigate, useSearchParams } from "react-router"
+import { TicketCheckIcon } from "lucide-react"
+import { Link, useSearchParams } from "react-router"
 
-import { actions, getState } from "@/data/store"
+import { getState } from "@/data/store"
 import { AuthFrame } from "@/components/site/auth-frame"
-import { RecoveryCodes } from "@/components/site/recovery-codes"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
@@ -27,39 +26,20 @@ const USERNAME_RE = /^[a-z0-9_]{3,20}$/
 
 export function RegisterPage() {
   const [params] = useSearchParams()
-  const navigate = useNavigate()
   const [code, setCode] = useState(params.get("code") ?? "")
   const [checked, setChecked] = useState<CodeState | null>(() => checkCode(params.get("code") ?? ""))
   const [username, setUsername] = useState("")
+  const [email, setEmail] = useState("")
   const [pw, setPw] = useState("")
   const [pw2, setPw2] = useState("")
   const [done, setDone] = useState(false)
-  const [saved, setSaved] = useState(false)
 
   if (done) {
     return (
-      <AuthFrame title="保存你的恢复码" description="本站不收集邮箱。忘记密码时，只能用这些恢复码自己找回账号。每个码只能用一次，只显示这一次。">
-        <div className="flex flex-col gap-5">
-          <RecoveryCodes />
-          <Alert>
-            <CircleAlertIcon />
-            <AlertTitle>请存放在密码管理器或离线位置</AlertTitle>
-            <AlertDescription>恢复码也丢了的话，只能请管理员生成一次性重置链接。</AlertDescription>
-          </Alert>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" className="size-4 accent-foreground" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-            我已妥善保存这些恢复码
-          </label>
-          <Button
-            disabled={!saved}
-            onClick={() => {
-              actions.registerAs(username)
-              navigate("/")
-            }}
-          >
-            进入档案馆
-          </Button>
-        </div>
+      <AuthFrame title="等待邮箱验证" description="账号注册已成功。请查收邮件并点击链接完成验证；若未收到，请检查垃圾邮件或稍后重试。">
+        <Button render={<Link to="/login" />} nativeButton={false}>
+          前往登录
+        </Button>
       </AuthFrame>
     )
   }
@@ -109,10 +89,10 @@ export function RegisterPage() {
   const unameErr = username && !USERNAME_RE.test(username) ? "3–20 位小写字母、数字或下划线" : username === "picard_fan" ? "这个用户名已被占用" : null
   const pwErr = pw && pw.length < 10 ? "密码至少 10 位" : null
   const pw2Err = pw2 && pw2 !== pw ? "两次输入的密码不一致" : null
-  const valid = username && pw && pw2 && !unameErr && !pwErr && !pw2Err
+  const valid = username && email && pw && pw2 && !unameErr && !pwErr && !pw2Err
 
   return (
-    <AuthFrame title="创建账号" description="不需要邮箱。用户名注册后不可修改，其他成员能看到它。">
+    <AuthFrame title="创建账号" description="用户名注册后不可修改，其他成员能看到它。注册完成后需要验证邮箱。">
       <form
         onSubmit={(e) => {
           e.preventDefault()
@@ -131,6 +111,10 @@ export function RegisterPage() {
             <FieldLabel htmlFor="r-username">用户名</FieldLabel>
             <Input id="r-username" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} autoComplete="username" className="font-mono" aria-invalid={!!unameErr || undefined} />
             {unameErr ? <FieldError>{unameErr}</FieldError> : <FieldDescription>3–20 位小写字母、数字或下划线</FieldDescription>}
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="r-email">注册邮箱</FieldLabel>
+            <Input id="r-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={320} autoComplete="email" />
           </Field>
           <Field data-invalid={!!pwErr || undefined}>
             <FieldLabel htmlFor="r-pw">密码</FieldLabel>

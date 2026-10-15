@@ -7,7 +7,6 @@ export function cookieValue(request: Request, name: string) {
 export const cookieName = (env: Env, name: string) => `${new URL(env.APP_ORIGIN).protocol === "https:" ? "__Host-" : ""}${name}`;
 export const privateCookie = (env: Env, name: string, value: string, seconds: number) =>
   `${cookieName(env, name)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${seconds}${new URL(env.APP_ORIGIN).protocol === "https:" ? "; Secure" : ""}`;
-export const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, "0")).join("");
 
 export function checkOrigin(request: Request, env: Env) {
   const site = request.headers.get("Sec-Fetch-Site");
@@ -15,20 +14,12 @@ export function checkOrigin(request: Request, env: Env) {
     throw new APIError("FORBIDDEN", { code: "CSRF_INVALID", message: "请求来源无效。" });
   }
 }
-const csrfKey = (env: Env) => crypto.subtle.importKey("raw", new TextEncoder().encode(env.BETTER_AUTH_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
-export async function csrfData(request: Request, env: Env) {
-  const current = cookieValue(request, cookieName(env, "csrf"));
-  const nonce = current && /^[a-f0-9]{64}$/.test(current) ? current : randomToken();
-  const signature = await crypto.subtle.sign("HMAC", await csrfKey(env), new TextEncoder().encode(`business-csrf\0${nonce}`));
-  return { csrfToken: Array.from(new Uint8Array(signature), byte => byte.toString(16).padStart(2, "0")).join(""),
-    headers: new Headers(current === nonce ? {} : { "Set-Cookie": privateCookie(env, "csrf", nonce, 86400) }) };
-}
-export async function checkCsrf(request: Request, env: Env, token: unknown) {
+// Business writes follow Better Auth's model: same origin, no cross/same-site fetch and JSON only, which a
+// cross-site form cannot send. No page token, so a page left open never loses the right to submit.
+export function checkWrite(request: Request, env: Env) {
   checkOrigin(request, env);
-  const nonce = cookieValue(request, cookieName(env, "csrf"));
-  if (!nonce || !/^[a-f0-9]{64}$/.test(nonce) || typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token)
-    || !await crypto.subtle.verify("HMAC", await csrfKey(env), Uint8Array.from(token.match(/../g)!, value => parseInt(value, 16)), new TextEncoder().encode(`business-csrf\0${nonce}`))) {
-    throw new APIError("FORBIDDEN", { code: "CSRF_INVALID", message: "页面凭证已失效，请刷新后重试。" });
+  if (!/^application\/json\s*(;|$)/iu.test(request.headers.get("Content-Type") ?? "")) {
+    throw new APIError("BAD_REQUEST", { code: "INVALID_INPUT", message: "请求格式无效。" });
   }
 }
 export function safeNext(value: string | null, origin: string, fallback = "/account") {

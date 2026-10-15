@@ -17,8 +17,6 @@ const PAGES: { to: string; label: string }[] = [
   { to: "/login", label: "登录" },
   { to: "/register?code=Q-CONT-INUM-01", label: "注册（有效码）" },
   { to: "/register?code=BORG-X0X0-7777", label: "注册（过期码）" },
-  { to: "/recover", label: "恢复码找回" },
-  { to: "/reset/demo-token", label: "重置链接" },
   { to: "/", label: "首页" },
   { to: "/title/star-trek-the-next-generation?season=3", label: "剧集页 TNG" },
   { to: "/title/star-trek-section-31", label: "电影页（缺中文简介）" },
