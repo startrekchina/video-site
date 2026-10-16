@@ -317,12 +317,18 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   // Async steps read the conversation as it is now, not as it was when they started.
   const known = useRef(comments)
   known.current = comments
+  // When each comment last changed on this page, so a sort answer only replaces what stayed untouched since it was asked.
+  const changes = useRef(0)
+  const changed = useRef(new Map<string, number>())
 
   const cache = (items: Comment[]) => setComments((c) => ({ ...c, ...Object.fromEntries(items.map((item) => [item.id, item])) }))
-  const patch = (id: string, change: (c: Comment) => Comment) => setComments((c) => (c[id] ? { ...c, [id]: change(c[id]) } : c))
+  const patch = (id: string, change: (c: Comment) => Comment) => {
+    changed.current.set(id, ++changes.current)
+    setComments((c) => (c[id] ? { ...c, [id]: change(c[id]) } : c))
+  }
 
   const load = async (next: SortKey) => {
-    const ticket = ++latest.current
+    const ticket = ++latest.current, asked = changes.current
     const result = await libraryRequest<First>(`${base}/comments?sort=${next}`, "GET")
     if (ticket !== latest.current) return
     if ("error" in result) {
@@ -331,8 +337,9 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
       return
     }
     const { data } = result
-    // The answer is a snapshot from when it was asked: comments already here keep what happened to them since.
-    setComments((c) => ({ ...Object.fromEntries(data.items.map((item) => [item.id, item])), ...c }))
+    // The answer is a snapshot from when it was asked: it refreshes every comment except those changed here since.
+    const newer = data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked)
+    setComments((c) => ({ ...c, ...Object.fromEntries(newer.map((item) => [item.id, item])) }))
     setLimits({ pageSize: data.pageSize, maxLength: data.maxLength })
     setOrder(data.order)
     setSort(next)
