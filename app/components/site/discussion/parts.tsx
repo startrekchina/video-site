@@ -93,8 +93,9 @@ const Heading = ({ children }: { children?: React.ReactNode }) => (
   </p>
 )
 
-/** Same-origin links stay in the app; anything else, `//host` included, opens outside. */
+/** Same-origin links stay in the app; anything else opens outside, and so does any `//host`, this site's own too (B 6.12.2). */
 function appPath(href: string) {
+  if (href.startsWith("//")) return null
   try {
     const url = new URL(href, window.location.origin)
     return url.origin === window.location.origin ? url.pathname + url.search + url.hash : null

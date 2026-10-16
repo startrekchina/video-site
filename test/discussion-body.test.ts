@@ -30,3 +30,12 @@ it("renders the comment Markdown subset and nothing that can run or embed", () =
   expect(html).toContain("第一行<br/>");
   expect(html).toMatch(/<code>code<\/code> <del>删<\/del>/u);
 });
+
+// B 6.12.2 treats every `//host` link as external, this site's own host included.
+it("opens a protocol-relative link to this site outside the app", () => {
+  vi.stubGlobal("window", { location: { origin: "https://archive.test" } });
+  const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(CommentBody, { body: "[本站协议相对](//archive.test/movies)" })));
+  vi.unstubAllGlobals();
+
+  expect(html).toContain('<a href="//archive.test/movies" target="_blank" rel="nofollow ugc noopener noreferrer">本站协议相对</a>');
+});
