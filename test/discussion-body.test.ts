@@ -6,7 +6,7 @@ import { CommentBody } from "@/components/site/discussion/parts";
 
 // Comments are stored as typed; this renderer is what keeps member Markdown from becoming page markup.
 it("renders the comment Markdown subset and nothing that can run or embed", () => {
-  vi.stubGlobal("window", { location: { origin: "https://archive.test" } });
+  vi.stubGlobal("window", { location: { origin: "https://archive.test", href: "https://archive.test/watch/u1" } });
   const body = [
     "[危险](javascript:alert(1)) <script>alert(1)</script> <b onclick=\"x()\">粗</b> ![图](https://example.com/x.png)",
     "[站外](https://example.com/page) [协议相对](//example.com/x) [站内](/series?s=1#a) [本站全址](https://archive.test/movies)",
@@ -29,6 +29,18 @@ it("renders the comment Markdown subset and nothing that can run or embed", () =
   expect(html).toContain("<p><strong>标题</strong></p>");
   expect(html).toContain("第一行<br/>");
   expect(html).toMatch(/<code>code<\/code> <del>删<\/del>/u);
+});
+
+// A comment lives on the watch page, so its fragment and relative links read from there instead of the site root.
+it("resolves fragment and relative links against the page they are read on", () => {
+  vi.stubGlobal("window", { location: { origin: "https://archive.test", href: "https://archive.test/watch/u1?t=5" } });
+  const body = "[锚点](#comments) [相对](other) [上级](../series)";
+  const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(CommentBody, { body })));
+  vi.unstubAllGlobals();
+
+  expect(html).toContain('<a href="/watch/u1?t=5#comments" data-discover="true">锚点</a>');
+  expect(html).toContain('<a href="/watch/other" data-discover="true">相对</a>');
+  expect(html).toContain('<a href="/series" data-discover="true">上级</a>');
 });
 
 // B 6.12.2 treats every `//host` link as external, this site's own host included.

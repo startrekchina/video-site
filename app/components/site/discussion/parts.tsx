@@ -97,7 +97,8 @@ const Heading = ({ children }: { children?: React.ReactNode }) => (
 function appPath(href: string) {
   if (href.startsWith("//")) return null
   try {
-    const url = new URL(href, window.location.origin)
+    // Read against the page itself, so `#part` and relative links stay on the watch page.
+    const url = new URL(href, window.location.href)
     return url.origin === window.location.origin ? url.pathname + url.search + url.hash : null
   } catch {
     return null
