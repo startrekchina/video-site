@@ -117,9 +117,11 @@ export async function discussionHttp(request: Request, env: Env, identity = crea
     if (!found.results.length || (to && !answered)) missing();
     const { member } = current, row = { id: crypto.randomUUID(), body: content, created_at: now, author: member.displayUsername ?? member.username,
       admin: Number(member.role === "admin"), mine: 1, likes: 0, vote: 0 as const };
-    // A comment deleted since the check takes the insert with it: nothing is written and the reply is refused.
+    // A comment or target reply deleted since the check takes the insert with it: nothing is written and the reply is refused.
     const saved = await db.prepare(`INSERT INTO comment_replies (id, comment_id, author_user_id, reply_to_user_id, body_markdown, created_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM comments WHERE id = ?2)`).bind(row.id, commentId, member.user_id, answered?.author_user_id ?? null, content, now).run();
+      SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM comments WHERE id = ?2)
+        AND (?7 IS NULL OR EXISTS (SELECT 1 FROM comment_replies WHERE id = ?7 AND comment_id = ?2))`)
+      .bind(row.id, commentId, member.user_id, answered?.author_user_id ?? null, content, now, to).run();
     if (!saved.meta.changes) missing();
     return respond(request, { data: { ...item(row), replyTo: answered?.name ?? null } satisfies Reply });
   }

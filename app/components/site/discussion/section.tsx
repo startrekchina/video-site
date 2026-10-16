@@ -295,7 +295,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   const [unavailable, setUnavailable] = useState(false)
   const [limits, setLimits] = useState({ pageSize: 10, maxLength: 1000 })
   const [comments, setComments] = useState<Record<string, Comment>>({})
-  // Your own new comments, pinned to the top of page one whatever the sort.
+  // Your own new comments, pinned to the top of page one whatever the sort. Kept apart from the order, so a sort
+  // answered after a post cannot drop it.
   const [fresh, setFresh] = useState<string[]>([])
   const [page, setPage] = useState(1)
   const [picked, setPicked] = useState<string | null>(null)
@@ -330,7 +331,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     const { data } = result
     cache(data.items)
     setLimits({ pageSize: data.pageSize, maxLength: data.maxLength })
-    setOrder([...fresh, ...data.order.filter((id) => !fresh.includes(id))])
+    setOrder(data.order)
     setSort(next)
     setPage(1)
     setUnavailable(false)
@@ -339,7 +340,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     void load("smart")
   }, [])
 
-  const all = order ?? []
+  const all = order ? [...fresh, ...order.filter((id) => !fresh.includes(id))] : []
   const pageCount = Math.max(1, Math.ceil(all.length / limits.pageSize))
   const current = Math.min(page, pageCount)
   const visible = all.slice((current - 1) * limits.pageSize, current * limits.pageSize)
@@ -383,21 +384,29 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     replyBox.current?.focus()
   }
 
-  // Loads the next batch of a conversation, or with `all` whatever is left of it.
+  // Loads the next batch of a conversation, or with `all` whatever is left of it. `all` asks the server at least
+  // once, since others may have replied since the count was read. False when a batch failed.
   const more = async (id: string, all = false) => {
+    const root = known.current[id]
+    if (!root) return true
     setLoadingMore((l) => ({ ...l, [id]: true }))
     try {
-      let root = known.current[id]
-      while (root && root.replyCount > root.replies.length) {
-        const last = root.replies.at(-1)
+      for (let last = root.replies.at(-1), wanted = all || root.replyCount > root.replies.length; wanted; ) {
         const result = await libraryRequest<{ items: Reply[]; rest: number }>(`${base}/comments/${id}/replies?afterAt=${last?.createdAt ?? 0}&afterId=${last?.id ?? "0"}`, "GET")
-        if ("error" in result) return void failed(result.error.message, "回复未加载，请稍后重试。")
-        const replies = merge(root.replies, result.data.items)
-        root = { ...root, replies, replyCount: replies.length + result.data.rest }
-        const { replyCount } = root
-        patch(id, (c) => ({ ...c, replies, replyCount }))
-        if (!all) break
+        if ("error" in result) {
+          failed(result.error.message, "回复未加载，请稍后重试。")
+          return false
+        }
+        const { items, rest } = result.data
+        // Merged into the conversation as it is now, so replies deleted or added meanwhile stay that way.
+        patch(id, (c) => {
+          const replies = merge(c.replies, items)
+          return { ...c, replies, replyCount: replies.length + rest }
+        })
+        last = items.at(-1) ?? last
+        wanted = all && rest > 0
       }
+      return true
     } finally {
       setLoadingMore((l) => ({ ...l, [id]: false }))
     }
@@ -408,9 +417,11 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   // the draft for a retry (B 6.12.2).
   const send = async <T extends { id: string }>(id: string, body: string, path: string, extra: object = {}) => {
     setSending((s) => ({ ...s, [id]: true }))
+    setAnnouncement("正在发送…")
     const result = await libraryRequest<T>(path, "POST", { bodyMarkdown: body, ...extra })
     setSending((s) => ({ ...s, [id]: false }))
     if ("error" in result) {
+      setAnnouncement("")
       failed(result.error.message, "未发送，请稍后重试。")
       return null
     }
@@ -424,7 +435,6 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     if (!c) return false
     cache([c])
     setFresh((f) => [c.id, ...f])
-    setOrder((o) => [c.id, ...(o ?? [])])
     setPage(1)
     setAnnouncement("评论已发送")
     return true
@@ -435,9 +445,9 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     const r = await send<Reply>(root.id, body, `${base}/comments/${root.id}/replies`, target ? { replyTo: target.id } : {})
     if (!r) return false
     setTargets((t) => ((t[root.id] ?? null)?.id === target?.id ? { ...t, [root.id]: null } : t))
-    // The new reply ends the conversation, so whatever is left of it loads first.
-    await more(root.id, true)
-    patch(root.id, (c) => (c.replies.some((x) => x.id === r.id) ? c : { ...c, replies: [...c.replies, r], replyCount: c.replyCount + 1 }))
+    // The new reply ends the conversation: it loads with whatever came before it. If that fails it is only
+    // counted, so 显示更多 still brings the rest in order instead of paging past it.
+    if (!(await more(root.id, true))) patch(root.id, (c) => ({ ...c, replyCount: c.replyCount + 1 }))
     setAnnouncement("回复已发送")
     return true
   }

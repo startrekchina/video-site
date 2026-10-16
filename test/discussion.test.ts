@@ -186,3 +186,19 @@ it("lets only admins delete a whole conversation or a single reply, leaving noth
   expect((await page("ids=root,kept")).items.map(item => item.id)).toEqual(["kept"]);
   expect(await count("discussion_votes")).toBe(2);
 }, 60000);
+
+it("refuses a reply whose target reply is deleted between the checks and the insert", async () => {
+  const root = await post(`${unit}/comments`, "虚构对话");
+  const target = await post(`${unit}/comments/${root.id}/replies`, "将被删除", other);
+  // The database stand-in lets an admin delete the target right before the reply is inserted.
+  const db = new Proxy(env.DB, { get: (real, key) => key !== "prepare" ? (value => typeof value === "function" ? value.bind(real) : value)(Reflect.get(real, key))
+    : (sql: string) => !sql.startsWith("INSERT INTO comment_replies") ? real.prepare(sql) : { bind: (...values: unknown[]) => ({ run: async () => {
+      await real.prepare("DELETE FROM comment_replies WHERE id = ?").bind(target.id).run();
+      return await real.prepare(sql).bind(...values).run();
+    } }) } });
+  const ctx = createExecutionContext();
+  const response = await worker.fetch(request(`${unit}/comments/${root.id}/replies`, { bodyMarkdown: "回复已删的", replyTo: target.id }, cookie), { ...runtime, DB: db }, ctx);
+  await waitOnExecutionContext(ctx);
+  expect((await json(response)).error?.code).toBe("NOT_FOUND");
+  expect(await count("comment_replies WHERE comment_id = ?", root.id)).toBe(0);
+});
