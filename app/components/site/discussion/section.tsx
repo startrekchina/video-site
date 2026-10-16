@@ -345,9 +345,9 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     const newer = data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked)
     const loading = newer.filter((item) => loads.current.has(item.id)).map((item) => item.id)
     // Comments read before it that it does not carry are dropped, so their page reads them again; your pinned posts
-    // show at once and stay.
+    // show at once and stay, and so does a conversation still loading, whose batch lands on what it has.
     const listed = data.items.map((item) => item.id)
-    const kept = (id: string) => listed.includes(id) || fresh.includes(id) || !before[id]
+    const kept = (id: string) => listed.includes(id) || fresh.includes(id) || !before[id] || loads.current.has(id)
     setComments((c) => ({
       ...Object.fromEntries(Object.entries(c).filter(([id]) => kept(id))),
       ...Object.fromEntries(newer.map((item) => [item.id, loading.includes(item.id) ? { ...item, replies: c[item.id].replies, replyCount: c[item.id].replyCount } : item])),
@@ -498,12 +498,15 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     if (!deleting) return
     const { root, reply } = deleting
     setRemoving(true)
+    // Changed from the moment it is sent: a sort read before then still counts the reply, so it leaves this
+    // conversation alone, while one read after it already leaves the reply out.
+    if (reply) changed.current.set(root.id, ++changes.current)
     const result = await libraryRequest(`${base}/${reply ? `replies/${reply.id}` : `comments/${root.id}`}`, "DELETE")
     setRemoving(false)
     // Already gone is as good as deleted: the page drops it either way.
     if ("error" in result && result.error.status !== 404) return failed(result.error.message, "未删除，请稍后重试。")
     setDeleting(null)
-    // A reply a refresh already dropped is already off the count too.
+    // A reply such a refresh already dropped is already off the count too.
     if (reply) patch(root.id, (c) => (c.replies.some((x) => x.id === reply.id) ? { ...c, replies: c.replies.filter((x) => x.id !== reply.id), replyCount: c.replyCount - 1 } : c))
     else {
       setRemoved((r) => [...r, root.id])
