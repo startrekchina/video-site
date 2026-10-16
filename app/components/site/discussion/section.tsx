@@ -331,7 +331,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   }
 
   const load = async (next: SortKey) => {
-    const ticket = ++latest.current, asked = changes.current
+    const ticket = ++latest.current, asked = changes.current, before = known.current
     const result = await libraryRequest<First>(`${base}/comments?sort=${next}`, "GET")
     if (ticket !== latest.current) return
     if ("error" in result) {
@@ -344,7 +344,14 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     // still loading replies keeps its own, since that batch lands after its cursor and would leave a gap in the first.
     const newer = data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked)
     const loading = newer.filter((item) => loads.current.has(item.id)).map((item) => item.id)
-    setComments((c) => ({ ...c, ...Object.fromEntries(newer.map((item) => [item.id, loading.includes(item.id) ? { ...item, replies: c[item.id].replies, replyCount: c[item.id].replyCount } : item])) }))
+    // Comments read before it that it does not carry are dropped, so their page reads them again; your pinned posts
+    // show at once and stay.
+    const listed = data.items.map((item) => item.id)
+    const kept = (id: string) => listed.includes(id) || fresh.includes(id) || !before[id]
+    setComments((c) => ({
+      ...Object.fromEntries(Object.entries(c).filter(([id]) => kept(id))),
+      ...Object.fromEntries(newer.map((item) => [item.id, loading.includes(item.id) ? { ...item, replies: c[item.id].replies, replyCount: c[item.id].replyCount } : item])),
+    }))
     // Your posts from before the request that it no longer lists were deleted elsewhere.
     setRemoved((r) => [...r, ...fresh.filter((id) => !data.order.includes(id))])
     setLimits({ pageSize: data.pageSize, maxLength: data.maxLength })
