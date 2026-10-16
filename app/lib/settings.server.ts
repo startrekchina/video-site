@@ -13,6 +13,8 @@ export const settings = {
   emailRequestTimeout: 10,
   completionThreshold: 0.9,
   progressReportInterval: 15,
+  playlistTitleMax: 60,
+  playlistItemsMax: 200,
   backupRetention: 30 * DAY,
   commentMaxLength: 1000,
   commentsPerPage: 10,
