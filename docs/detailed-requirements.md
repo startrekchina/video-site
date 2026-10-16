@@ -404,7 +404,7 @@
 - 高影响操作的新鲜会话可通过密码加 TOTP/备用码或 UV 通行密钥登录产生，期间可连续操作；旧会话单独验证 TOTP 不刷新新鲜度。发邀请码和删评不额外增加该门槛。
 - 自己的未用码重复作废幂等成功，已用码不能作废，列表不提供原码事后查询。
 - 片单单元条目只开放单集，电影以作品加入；公开片单不公开所有者私人进度。库支持的任意用户管理、模拟登录及管理员重置不对外开放。
-- 路径、字段和响应按领域维护在[认证](plan/authentication.md#651-认证与管理接口映射)、[片库](plan/catalog.md)、[播放](plan/playback.md)、[社区](plan/community.md#http-映射草案)及[运维](plan/operations.md)计划，调整路径不能改变权限。
+- 路径、字段和响应按领域维护在[认证](plan/authentication.md#651-认证与管理接口映射)、[片库](plan/catalog.md)、[播放](plan/playback.md)、[社区](plan/community.md#http-映射)及[运维](plan/operations.md)计划，调整路径不能改变权限。
 
 ### 6.6 播放与媒体分发
 

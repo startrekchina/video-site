@@ -147,3 +147,8 @@ it("expands the queue in item order, keeps first appearances and skips finished 
   const html = await (await exports.default.fetch(`http://localhost:6120/watch/episode-unit?playlist=${id}`, { headers: { Cookie: cookie } })).text();
   expect(html).toContain(`href="/playlists/${id}"`);
 }, 60000);
+
+it("offers the add menu on the watch page of an episode without a source", async () => {
+  const html = await (await exports.default.fetch("http://localhost:6120/watch/episode-three", { headers: { Cookie: cookie } })).text();
+  expect(html).toContain("这一集片源暂缺"); expect(html).toContain("加入片单");
+}, 60000);

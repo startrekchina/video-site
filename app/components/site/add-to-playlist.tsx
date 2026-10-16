@@ -19,6 +19,8 @@ export function AddToPlaylist({ item, size = "default" }: { item: { workId: stri
   const [busy, setBusy] = useState(false)
 
   async function load() {
+    // Marks from an earlier open or another work must not decide this add.
+    setMine("loading")
     const result = await libraryRequest<Mine[]>(`/me/playlists?${new URLSearchParams(item)}`, "GET")
     setMine("data" in result ? result.data : "failed")
   }
