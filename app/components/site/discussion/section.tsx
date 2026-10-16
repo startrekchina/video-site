@@ -503,7 +503,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     // Already gone is as good as deleted: the page drops it either way.
     if ("error" in result && result.error.status !== 404) return failed(result.error.message, "未删除，请稍后重试。")
     setDeleting(null)
-    if (reply) patch(root.id, (c) => ({ ...c, replies: c.replies.filter((x) => x.id !== reply.id), replyCount: c.replyCount - 1 }))
+    // A reply a refresh already dropped is already off the count too.
+    if (reply) patch(root.id, (c) => (c.replies.some((x) => x.id === reply.id) ? { ...c, replies: c.replies.filter((x) => x.id !== reply.id), replyCount: c.replyCount - 1 } : c))
     else {
       setRemoved((r) => [...r, root.id])
       setPicked((p) => (p === root.id ? null : p))
