@@ -331,7 +331,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
       return
     }
     const { data } = result
-    cache(data.items)
+    // The answer is a snapshot from when it was asked: comments already here keep what happened to them since.
+    setComments((c) => ({ ...Object.fromEntries(data.items.map((item) => [item.id, item])), ...c }))
     setLimits({ pageSize: data.pageSize, maxLength: data.maxLength })
     setOrder(data.order)
     setSort(next)
