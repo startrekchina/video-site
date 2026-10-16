@@ -32,6 +32,7 @@ vi.mock("@/components/ui/button", () => ({ Button: () => null }));
 const source: PlaybackSource = { url: "/media/source", tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
 const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>();
 let cleanups: (void | (() => void))[] = [], blobs = 0;
+const page = { visibilityState: "visible", listeners: new Map<string, () => void>() };
 const emit = (event: string) => Promise.all((state.handlers.get(event) ?? []).map(handler => handler()));
 beforeEach(() => {
   vi.clearAllMocks();
@@ -45,13 +46,17 @@ beforeEach(() => {
   blobs = 0;
   vi.stubGlobal("fetch", fetch);
   vi.stubGlobal("location", { origin: "http://localhost:6120" });
+  page.visibilityState = "visible"; page.listeners.clear();
+  const on = (type: string, handler: () => void) => { page.listeners.set(type, handler); };
+  vi.stubGlobal("document", { get visibilityState() { return page.visibilityState; }, addEventListener: on, removeEventListener: vi.fn() });
+  vi.stubGlobal("window", { addEventListener: on, removeEventListener: vi.fn() });
   vi.stubGlobal("URL", Object.assign(class extends URL {}, { createObjectURL: vi.fn(() => `blob:fictional-${++blobs}`), revokeObjectURL: vi.fn() }));
 });
 afterEach(() => { cleanups.forEach(cleanup => cleanup?.()); cleanups = []; vi.unstubAllGlobals(); });
 
 async function mount(props: Partial<Parameters<typeof Player>[0]> = {}) {
   const callbacks = { onSubtitleChange: vi.fn(), onTracksChange: vi.fn() };
-  Player({ unitId: "episode-unit", source, startSeconds: 0, subtitle: "en", ...callbacks, ...props });
+  Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() }, subtitle: "en", ...callbacks, ...props });
   state.refs[0].current = {};
   cleanups = state.effects.map(effect => effect());
   await vi.dynamicImportSettled(); await new Promise(resolve => setTimeout(resolve, 0));
@@ -221,7 +226,7 @@ it("keeps watch page subtitle choices in step with a removed track without resta
   const work: Work = { slug: "test", kind: "movie", tmdbId: 1, titleZh: "测试片", titleEn: "Test", overviewZh: null,
     overviewEn: null, year: 2026, poster: "", code: "", seasonCount: 0, episodeCount: 1, watchedCount: 0,
     favorite: false, seasons: [], units: [unit] };
-  const loaderData = { work, unit, source, previous: "", next: "" };
+  const loaderData = { work, unit, source, previous: "", next: "", reportInterval: 15 as const };
   const page = Watch({ loaderData, params: { id: unit.id }, matches: [
     { id: "root", params: {}, pathname: "/", data: { member: null, catalog: null }, loaderData: { member: null, catalog: null }, handle: undefined },
     { id: "routes/watch", params: { id: unit.id }, pathname: `/watch/${unit.id}`, data: loaderData, loaderData, handle: undefined },
@@ -244,4 +249,61 @@ it("keeps watch page subtitle choices in step with a removed track without resta
   expect(view.tabs.map(tab => tab.props.value)).toEqual(["off"]);
   expect(view.player.subtitle).toBe("off");
   expect(state.art.destroy).not.toHaveBeenCalled();
+});
+
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+const reports = () => fetch.mock.calls.filter(([, init]) => init?.method === "PUT").map(([url, init]) => ({ url, keepalive: init?.keepalive, ...JSON.parse(String(init?.body)) }));
+function respond(...replies: (object | Promise<Response>)[]) {
+  fetch.mockImplementation(async (_, init) => {
+    if (init?.method !== "PUT") return new Response("WEBVTT\n\n");
+    const reply = replies.shift()!;
+    return reply instanceof Promise ? reply : Response.json(reply, { status: "error" in reply ? 409 : 200 });
+  });
+}
+
+it("reports one position at a time with the shared revision and drops a refused report instead of replaying it", async () => {
+  const revision = { current: 3 }, onSaved = vi.fn(), timer = vi.spyOn(globalThis, "setInterval");
+  let release: (response: Response) => void = () => {};
+  respond({ data: { positionSeconds: 1234, completed: false, updatedAt: 1, revision: 4 } }, { error: { code: "REVISION_CONFLICT", revision: 9 } },
+    new Promise<Response>(resolve => { release = resolve; }));
+  await mount({ progress: { revision, interval: 15, duration: 3000, onSaved } });
+  const [tick, delay] = timer.mock.calls.at(-1)! as [() => void, number];
+  expect(delay).toBe(15000);
+  tick(); await settle();
+  expect(reports()).toEqual([{ url: "/me/progress/episode-unit", keepalive: false, positionSeconds: 1234, expectedRevision: 3 }]);
+  expect(revision.current).toBe(4); expect(onSaved).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ revision: 4 }));
+  tick(); await settle();
+  expect(reports()).toHaveLength(1);
+  state.art.currentTime = 1300; await emit("video:timeupdate"); tick(); await settle();
+  expect(reports()[1]).toMatchObject({ positionSeconds: 1300, expectedRevision: 4 });
+  expect(revision.current).toBe(9); expect(onSaved).toHaveBeenCalledOnce();
+  tick(); await settle();
+  expect(reports()).toHaveLength(2);
+  state.art.currentTime = 1400; await emit("video:timeupdate"); tick(); tick(); await settle();
+  expect(reports()).toHaveLength(3); expect(reports()[2]).toMatchObject({ positionSeconds: 1400, expectedRevision: 9 });
+  release(Response.json({ data: { positionSeconds: 1400, completed: false, updatedAt: 2, revision: 10 } })); await settle();
+  expect(revision.current).toBe(10);
+});
+
+it("reports on pause, at the end, when the page is hidden and when leaving the unit, within the known duration", async () => {
+  const reply = (revision: number) => ({ data: { positionSeconds: 0, completed: false, updatedAt: 1, revision } });
+  respond(reply(1), reply(2), reply(3));
+  await mount({ progress: { revision: { current: 0 }, interval: 15, duration: 1000, onSaved: vi.fn() } });
+  await emit("video:pause"); await settle();
+  expect(reports()).toEqual([expect.objectContaining({ positionSeconds: 1000, expectedRevision: 0, keepalive: false })]);
+  await emit("video:ended"); await settle();
+  expect(reports()).toHaveLength(1);
+  state.art.currentTime = 400; await emit("video:timeupdate");
+  page.visibilityState = "hidden"; page.listeners.get("visibilitychange")!(); await settle();
+  expect(reports()[1]).toMatchObject({ positionSeconds: 400, expectedRevision: 1, keepalive: true });
+  state.art.currentTime = 500; await emit("video:timeupdate");
+  cleanups.forEach(cleanup => cleanup?.()); cleanups = []; await settle();
+  expect(reports()[2]).toMatchObject({ positionSeconds: 500, expectedRevision: 2, keepalive: true });
+});
+
+it("does not report before the saved start is applied", async () => {
+  const timer = vi.spyOn(globalThis, "setInterval");
+  await mount({ startSeconds: 600, progress: { revision: { current: 0 }, interval: 15, duration: 3000, onSaved: vi.fn() } });
+  (timer.mock.calls.at(-1)![0] as () => void)(); await emit("video:pause"); await settle();
+  expect(reports()).toEqual([]);
 });

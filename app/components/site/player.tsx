@@ -3,8 +3,11 @@ import type Artplayer from "artplayer";
 import type { PlaybackSource } from "@/lib/playback.server";
 import { loadSubtitle, mediaErrorMessage } from "@/lib/playback-client";
 import { toast } from "@/components/ui/toast";
+import { saveProgress, type SavedProgress } from "@/lib/progress-client";
 
 type Notice = { text: string; reconnect: boolean; login?: true };
+// revision is shared with the page so manual marks and reports use the same expectedRevision.
+export type ProgressReporting = { revision: { current: number }; interval: number; duration: number | null; onSaved: (saved: SavedProgress) => void };
 // A video failure's button is the only way back, so its toast stays until the player recovers or unmounts.
 // Default priority on purpose: Base UI hides high-priority toasts from assistive tech until F6 focuses them, which would hide the button.
 export function noticeToast(notice: Notice, actions: { reconnect: () => void; login: () => void }): Parameters<typeof toast.add>[0] {
@@ -12,7 +15,7 @@ export function noticeToast(notice: Notice, actions: { reconnect: () => void; lo
   return action ? { title: notice.text, type: "error", timeout: 0, actionProps: action, data: { dismissible: false } } : { title: notice.text, type: "info" };
 }
 
-export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChange, onTracksChange }: { unitId: string; source: PlaybackSource; startSeconds: number; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: PlaybackSource["tracks"]) => void }) {
+export function Player({ unitId, source, startSeconds, progress, subtitle, onSubtitleChange, onTracksChange }: { unitId: string; source: PlaybackSource; startSeconds: number; progress: ProgressReporting; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: PlaybackSource["tracks"]) => void }) {
   const container = useRef<HTMLDivElement>(null), retry = useRef<() => void>(() => {});
   const frame = useRef<HTMLDivElement>(null), selectSubtitle = useRef<(id: string) => void>(() => {});
   // Only video failures offer reconnecting (or signing in again after 401/403); subtitle failures are retried by choosing the track again.
@@ -93,6 +96,22 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
       void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕。", "subtitle"));
     };
     selectSubtitle.current = select;
+    // Reports go out on an interval while the position moves, and on pause, end, hiding the page or leaving the unit; one at a time.
+    // A refused (409) report is dropped, not replayed: only a later position change reports again.
+    let reporting = false, reported = startSeconds;
+    const report = (keepalive = false) => {
+      const at = Math.min(position, progress.duration ?? position);
+      if (!ready || reporting || Math.abs(at - reported) < 1) return;
+      reporting = true;
+      void saveProgress(unitId, { positionSeconds: at }, progress.revision.current, keepalive).then(result => {
+        reporting = false;
+        if ("saved" in result) { progress.revision.current = result.saved.revision; reported = at; progress.onSaved(result.saved); }
+        else if ("conflict" in result) { progress.revision.current = result.conflict; reported = at; }
+      });
+    };
+    const timer = setInterval(() => report(), progress.interval * 1000);
+    const hidden = () => { if (document.visibilityState === "hidden") report(true); }, leave = () => report(true);
+    document.addEventListener("visibilitychange", hidden); window.addEventListener("pagehide", leave);
     // The recovery canplay handler below restores the position and the play state.
     retry.current = () => { if (art && !disposed) { failed = false; restoreTo = position; show(null); art.url = absolute(source.url); } };
     void import("artplayer").then(({ default: Artplayer }) => {
@@ -119,7 +138,8 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
       });
       // Pauses caused by a failure or a reconnect reload are not the member's choice.
       player.on("video:play", () => { playing = true; });
-      player.on("video:pause", () => { if (!failed && restoreTo === null) playing = false; });
+      player.on("video:pause", () => { if (!failed && restoreTo === null) { playing = false; report(); } });
+      player.on("video:ended", () => report());
       player.on("video:timeupdate", () => { if (ready && !failed && restoreTo === null) position = player.currentTime; });
       // Restore once per reconnect; if the restored range fails again, the error is classified and offered again.
       player.on("video:canplay", () => {
@@ -131,7 +151,10 @@ export function Player({ unitId, source, startSeconds, subtitle, onSubtitleChang
       (container.current as HTMLDivElement & { art?: Artplayer }).art = player;
       void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕。", "subtitle"));
     }).catch(() => say("播放器加载失败，请刷新页面。"));
-    return () => { disposed = true; selectSubtitle.current = () => {}; art?.destroy(false); };
+    return () => {
+      report(true); clearInterval(timer); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("pagehide", leave);
+      disposed = true; selectSubtitle.current = () => {}; art?.destroy(false);
+    };
   }, [unitId]);
   useEffect(() => selectSubtitle.current(subtitle), [subtitle]);
   return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom))]"><div ref={container} className="size-full" /></div></div>;
