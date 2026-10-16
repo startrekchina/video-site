@@ -17,6 +17,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Tabs, TabsIndicator, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Player } from "@/components/site/player";
 import { AddToPlaylist } from "@/components/site/add-to-playlist";
+import { Discussion } from "@/components/site/discussion";
 import { DetailTop, Overview, StepLink } from "./title";
 import type { Route } from "./+types/watch";
 export async function loader({ request, params, context }: Route.LoaderArgs) {
@@ -57,6 +58,7 @@ function WatchContent({ work, unit, source, previous, next, reportInterval, queu
       <aside className="border-t border-line p-4 md:border-t-0 md:border-l max-sm:hidden" aria-label="键盘快捷键"><div className="mb-2 text-sm font-medium">键盘快捷键<span className="ml-2 font-normal text-muted-foreground">点击播放器后可用</span></div><dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-sm">{[["空格", "播放 / 暂停"], ["← →", "快退 / 快进"], ["↑ ↓", "音量"], ["F", "全屏"], ["M", "静音"], ["C", "切换字幕"]].map(([key, value]) => <div key={key} className="contents"><dt><Kbd>{key}</Kbd></dt><dd className="text-muted-foreground">{value}</dd></div>)}</dl></aside>
     </div>
     {work.kind === "series" && <><Separator /><Panel><PanelHeader><PanelTitle>第 {unit.seasonNumber} 季<PanelTitleSup>({episodes.length} 集)</PanelTitleSup></PanelTitle></PanelHeader><ol ref={list} className="no-scrollbar relative max-h-80 scroll-fade overflow-y-auto divide-y divide-line">{episodes.map(item => <li key={item.id}>{item.playable ? <Link aria-current={item.id === unit.id ? "page" : undefined} className={cn("flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent-muted", item.id === unit.id && "bg-accent")} to={`/watch/${item.id}`}><span className="w-6 shrink-0 font-mono text-xs text-muted-foreground tabular-nums">{String(item.number).padStart(2, "0")}</span><span className={cn("min-w-0 flex-1 truncate", item.id === unit.id && "font-medium")}>{displayTitle(item)}</span>{item.id === unit.id ? <span className="font-mono text-[11px] text-muted-foreground">正在播放</span> : item.completed ? <CheckIcon className="size-4 text-success" aria-label="已看完" /> : item.positionSeconds > 0 && item.durationSeconds ? <ProgressBar value={item.positionSeconds / item.durationSeconds} className="w-10" /> : <span className="font-mono text-[11px] text-muted-foreground">{formatRuntime(item.runtimeMin)}</span>}</Link> : <span className="flex items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground"><span className="w-6 shrink-0 font-mono text-xs">{String(item.number).padStart(2, "0")}</span><span className="min-w-0 flex-1 truncate">{displayTitle(item)}</span><span className="font-mono text-[11px]">片源暂缺</span></span>}</li>)}</ol><PanelFooterLink to={`/title/${work.slug}?season=${unit.seasonNumber}`}>全部季</PanelFooterLink></Panel></>}
+    <Separator /><Discussion unitId={unit.id} kind={work.kind === "series" ? "episode" : "movie"} />
   </Page>;
 }
 const nextCountdown = 10;
