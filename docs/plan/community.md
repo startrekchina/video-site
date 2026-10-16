@@ -17,7 +17,11 @@
   - 验证：`test/catalog.test.ts` 新增 2 项（续播推荐、跳过已看、片源暂缺不越过、手动标记无片源集计入、未完成优先、成员隔离、首页与作品页一致；不可播单元页面的相邻链接与首页“播放下一集”），`test/player.test.ts` 新增 3 项（起点生效后才尝试自动播放及被拒提示、播完先上报再交给页面并退出全屏、页面仅在有下一集时提供提示且只在 PUSH+状态时自动播放）；测试夹具为路由 hook 增补模拟。`pnpm typecheck`、`pnpm test`（21 个文件 277 项）、`pnpm build` 通过。本地 6120 以虚构成员、自生成 3 分钟视频和一集无片源单集 17 项通过（连续两次）：下一集跳过无片源集、无片源页的相邻链接、播完提示与退出网页全屏并记为已看、倒计时递减、取消停留、倒计时进入下一集并从该集自己的 40 秒起点自动播放、后退/前进/刷新不自动播放、离开时只保存该集位置、390 宽度提示不溢出、自动播放被拒时暂停且单行提示并可手动播放（以页面内模拟浏览器策略实现，Playwright 的 Chrome 不执行自动播放限制）、首页遇无片源集不推荐、该集手动标记后首页“播放下一集”指向其后一集、作品页一致。
   - staging（2026-10-16，`f721884`，专用虚构成员，夹具清理后剩 0 行）12 项通过：S02E01 的上一集/下一集跳过第一季无片源各集、4 秒片段自然播完弹出提示并记为已看、取消停留、倒计时进入 S02E02 并从该集自己保存的 60 秒自动播放、刷新不自动播放、离开时只保存该集位置、390 宽度提示不溢出、自动播放被拒（页面内模拟策略）时暂停且单行提示并可手动播放、首页在最近看完的集之后为无片源集时不推荐、看完 S02E01 后首页“播放下一集”指向 S02E02、作品页一致。待开发者手机体验确认；真机自动播放受阻未验。
 - [ ] T5.2 接入作品收藏、有序片单、私有/站内公开与所有者写权限；验证重复添加返回同一条、不改顺序、并发重排整体成功或拒绝。
+  - 实现与本地自检（2026-10-16，基于 `32c4ea9`；片单名称 1–60 字符、200 条目上限与无片源条目不入队列经开发者确认）：`app/lib/library.server.ts` 承担收藏、片单写入与页面读取，成员只取自会话，写入复用业务写入来源与 JSON 校验，他人私有片单在读写入口均为 404。添加条目在一个批次内借目标唯一约束写入并返回同一条目，只有真正新增才递增 `revision`；重排携带完整条目 ID 与 `expectedRevision`，同一批次内先整体抬高位置再落位（保证位置唯一约束逐行成立）后递增 `revision`，版本不符 409。`/library`、`/playlists`、`/playlists/:id`、作品页收藏与加入片单、播放页加入片单按原型迁移；加入菜单打开时才读取本人片单。触屏滑动排序沿用原型的 `@ncdai/react-swipe-actions` 与 `motion@13.4.6`，只在片单详情页加载；原型的动画箭头图标改为静态，避免作品页和播放页加载 motion。原型的删除片单无二次确认，照原型保留。
+  - 验证：`test/library.test.ts` 4 项覆盖收藏幂等与成员隔离、仅作品可收藏、作品与其单集并存、重复及 5 路并发添加返回同一条目且顺序与版本不变、电影单元与不存在目标被拒、条目上限、整体重排与陈旧版本 409、残缺/重复/外来 ID 被拒、同版本并发重排一成一拒、移除幂等、非所有者 5 类写入均 404、站内公开可读不可写、私有不可见、名称/可见范围/来源/未登录校验、加入菜单只列本人片单、删除级联。`pnpm typecheck`、`pnpm test`（22 个文件 283 项）、`pnpm build` 通过。本地 6120 以虚构成员 19 项浏览器检查通过（与队列合并执行）：作品页收藏与片库显示、从菜单新建并加入（单行提示、名称去空白、默认私有）、播放页加入后再次打开显示已加入、片库行显示可见范围与数量、桌面下移重排、切换站内公开后出现在公开列表、390 宽度隐藏上下移按钮、右滑下移、左滑移除。
 - [ ] T5.2 接入混合作品/单集队列：按顺序展开、首次去重、跳过已看、逐单元续播，全部已看留片单页，结束不跳自然下一集或循环。
+  - 实现与本地自检（同上）：片单页与播放页共用一条展开查询（条目顺序、剧集按季集、读者本人进度），按单元 ID 保留首次出现且只留可播单元。片单页“按顺序播放”进入第一个未看完单元，全部看完时留在本页单行提示“已全部看完。”；带 `?playlist=` 的播放页以队列中当前单元之后第一个未看完单元作为播完提示目标（取代自然下一集，步进保留队列参数），队列末尾显示“片单已播放完”与返回片单入口、不倒计时，页首返回链接也指向片单；不在队列中的单元或不可读的片单按普通播放页处理。每个单元仍从自己的进度开始。
+  - 验证：`test/library.test.ts` 队列 1 项（混合条目展开、重复与无片源单元剔除、跳过已看、他人只按自己的进度、全部看完、改回私有后他人不可用、播放页返回片单链接），`test/player.test.ts` 新增 1 项（队列下一项取代自然下一集并保留队列参数、末尾显示返回片单）。本地浏览器：按顺序播放从第一个未看完单元开始、播完提示“片单 · S01E01”倒计时进入并自动播放、队列末尾不出现自然下一集而显示返回片单、全部看完后留在片单页并提示。
 - [ ] T5.3 评论/回复/赞踩/稳定排序/分页接真实后端，验证受限 Markdown、归属、长度、并发单一反馈、分对话草稿与发送中切换/失败重试。
 - [ ] T5.3 管理员删除顶层对话或单条回复，验证关联赞踩一起删除、无正文/占位/孤立记录、数量分页正确、已删目标 404；封禁保留讨论，历史恢复人工重删。
 - [ ] 各项通过类型检查、相关测试、构建、原型对照和桌面/手机验收，记录真实数据结果与差异，再进入运维里程碑。
@@ -28,7 +32,7 @@
 | --- | --- |
 | 观看进度 `watch_progress` | 主键 `(user_id, playable_unit_id)`；`position_seconds, completed, updated_at, revision`；`revision` 已启用（6.7.1），上报携带 `expectedRevision` 条件写入，冲突返回 `409 / REVISION_CONFLICT`。总时长来自已导入媒体，不相信客户端提交的时长；自动完成与手动“未看”的交互按 6.7.1。 |
 | 收藏 `favorites` | 主键 `(user_id, work_id)`，仅收藏作品；重复添加和删除已不存在的收藏都返回同一最终状态。 |
-| 片单 `playlists` / 条目 `playlist_items` | 片单记录 `id, owner_user_id, title, visibility, revision, created_at, updated_at`，`visibility` 为 `private` / `members`；条目记录稳定 `id, playlist_id, work_id?, playable_unit_id?, position`。两种目标必须且只能选一个，各自有外键；`(playlist_id, position)` 唯一，并对同一目标设**唯一约束**（`playlist_id` + 目标类型 + 目标 ID），使同一目标在一个片单内只能有一条（6.7.1.1）。公开只扩大站内读取权限，不改变所有者的写权限。 |
+| 片单 `playlists` / 条目 `playlist_items` | 片单记录 `id, owner_user_id, title, visibility, revision, created_at, updated_at`，`visibility` 为 `private` / `members`；`revision` 随条目新增、移除和重排递增，修改可见范围只更新 `updated_at`；条目记录稳定 `id, playlist_id, work_id?, playable_unit_id?, position`。两种目标必须且只能选一个，各自有外键；`(playlist_id, position)` 唯一，并对同一目标设**唯一约束**（`playlist_id` + 目标类型 + 目标 ID），使同一目标在一个片单内只能有一条（6.7.1.1）。公开只扩大站内读取权限，不改变所有者的写权限。 |
 | 评论 `comments` / 回复 `comment_replies` | 评论记录 `id, playable_unit_id, author_user_id, body_markdown, created_at`；回复记录 `id, comment_id, author_user_id, reply_to_user_id?, body_markdown, created_at`。单元、评论和成员关联均设外键；回复通过所属评论确定单元，回复目标与所属对话一致。作者取自当前会话，正文遵循 6.12。管理员删除按 6.12.4 从当前业务数据库直接移除记录，不增加软删除标记或正文归档。顶层评论删除时一并移除其全部回复及关联赞踩；单条回复删除时移除该回复及其赞踩。不增加成员自助编辑/删除、举报或审核/恢复入口。 |
 | 赞踩 `discussion_votes` | `user_id, comment_id?, reply_id?, value`；目标必须且只能选评论或回复，外键保证目标存在，`value` 仅 `1` / `-1`。分别对 `(user_id, comment_id)`、`(user_id, reply_id)` 的有效目标设唯一约束；切换反馈更新同一记录，取消则删除，不能同时留下赞和踩。 |
 
@@ -36,13 +40,19 @@
 
 讨论直接删除，顶层级联回复与反馈、单条回复仅关联自己的反馈；外键和同一事务/批次防止孤立记录和部分删除。无软删除/删除台账或新成员删除能力。智能排序复用原型置信度/参与度规则，阅读列表保持稳定；数据与真实权限取代原型账本。
 
-## HTTP 映射草案
+## HTTP 映射
 
-| 入口与方法（草案） | 权限 | 请求 / 响应 |
+进度、收藏与片单已实现；讨论各行仍为草案。页面读取由 `/library`、`/playlists`、`/playlists/:id` 与带 `?playlist=` 的播放页 loader 承担，不另设 GET；他人私有片单与不存在的片单统一 404。
+
+| 入口与方法 | 权限 | 请求 / 响应 |
 | --- | --- | --- |
 | `PUT /me/progress/:playableUnitId` | 正常成员，仅自己 | 经业务写入来源与 JSON 校验；接收 `expectedRevision`（非负整数）与 `positionSeconds`（自动上报，有限非负、不超过已导入媒体时长）或 `completed`（手动标记）二者之一。成功返回 `data: { positionSeconds, completed, updatedAt, revision }`；版本不符返回 `409 / REVISION_CONFLICT`，`error.revision` 为当前版本（尚无记录时为 0）。自动上报只接受有可播媒体的单元，否则 `404 / MEDIA_MISSING`；不存在的单元 `404 / NOT_FOUND`；输入无效 `400 / INVALID_INPUT`。成员 ID 只取自会话。跨设备读取由片库/播放页 loader 返回各单元的位置、状态与 `revision`，不另设 GET。 |
-| `GET /me/favorites`、`PUT/DELETE /me/favorites/:workId` | 正常成员，仅自己 | 返回作品集合/最终收藏状态；不能把集 ID 当作品收藏。 |
-| `GET /playlists/:id`、`POST /playlists`、`PATCH/DELETE /playlists/:id`、条目 action | 正常成员；写入仅所有者 | 读取自己的私有或任何站内公开片单；写入接收 `title, visibility, expectedRevision`，条目接收目标类型与 ID，重排接收完整有序条目 ID。返回片单、目标概要和版本，不接受修改 `ownerUserId`。他人私有片单统一 `404`。重复添加同一目标按 6.7.1.1 返回已存在条目且不改顺序。 |
+| `PUT /me/favorites/:workId` | 正常成员，仅自己 | 接收 `favorite`（布尔），重复收藏或取消返回同一最终状态 `data: { favorite }`；集 ID 或不存在的作品 `404 / NOT_FOUND`。 |
+| `GET /me/playlists?workId=` 或 `?unitId=` | 正常成员，仅自己 | 加入菜单打开时读取本人片单 `id, title, count, has`（`has` 为是否已含该目标）。 |
+| `POST /me/playlists` | 正常成员 | 接收 `title`（去空白后 1–60 字符、无控制字符）、`visibility`（`private` / `members`）与可选 `item`，返回 `data: { id }`；所有者取自会话。 |
+| `PATCH /me/playlists/:id`、`DELETE /me/playlists/:id` | 仅所有者 | PATCH 只接收 `visibility`；DELETE 连同条目删除。 |
+| `POST /me/playlists/:id/items`、`DELETE /me/playlists/:id/items/:itemId` | 仅所有者 | 添加接收 `workId` 或 `unitId`（仅单集）之一，返回 `data: { item, revision }`；重复添加按 6.7.1.1 返回已有条目，满 200 项 `409 / PLAYLIST_FULL`。移除不存在的条目照常成功且版本不变。 |
+| `PUT /me/playlists/:id/items` | 仅所有者 | 接收完整有序 `itemIds` 与 `expectedRevision`；条目集合不符 `400 / INVALID_INPUT`，版本不符 `409 / REVISION_CONFLICT` 并返回当前 `revision`。 |
 | `GET/POST /units/:playableUnitId/comments`、`GET/POST /units/:playableUnitId/comments/:commentId/replies` | 正常成员，讨论限当前单元 | GET 按 6.12 的排序与分页返回正文、作者、时间、回复数量、赞数量和本人反馈，不返回踩数量；POST 接收 `bodyMarkdown, replyToUserId?`，经业务写入来源与 JSON 校验，作者由会话确定。校验单元存在、评论属于该单元、回复目标与对话一致及正文安全，成功返回新内容。已删除评论、回复及其赞踩不出现在读取结果中，也不计入数量、排序或分页；直接读取或向已删除目标回复、赞踩返回脱敏 `404`。不提供成员自助编辑/删除、举报或审核接口。 |
 | `PUT/DELETE /units/:playableUnitId/comments/:commentId/vote`、`PUT/DELETE /units/:playableUnitId/replies/:replyId/vote` | 正常成员，仅修改自己的反馈 | PUT 接收 `value`（`1` / `-1`），经业务写入来源与 JSON 校验；DELETE 取消反馈。服务端校验目标归属单元，按成员/目标唯一约束写入，返回赞数量和本人最终反馈，不返回踩数量。已删除目标返回脱敏 `404`，不重新创建反馈记录。 |
 | `DELETE /units/:playableUnitId/comments/:commentId`、`DELETE /units/:playableUnitId/replies/:replyId` | 正常管理员，目标属于该单元 | 经业务写入来源与 JSON 校验，按 6.12.4 原子删除：顶层评论连同全部回复及其赞踩一起移除，单条回复连同其赞踩移除；成功仅返回删除成功结果，不返回被删正文或已删除记录。目标不存在时返回脱敏 `404`。未认证、已封禁或普通成员的删除请求被拒绝，不提供成员自助删除接口。 |
