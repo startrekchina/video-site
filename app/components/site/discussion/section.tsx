@@ -298,6 +298,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   // Your own new comments, pinned to the top of page one whatever the sort. Kept apart from the order, so a sort
   // answered after a post cannot drop it.
   const [fresh, setFresh] = useState<string[]>([])
+  // Comments found deleted here, kept for the same reason: a late sort answer must not bring them back.
+  const [removed, setRemoved] = useState<string[]>([])
   const [page, setPage] = useState(1)
   const [picked, setPicked] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -340,7 +342,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     void load("smart")
   }, [])
 
-  const all = order ? [...fresh, ...order.filter((id) => !fresh.includes(id))] : []
+  const all = order ? [...new Set([...fresh, ...order])].filter((id) => !removed.includes(id)) : []
   const pageCount = Math.max(1, Math.ceil(all.length / limits.pageSize))
   const current = Math.min(page, pageCount)
   const visible = all.slice((current - 1) * limits.pageSize, current * limits.pageSize)
@@ -357,7 +359,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
       cache(result.data.items)
       // Comments deleted since the order was taken leave the list instead of a gap.
       const gone = missing.split(",").filter((id) => !result.data.items.some((item) => item.id === id))
-      if (gone.length) setOrder((o) => o && o.filter((id) => !gone.includes(id)))
+      if (gone.length) setRemoved((r) => [...r, ...gone])
     })
     return () => {
       live = false
@@ -385,17 +387,17 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   }
 
   // Loads the next batch of a conversation, or with `all` whatever is left of it. `all` asks the server at least
-  // once, since others may have replied since the count was read. False when a batch failed.
+  // once, since others may have replied since the count was read. False when no batch reached the server.
   const more = async (id: string, all = false) => {
     const root = known.current[id]
     if (!root) return true
     setLoadingMore((l) => ({ ...l, [id]: true }))
     try {
-      for (let last = root.replies.at(-1), wanted = all || root.replyCount > root.replies.length; wanted; ) {
+      for (let last = root.replies.at(-1), wanted = all || root.replyCount > root.replies.length, reached = false; wanted; reached = true) {
         const result = await libraryRequest<{ items: Reply[]; rest: number }>(`${base}/comments/${id}/replies?afterAt=${last?.createdAt ?? 0}&afterId=${last?.id ?? "0"}`, "GET")
         if ("error" in result) {
           failed(result.error.message, "回复未加载，请稍后重试。")
-          return false
+          return reached
         }
         const { items, rest } = result.data
         // Merged into the conversation as it is now, so replies deleted or added meanwhile stay that way.
@@ -445,8 +447,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     const r = await send<Reply>(root.id, body, `${base}/comments/${root.id}/replies`, target ? { replyTo: target.id } : {})
     if (!r) return false
     setTargets((t) => ((t[root.id] ?? null)?.id === target?.id ? { ...t, [root.id]: null } : t))
-    // The new reply ends the conversation: it loads with whatever came before it. If that fails it is only
-    // counted, so 显示更多 still brings the rest in order instead of paging past it.
+    // The new reply ends the conversation: it loads with whatever came before it. If no batch gets through it is
+    // only counted, so 显示更多 still brings the rest in order instead of paging past it.
     if (!(await more(root.id, true))) patch(root.id, (c) => ({ ...c, replyCount: c.replyCount + 1 }))
     setAnnouncement("回复已发送")
     return true
@@ -474,8 +476,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     setDeleting(null)
     if (reply) patch(root.id, (c) => ({ ...c, replies: c.replies.filter((x) => x.id !== reply.id), replyCount: c.replyCount - 1 }))
     else {
-      setOrder((o) => o && o.filter((id) => id !== root.id))
-      setFresh((f) => f.filter((id) => id !== root.id))
+      setRemoved((r) => [...r, root.id])
       setPicked((p) => (p === root.id ? null : p))
     }
     toast.add({ title: reply ? "回复已删除。" : "评论已删除。", type: "success" })
