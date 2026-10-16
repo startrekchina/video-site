@@ -340,10 +340,13 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
       return
     }
     const { data } = result
-    // The answer is a snapshot from when it was asked: it refreshes every comment except those changed here since, or
-    // still loading replies, whose batch would land after its cursor on the shorter first batch.
-    const newer = data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked && !loads.current.has(item.id))
-    setComments((c) => ({ ...c, ...Object.fromEntries(newer.map((item) => [item.id, item])) }))
+    // The answer is a snapshot from when it was asked: it refreshes every comment except those changed here since. One
+    // still loading replies keeps its own, since that batch lands after its cursor and would leave a gap in the first.
+    const newer = data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked)
+    const loading = newer.filter((item) => loads.current.has(item.id)).map((item) => item.id)
+    setComments((c) => ({ ...c, ...Object.fromEntries(newer.map((item) => [item.id, loading.includes(item.id) ? { ...item, replies: c[item.id].replies, replyCount: c[item.id].replyCount } : item])) }))
+    // Your posts from before the request that it no longer lists were deleted elsewhere.
+    setRemoved((r) => [...r, ...fresh.filter((id) => !data.order.includes(id))])
     setLimits({ pageSize: data.pageSize, maxLength: data.maxLength })
     setOrder(data.order)
     setSort(next)
