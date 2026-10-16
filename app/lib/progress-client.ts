@@ -27,7 +27,7 @@ export function useMarkWatched() {
     setBusy(unitId);
     try {
       const result = await saveProgress(unitId, { completed }, expectedRevision);
-      if ("conflict" in result) toast.add({ title: "观看记录已在其他设备更新，已刷新为最新状态。", type: "info" });
+      if ("conflict" in result) toast.add({ title: "观看记录已在其他设备更新。", type: "info" });
       if ("failed" in result) toast.add({ title: "标记未保存，请稍后重试。", type: "error" });
       await revalidator.revalidate();
       return result;
