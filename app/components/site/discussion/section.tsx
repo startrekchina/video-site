@@ -320,6 +320,9 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   // When each comment last changed on this page, so a sort answer only replaces what stayed untouched since it was asked.
   const changes = useRef(0)
   const changed = useRef(new Map<string, number>())
+  // The newest load of each conversation, the only one whose answers count: an older one still on its way would
+  // add what is left after its own cursor to replies already read past it.
+  const loads = useRef(new Map<string, number>())
 
   const cache = (items: Comment[]) => setComments((c) => ({ ...c, ...Object.fromEntries(items.map((item) => [item.id, item])) }))
   const patch = (id: string, change: (c: Comment) => Comment) => {
@@ -399,10 +402,14 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   const more = async (id: string, all = false) => {
     const root = known.current[id]
     if (!root) return true
+    const mine = (loads.current.get(id) ?? 0) + 1
+    loads.current.set(id, mine)
     setLoadingMore((l) => ({ ...l, [id]: true }))
     try {
       for (let last = root.replies.at(-1), wanted = all || root.replyCount > root.replies.length, reached = false; wanted; reached = true) {
         const result = await libraryRequest<{ items: Reply[]; rest: number }>(`${base}/comments/${id}/replies?afterAt=${last?.createdAt ?? 0}&afterId=${last?.id ?? "0"}`, "GET")
+        // Taken over by a newer load, which reads to the end: 显示更多 waits while one runs, so only a posted reply starts one.
+        if (loads.current.get(id) !== mine) return true
         if ("error" in result) {
           failed(result.error.message, "回复未加载，请稍后重试。")
           return reached
@@ -418,7 +425,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
       }
       return true
     } finally {
-      setLoadingMore((l) => ({ ...l, [id]: false }))
+      if (loads.current.get(id) === mine) setLoadingMore((l) => ({ ...l, [id]: false }))
     }
   }
 
