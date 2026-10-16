@@ -1,5 +1,5 @@
 import stillManifest from "../../public/assets/stills/star-trek/manifest.json";
-import { resumeTarget, type Episode, type Work, type WorkCard } from "./catalog";
+import { continuation, type Episode, type Work, type WorkCard } from "./catalog";
 import type { D1Reader } from "./member.server";
 
 // Deployment configuration, not a browser/admin editing surface.
@@ -64,6 +64,14 @@ export async function catalog(db: D1Reader, userId: string, query = "", target?:
     AND (? IS NULL OR id = ?) AND (? IS NULL OR id = (SELECT work_id FROM playable_units WHERE id = ?))`;
   const parameters = [search, search, search, workId, workId, unitId, unitId];
   const playableMedia = "SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''";
+  // The home page keeps only the units continuation() can pick: for each series, its latest finished episode and the first unfinished one after it.
+  const afterFinished = `WITH ordered AS MATERIALIZED (SELECT u.id, u.work_id, p.completed,
+      row_number() OVER (PARTITION BY u.work_id ORDER BY s.season_number, u.episode_number, u.id) AS n,
+      row_number() OVER (PARTITION BY u.work_id ORDER BY p.completed = 1 DESC, p.updated_at DESC, s.season_number, u.episode_number, u.id) AS recency
+      FROM playable_units u JOIN seasons s ON s.id = u.season_id LEFT JOIN watch_progress p ON p.playable_unit_id = u.id AND p.user_id = ?),
+    finished AS (SELECT work_id, n FROM ordered WHERE recency = 1 AND completed = 1),
+    targets AS (SELECT f.work_id, f.n, min(o.n) AS next FROM finished f LEFT JOIN ordered o ON o.work_id = f.work_id AND o.n > f.n AND coalesce(o.completed, 0) = 0 GROUP BY f.work_id, f.n)
+    SELECT o.id FROM ordered o JOIN targets t ON t.work_id = o.work_id AND o.n IN (t.n, t.next)`;
   const [workRows, seasonRows, unitRows] = await db.batch([
     db.prepare(`SELECT w.id, w.kind, w.tmdb_id, w.title_zh, w.title_en, w.overview_zh, w.overview_en, w.year, w.poster_asset,
     EXISTS(SELECT 1 FROM favorites f WHERE f.work_id = w.id AND f.user_id = ?) AS favorite
@@ -77,8 +85,9 @@ export async function catalog(db: D1Reader, userId: string, query = "", target?:
     LEFT JOIN watch_progress p ON p.playable_unit_id = u.id AND p.user_id = ?
     JOIN works w ON w.id = u.work_id LEFT JOIN seasons s ON s.id = u.season_id WHERE u.work_id IN (${matching})
     ${home ? `AND (u.kind = 'movie' OR (EXISTS(${playableMedia})
-      AND ((p.position_seconds > 0 AND p.completed = 0) OR ${recommendedStarts.map(() => "(w.tmdb_id = ? AND w.kind = 'series' AND s.season_number = ? AND u.episode_number = ?)").join(" OR ")})))` : ""}
-    ORDER BY u.episode_number, u.id`).bind(userId, ...parameters, ...(home ? recommendedStarts.flatMap(start => [start.tmdbId, start.season, start.episode]) : [])),
+      AND ((p.position_seconds > 0 AND p.completed = 0) OR ${recommendedStarts.map(() => "(w.tmdb_id = ? AND w.kind = 'series' AND s.season_number = ? AND u.episode_number = ?)").join(" OR ")}))
+      OR u.id IN (${afterFinished}))` : ""}
+    ORDER BY u.episode_number, u.id`).bind(userId, ...parameters, ...(home ? [...recommendedStarts.flatMap(start => [start.tmdbId, start.season, start.episode]), userId] : [])),
   ]);
   const works = workRows.results as WorkRow[], seasons = seasonRows.results as SeasonRow[], units = unitRows.results as UnitRow[];
   // ponytail: in-memory joins suit the fixed v1 catalog; use indexed/grouped queries if the catalog grows.
@@ -100,9 +109,9 @@ export async function catalog(db: D1Reader, userId: string, query = "", target?:
 }
 export function homeStages(works: Work[]) {
   const continued = works.flatMap(work => {
-    const unit = resumeTarget(work);
-    return unit && !unit.completed && unit.positionSeconds > 0 ? [{ work, unit }] : [];
-  }).sort((a, b) => b.unit.updatedAt - a.unit.updatedAt);
+    const item = continuation(work);
+    return item ? [{ work, ...item }] : [];
+  }).sort((a, b) => b.at - a.at);
   if (continued.length) return { label: "继续观看", items: continued };
   return { label: "推荐起点", items: recommendedStarts.flatMap(start => {
     const work = works.find(work => work.kind === "series" && work.tmdbId === start.tmdbId);

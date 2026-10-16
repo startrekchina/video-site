@@ -15,7 +15,8 @@ export function noticeToast(notice: Notice, actions: { reconnect: () => void; lo
   return action ? { title: notice.text, type: "error", timeout: 0, actionProps: action, data: { dismissible: false } } : { title: notice.text, type: "info" };
 }
 
-export function Player({ unitId, source, startSeconds, progress, subtitle, onSubtitleChange, onTracksChange }: { unitId: string; source: PlaybackSource; startSeconds: number; progress: ProgressReporting; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: PlaybackSource["tracks"]) => void }) {
+// autoplay tries to start once the saved start is applied; onEnded and children (an overlay on the video) serve the next-up prompt.
+export function Player({ unitId, source, startSeconds, autoplay = false, progress, subtitle, onSubtitleChange, onTracksChange, onEnded, children }: { unitId: string; source: PlaybackSource; startSeconds: number; autoplay?: boolean; progress: ProgressReporting; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: PlaybackSource["tracks"]) => void; onEnded?: () => void; children?: React.ReactNode }) {
   const container = useRef<HTMLDivElement>(null), retry = useRef<() => void>(() => {});
   const frame = useRef<HTMLDivElement>(null), selectSubtitle = useRef<(id: string) => void>(() => {});
   // Only video failures offer reconnecting (or signing in again after 401/403); subtitle failures are retried by choosing the track again.
@@ -44,11 +45,12 @@ export function Player({ unitId, source, startSeconds, progress, subtitle, onSub
     // shown mirrors the notice kind so a subtitle success clears only its own notice.
     type Kind = "video" | "login" | "subtitle" | "other";
     let shown: Kind | null = null;
+    const windowed = () => { if (art?.fullscreen) art.fullscreen = false; if (art?.fullscreenWeb) art.fullscreenWeb = false; };
     const show = (text: string | null, kind: Kind = "other") => {
       shown = text === null ? null : kind;
       // Toasts render outside the player, out of sight in fullscreen: leave fullscreen when the notice carries a button, otherwise echo it inside the player.
       if (text !== null && art && (art.fullscreen || art.fullscreenWeb)) {
-        if (kind === "video" || kind === "login") { if (art.fullscreen) art.fullscreen = false; if (art.fullscreenWeb) art.fullscreenWeb = false; }
+        if (kind === "video" || kind === "login") windowed();
         else art.notice.show = text;
       }
       setNotice(text === null ? null : kind === "login" ? { text, reconnect: false, login: true } : { text, reconnect: kind === "video" });
@@ -123,7 +125,11 @@ export function Player({ unitId, source, startSeconds, progress, subtitle, onSub
         settings: [{ name: "subtitle-lang", html: "字幕", selector: subtitles(), onSelect(item) { select(String(item.id)); return String(item.html); } }],
       });
       const player = art;
-      player.once("ready", () => { if (startSeconds > 0 && startSeconds < player.duration) player.seek = startSeconds; position = player.currentTime; ready = true; });
+      player.once("ready", () => {
+        if (startSeconds > 0 && startSeconds < player.duration) player.seek = startSeconds;
+        position = player.currentTime; ready = true;
+        if (autoplay) void player.play().catch(() => say("浏览器阻止自动播放，请点击播放。"));
+      });
       player.hotkey.add("KeyF", () => { player.fullscreen = !player.fullscreen; });
       player.hotkey.add("KeyM", () => { player.muted = !player.muted; });
       player.hotkey.add("KeyC", () => { const choices = [...tracks.map(track => track.id), "off"]; select(choices[(choices.indexOf(selected) + 1) % choices.length]); });
@@ -139,7 +145,8 @@ export function Player({ unitId, source, startSeconds, progress, subtitle, onSub
       // Pauses caused by a failure or a reconnect reload are not the member's choice.
       player.on("video:play", () => { playing = true; });
       player.on("video:pause", () => { if (!failed && restoreTo === null) { playing = false; report(); } });
-      player.on("video:ended", () => report());
+      // The next-up prompt lives in the page, outside the fullscreen element; the next unit would leave fullscreen anyway.
+      player.on("video:ended", () => { report(); if (onEnded) { windowed(); onEnded(); } });
       player.on("video:timeupdate", () => { if (ready && !failed && restoreTo === null) position = player.currentTime; });
       // Restore once per reconnect; if the restored range fails again, the error is classified and offered again.
       player.on("video:canplay", () => {
@@ -157,5 +164,5 @@ export function Player({ unitId, source, startSeconds, progress, subtitle, onSub
     };
   }, [unitId]);
   useEffect(() => selectSubtitle.current(subtitle), [subtitle]);
-  return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom))]"><div ref={container} className="size-full" /></div></div>;
+  return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom))]"><div ref={container} className="size-full" />{children}</div></div>;
 }

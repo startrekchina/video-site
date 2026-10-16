@@ -12,8 +12,17 @@ export function presentationNavigation(currentUrl: URL, nextUrl: URL) {
   for (const key of ["view", "order"]) { current.delete(key); next.delete(key); }
   return current.toString() === next.toString();
 }
+// Continue watching (B 6.7): the latest playable unfinished unit; otherwise the first unfinished episode after the latest
+// finished one, only when it can play. at is the update time of the record that earned the place.
+export function continuation(work: Work) {
+  const latest = (units: Episode[]) => [...units].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const started = latest(work.units.filter(unit => unit.playable && !unit.completed && unit.positionSeconds > 0));
+  if (started) return { unit: started, at: started.updatedAt, next: false };
+  const finished = work.kind === "series" ? latest(work.units.filter(unit => unit.completed)) : undefined;
+  const next = finished && work.units.slice(work.units.indexOf(finished) + 1).find(unit => !unit.completed);
+  return finished && next?.playable ? { unit: next, at: finished.updatedAt, next: true } : undefined;
+}
 export function resumeTarget(work: Work) {
   const playable = work.units.filter(unit => unit.playable);
-  return [...playable].filter(unit => !unit.completed && unit.positionSeconds > 0).sort((a, b) => b.updatedAt - a.updatedAt)[0]
-    ?? playable.find(unit => !unit.completed) ?? playable[0];
+  return continuation(work)?.unit ?? playable.find(unit => !unit.completed) ?? playable[0];
 }

@@ -10,6 +10,7 @@ type Handler = (...args: unknown[]) => unknown;
 const state = vi.hoisted(() => ({
   effects: [] as (() => void | (() => void))[], refs: [] as { current: unknown }[], message: vi.fn(), options: null as unknown,
   pageState: [] as unknown[], pageIndex: null as number | null, refIndex: 0, handlers: new Map<string, Handler[]>(),
+  location: { state: null as unknown }, navigation: "POP",
   art: { currentTime: 1234, duration: 4000, seek: 0, url: "", destroy: vi.fn(), hotkey: { add: vi.fn() },
     on: vi.fn(), once: vi.fn(), play: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() } },
 }));
@@ -26,7 +27,8 @@ vi.mock("react", async original => ({
   },
 }));
 vi.mock("artplayer", () => ({ default: class { constructor(options: unknown) { state.options = options; return state.art; } } }));
-vi.mock("react-router", async original => ({ ...await original<typeof import("react-router")>(), UNSAFE_withComponentProps: (component: unknown) => component }));
+vi.mock("react-router", async original => ({ ...await original<typeof import("react-router")>(), UNSAFE_withComponentProps: (component: unknown) => component,
+  useLocation: () => state.location, useNavigationType: () => state.navigation }));
 vi.mock("@/components/ui/button", () => ({ Button: () => null }));
 
 const source: PlaybackSource = { url: "/media/source", tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
@@ -37,7 +39,7 @@ const emit = (event: string) => Promise.all((state.handlers.get(event) ?? []).ma
 beforeEach(() => {
   vi.clearAllMocks();
   state.effects.length = 0; state.refs.length = 0; state.refIndex = 0; state.pageState.length = 0; state.pageIndex = null;
-  state.handlers.clear(); state.art.currentTime = 1234; state.art.url = ""; state.art.subtitle.show = false;
+  state.handlers.clear(); state.location = { state: null }; state.navigation = "POP"; state.art.currentTime = 1234; state.art.url = ""; state.art.subtitle.show = false;
   const listen = (event: string, handler: Handler) => { state.handlers.set(event, [...state.handlers.get(event) ?? [], handler]); };
   state.art.on.mockImplementation(listen); state.art.once.mockImplementation(listen);
   state.art.subtitle.switch.mockReset().mockResolvedValue(undefined);
@@ -306,4 +308,58 @@ it("does not report before the saved start is applied", async () => {
   await mount({ startSeconds: 600, progress: { revision: { current: 0 }, interval: 15, duration: 3000, onSaved: vi.fn() } });
   (timer.mock.calls.at(-1)![0] as () => void)(); await emit("video:pause"); await settle();
   expect(reports()).toEqual([]);
+});
+
+it("tries to autoplay once the saved start is applied and leaves the play button when the browser blocks it", async () => {
+  await mount(); expect(state.art.play).not.toHaveBeenCalled();
+  cleanups.forEach(cleanup => cleanup?.()); state.effects.length = 0; state.refs.length = 0; state.refIndex = 0; state.handlers.clear(); vi.clearAllMocks();
+  let startAtPlay = 0;
+  state.art.play.mockImplementationOnce(async () => { startAtPlay = state.art.seek; throw new Error("Fictional autoplay restriction"); });
+  await mount({ startSeconds: 600, autoplay: true }); expect(state.art.play).not.toHaveBeenCalled();
+  await emit("ready"); await settle();
+  expect(state.art.play).toHaveBeenCalledOnce(); expect(startAtPlay).toBe(600);
+  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请点击播放"), reconnect: false });
+});
+
+it("hands the end to the page after the final report and leaves fullscreen only for a next-up prompt", async () => {
+  const art = Object.assign(state.art, { fullscreen: true, fullscreenWeb: false, notice: { show: "" } }), onEnded = vi.fn();
+  respond({ data: { positionSeconds: 1000, completed: true, updatedAt: 1, revision: 1 } });
+  await mount({ onEnded, progress: { revision: { current: 0 }, interval: 15, duration: 1000, onSaved: vi.fn() } });
+  await emit("video:ended"); await settle();
+  expect(reports()).toEqual([expect.objectContaining({ positionSeconds: 1000, expectedRevision: 0 })]);
+  expect(onEnded).toHaveBeenCalledOnce(); expect(art.fullscreen).toBe(false);
+  cleanups.forEach(cleanup => cleanup?.()); state.effects.length = 0; state.refs.length = 0; state.refIndex = 0; state.handlers.clear();
+  art.fullscreenWeb = true; await mount(); await emit("video:ended");
+  expect(art.fullscreenWeb).toBe(true);
+  art.fullscreenWeb = false;
+});
+
+it("offers the next unit when playback ends and autoplays only after a fresh step from the prompt", () => {
+  const episode = (id: string, number: number): Episode => ({ id, number, seasonNumber: 1, tmdbId: number, titleZh: `虚构第 ${number} 集`, titleEn: null,
+    overviewZh: null, overviewEn: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true, positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 });
+  const first = episode("episode-unit", 1), second = episode("episode-two", 2);
+  const work: Work = { slug: "series", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
+    poster: "", code: "", seasonCount: 1, episodeCount: 2, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [first, second] }], units: [first, second] };
+  const view = (unit: Episode, previous?: string, next?: string) => {
+    const loaderData = { work, unit, source, previous, next, reportInterval: 15 as const };
+    const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
+    state.pageIndex = 0;
+    const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
+    state.pageIndex = null;
+    return elements(tree, Player)[0].props as Parameters<typeof Player>[0];
+  };
+  let player = view(first, undefined, second.id);
+  expect(player.autoplay).toBe(false); expect(player.children).toBeFalsy();
+  player.onEnded!();
+  player = view(first, undefined, second.id);
+  const prompt = player.children as ReactElement<{ unit: Episode; onCancel: () => void }>;
+  expect(prompt.props.unit).toBe(second);
+  prompt.props.onCancel(); expect(view(first, undefined, second.id).children).toBeFalsy();
+  // The last unit has nothing to offer, so the end stays with the player.
+  state.pageState.length = 0; expect(view(second, first.id).onEnded).toBeUndefined();
+  // Reloading or going back to a page reached from the prompt does not autoplay again.
+  state.location = { state: { autoplay: true } };
+  state.pageState.length = 0; expect(view(second, first.id).autoplay).toBe(false);
+  state.navigation = "PUSH"; state.pageState.length = 0; expect(view(second, first.id).autoplay).toBe(true);
+  state.location = { state: null }; state.pageState.length = 0; expect(view(second, first.id).autoplay).toBe(false);
 });

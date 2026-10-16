@@ -37,15 +37,15 @@ function timecode(seconds: number) {
   const s = Math.max(0, Math.round(seconds)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), tail = String(s % 60).padStart(2, "0");
   return h ? `${h}:${String(m).padStart(2, "0")}:${tail}` : `${m}:${tail}`;
 }
-function makeStages(items: { work: WorkCard; unit: Episode; why?: string }[]): Stage[] {
-  return items.map(({ work, unit, why }) => ({ key: unit.id, poster: work.poster,
-    eyebrow: [why ? "欢迎登舰" : "继续观看", work.kind === "movie" ? "电影" : work.code, work.year].filter(Boolean).join(" · "), title: work.titleZh,
+function makeStages(items: { work: WorkCard; unit: Episode; why?: string; next?: boolean }[]): Stage[] {
+  return items.map(({ work, unit, why, next }) => ({ key: unit.id, poster: work.poster,
+    eyebrow: [why ? "欢迎登舰" : next ? "下一集" : "继续观看", work.kind === "movie" ? "电影" : work.code, work.year].filter(Boolean).join(" · "), title: work.titleZh,
     sub: why || [work.kind === "series" ? episodeCode(unit) : "", unit.titleZh || unit.titleEn].filter(Boolean).join(" · "), overview: (why ? work.overviewZh || work.overviewEn : unit.overviewZh || unit.overviewEn || work.overviewZh || work.overviewEn) || "简介暂缺",
-    frac: unit.positionSeconds && unit.durationSeconds ? unit.positionSeconds / unit.durationSeconds : null,
-    meta: why ? work.kind === "series" ? `${work.seasonCount} 季 · ${work.episodeCount} 集` : formatRuntime(work.runtimeMin) : unit.durationSeconds === null ? "时长暂缺" : `${timecode(unit.positionSeconds)} / ${timecode(unit.durationSeconds)} · 剩余 ${Math.max(0, Math.round((unit.durationSeconds - unit.positionSeconds) / 60))} 分钟`,
-    note: unit.updatedAt ? new Date(unit.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "",
+    frac: !next && unit.positionSeconds && unit.durationSeconds ? unit.positionSeconds / unit.durationSeconds : null,
+    meta: next ? formatRuntime(unit.runtimeMin) : why ? work.kind === "series" ? `${work.seasonCount} 季 · ${work.episodeCount} 集` : formatRuntime(work.runtimeMin) : unit.durationSeconds === null ? "时长暂缺" : `${timecode(unit.positionSeconds)} / ${timecode(unit.durationSeconds)} · 剩余 ${Math.max(0, Math.round((unit.durationSeconds - unit.positionSeconds) / 60))} 分钟`,
+    note: next ? "下一集" : unit.updatedAt ? new Date(unit.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "",
     thumb: [work.kind === "movie" ? "电影" : work.code || "剧集", work.kind === "series" && !why ? episodeCode(unit) : String(work.year ?? "")],
-    primary: { label: why ? "播放第 1 集" : "继续播放", to: "/watch/" + unit.id },
+    primary: { label: why ? "播放第 1 集" : next ? "播放下一集" : "继续播放", to: "/watch/" + unit.id },
     secondary: { label: !why && work.kind === "series" ? "选集" : "作品详情", to: "/title/" + work.slug + (!why && work.kind === "series" ? `?season=${unit.seasonNumber}` : "") },
   }));
 }
@@ -122,7 +122,7 @@ function Scale({ label, stages, index, onPick }: { label: string; stages: Stage[
   )
 }
 
-export function HeroTheatre({ items, label }: { items: { work: WorkCard; unit: Episode; why?: string }[]; label: string }) {
+export function HeroTheatre({ items, label }: { items: { work: WorkCard; unit: Episode; why?: string; next?: boolean }[]; label: string }) {
   const stages = makeStages(items)
   const [selected, setSelected] = useState(0)
   const [announce, setAnnounce] = useState("")
