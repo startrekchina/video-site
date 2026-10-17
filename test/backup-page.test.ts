@@ -6,7 +6,7 @@ import { login, member, request } from "./fixtures/auth";
 import { updateBackupSchedule } from "@/lib/backups.server";
 
 const runtime = { ...env, APP_ENV: "test", OWNER_EMAIL: "nova@example.test", BACKUP_ACCOUNT_ID: "a".repeat(32),
-  BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", CLOUDFLARE_API_TOKEN: "fictional-export-token" };
+  BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", D1_EXPORT_TOKEN: "fictional-export-token" };
 let owner: string, ordinary: string, admin: string, ownerId: string;
 async function send(path: string, cookie = "") {
   const ctx = createExecutionContext(), response = await worker.fetch(request(path, undefined, cookie), runtime, ctx);
@@ -24,7 +24,7 @@ afterEach(() => vi.unstubAllGlobals());
 it("renders the backup page only for the owner and hides the entry from other administrators", async () => {
   const page = await send("/admin/backups", owner); expect(page.status).toBe(200);
   const html = await page.text(); expect(html).toContain("数据备份"); expect(html).toContain("创建备份");
-  for (const value of [runtime.CLOUDFLARE_API_TOKEN, runtime.BACKUP_ENCRYPTION_KEY, runtime.BACKUP_ACCOUNT_ID, "backup-control/"]) expect(html).not.toContain(value);
+  for (const value of [runtime.D1_EXPORT_TOKEN, runtime.BACKUP_ENCRYPTION_KEY, runtime.BACKUP_ACCOUNT_ID, "backup-control/"]) expect(html).not.toContain(value);
   expect(page.headers.get("Cache-Control")).toBe("private, no-store"); expect(page.headers.get("X-Robots-Tag")).toBe("noindex");
   expect((await send("/admin/backups")).status).toBe(302);
   for (const cookie of [ordinary, admin]) expect((await send("/admin/backups", cookie)).status).toBe(403);

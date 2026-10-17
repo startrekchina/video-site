@@ -107,7 +107,7 @@ export async function requireBackupOwner(request: Request, env: Env, identity = 
 function configured(env: Env) {
   return env.APP_ENV !== "development" && /^[a-f0-9]{32}$/u.test(env.BACKUP_ACCOUNT_ID)
     && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(env.BACKUP_DATABASE_ID)
-    && !!env.CLOUDFLARE_API_TOKEN && Buffer.byteLength(env.BACKUP_ENCRYPTION_KEY ?? "") >= 32
+    && !!env.D1_EXPORT_TOKEN && Buffer.byteLength(env.BACKUP_ENCRYPTION_KEY ?? "") >= 32
     && env.BACKUP_ENCRYPTION_KEY !== env.BETTER_AUTH_SECRET;
 }
 async function record<T>(bucket: R2Bucket, key: string) {
@@ -250,7 +250,7 @@ async function exportSnapshot(env: Env, job: Job, signal: AbortSignal) {
     while (true) {
       signal.throwIfAborted();
       const response = await fetch(endpoint, { method: "POST", redirect: "manual", signal,
-        headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${env.D1_EXPORT_TOKEN}`, "Content-Type": "application/json" },
         body: JSON.stringify({ output_format: "polling", ...(bookmark ? { current_bookmark: bookmark } : {}) }) });
       httpStatus = response.status; data = undefined;
       data = await exportMetadata(response); const result = data.result;

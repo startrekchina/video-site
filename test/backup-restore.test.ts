@@ -10,7 +10,7 @@ import { restoreBackup, restoredBusinessSummary, sanitizeRestoredCredentials, va
 import { login, member } from "./fixtures/auth";
 
 const signal = () => new AbortController().signal;
-const runtime = { ...env, APP_ENV: "test", BACKUP_ACCOUNT_ID: "a".repeat(32), BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", CLOUDFLARE_API_TOKEN: "fictional-import-token" };
+const runtime = { ...env, APP_ENV: "test", BACKUP_ACCOUNT_ID: "a".repeat(32), BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", D1_IMPORT_TOKEN: "fictional-import-token" };
 const target = { db: env.TEST_RESTORE_DB, id: "00000000-0000-4000-8000-000000000001" };
 const newSecret = "fictional-new-auth-secret-0123456789abcdef";
 async function artifact(sql = "CREATE TABLE fictional (value TEXT);") {

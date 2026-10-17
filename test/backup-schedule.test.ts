@@ -7,7 +7,7 @@ import { mediaSyncCron } from "@/lib/media-sync.server";
 import { settings } from "@/lib/settings.server";
 
 const runtime: Env = { ...env, APP_ENV: "test", BACKUP_ACCOUNT_ID: "a".repeat(32),
-  BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", CLOUDFLARE_API_TOKEN: "fictional-export-token",
+  BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", D1_EXPORT_TOKEN: "fictional-export-token",
   WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
 const input = { enabled: true, target: "webdav", frequency: "daily", time: "08:00" };
 const now = Date.UTC(2026, 9, 17, 0, 0), key = "backup-control/test/schedule.json";
@@ -53,7 +53,7 @@ it("rejects malformed or unconfigured schedules without writing a control record
     { frequency: "interval", intervalDays: 1.5 }, { frequency: "weekly", weekday: 7 }, { frequency: "weekly", weekday: null }, { endpoint: "https://evil.invalid" }]) {
     await expect(updateBackupSchedule(runtime, { ...input, ...change }, now)).rejects.toMatchObject({ statusCode: 400 });
   }
-  for (const bindings of [{ ...runtime, WEBDAV_PASSWORD: "" }, { ...runtime, APP_ENV: "development" }, { ...runtime, CLOUDFLARE_API_TOKEN: "" }]) {
+  for (const bindings of [{ ...runtime, WEBDAV_PASSWORD: "" }, { ...runtime, APP_ENV: "development" }, { ...runtime, D1_EXPORT_TOKEN: "" }]) {
     await expect(updateBackupSchedule(bindings, input, now)).rejects.toMatchObject({ statusCode: 400 });
     await expect(updateBackupSchedule(bindings, { ...input, enabled: false, time: "09:00" }, now)).rejects.toMatchObject({ statusCode: 400 });
   }

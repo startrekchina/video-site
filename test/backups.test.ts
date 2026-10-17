@@ -9,7 +9,7 @@ import { runScheduledBackup, updateBackupSchedule } from "@/lib/backups.server";
 import { settings } from "@/lib/settings.server";
 
 const runtime: Env = { ...env, APP_ENV: "test", OWNER_EMAIL: "NOVA@example.test", BACKUP_ACCOUNT_ID: "a".repeat(32),
-  BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", CLOUDFLARE_API_TOKEN: "fictional-export-token" };
+  BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", D1_EXPORT_TOKEN: "fictional-export-token" };
 const input = { target: "download", maintenanceConfirmed: true };
 const sql = "CREATE TABLE fictional (value TEXT);\nINSERT INTO fictional VALUES ('private-fixture-sql');\n";
 const signed = "https://fictional.r2.cloudflarestorage.com/export.sql?signature=private-fixture-signature";
@@ -195,9 +195,9 @@ it("exports, checks and downloads only encrypted data through the authenticated 
   expect(statusBody.requestId).toBe(statusResponse.headers.get("X-Request-Id"));
   expect(listing).toMatchObject({ environment: "test", targets: { download: true, webdav: false, s3: false }, items: [job] });
   const output = JSON.stringify([job, listing, log.mock.calls]);
-  for (const privateValue of [runtime.BACKUP_ACCOUNT_ID, runtime.CLOUDFLARE_API_TOKEN, runtime.BACKUP_ENCRYPTION_KEY, signed, sql, "backups/test/", "fictional-bookmark"]) expect(output).not.toContain(privateValue);
+  for (const privateValue of [runtime.BACKUP_ACCOUNT_ID, runtime.D1_EXPORT_TOKEN, runtime.BACKUP_ENCRYPTION_KEY, signed, sql, "backups/test/", "fictional-bookmark"]) expect(output).not.toContain(privateValue);
   const calls = network.mock.calls;
-  expect(calls[0][1]).toMatchObject({ method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${runtime.CLOUDFLARE_API_TOKEN}` } });
+  expect(calls[0][1]).toMatchObject({ method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${runtime.D1_EXPORT_TOKEN}` } });
   expect(JSON.parse(String(calls[0][1]!.body))).toEqual({ output_format: "polling" });
   expect(calls[1][1]).toMatchObject({ redirect: "manual", headers: { "Accept-Encoding": "identity" } });
   expect(new Headers(calls[1][1]!.headers).has("Authorization")).toBe(false);
@@ -306,7 +306,7 @@ it("rejects cross-origin, non-JSON, missing maintenance acknowledgement and extr
 it("fails closed on incomplete export configuration and never exports a local development database remotely", async () => {
   const network = mockExport();
   for (const bindings of [{ ...runtime, BACKUP_ACCOUNT_ID: "" }, { ...runtime, BACKUP_DATABASE_ID: "invalid" },
-    { ...runtime, CLOUDFLARE_API_TOKEN: "" }, { ...runtime, BACKUP_ENCRYPTION_KEY: "short" }, { ...runtime, APP_ENV: "development" }]) {
+    { ...runtime, D1_EXPORT_TOKEN: "" }, { ...runtime, BACKUP_ENCRYPTION_KEY: "short" }, { ...runtime, APP_ENV: "development" }]) {
     expect((await send("/admin/backups", input, owner, bindings)).status).toBe(503);
     expect((await data<{ targets: { download: boolean } }>(await send("/admin/backups/status", undefined, owner, bindings))).targets.download).toBe(false);
   }
@@ -365,7 +365,7 @@ it("logs the upstream status and numeric API codes of a rejected export without 
   const failed = await create(); expect(failed).toMatchObject({ status: "failed", failure: { code: "BACKUP_EXPORT_FAILED" } });
   const logged = warn.mock.calls.map(([line]) => String(line)).filter(line => line.includes("backup_export_rejected"));
   expect(logged.map(line => JSON.parse(line))).toEqual([{ event: "backup_export_rejected", jobId: failed.id, httpStatus: 403, errors: [10000], error: "BACKUP_EXPORT_FAILED" }]);
-  for (const privateValue of [signed, "Authentication error", runtime.CLOUDFLARE_API_TOKEN, runtime.BACKUP_ACCOUNT_ID]) expect(logged.join()).not.toContain(privateValue);
+  for (const privateValue of [signed, "Authentication error", runtime.D1_EXPORT_TOKEN, runtime.BACKUP_ACCOUNT_ID]) expect(logged.join()).not.toContain(privateValue);
 });
 
 it("keeps upstream errors and signed redirects private, and never follows redirects", async () => {

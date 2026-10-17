@@ -107,7 +107,7 @@ export default defineConfig(({ mode = "development" }) => {
         BETTER_AUTH_SECRET: bindings.secret(),
         TURNSTILE_SECRET_KEY: bindings.secret(),
         BACKUP_ENCRYPTION_KEY: bindings.secret(),
-        CLOUDFLARE_API_TOKEN: bindings.secret(),
+        D1_EXPORT_TOKEN: bindings.secret(),
         // cf secret declarations are deploy requirements. Optional remote secrets are provisioned separately and preserved.
         ...(mode === "development" || mode === "test" ? {
           BACKUP_KEYRING: bindings.secret(),

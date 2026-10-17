@@ -18,7 +18,7 @@ export function recoveryWorker(mode = "production") {
       BACKUP_DATABASE_ID: bindings.text(sourceId), RESTORE_TARGET_DATABASE_ID: bindings.text(targetId),
       RESTORE_DB: bindings.d1({ name: required("RESTORE_TARGET_DATABASE_NAME"), id: targetId }),
       MEDIA_BUCKET: bindings.r2({ name: required("RESTORE_SOURCE_BUCKET_NAME") }),
-      CLOUDFLARE_API_TOKEN: bindings.secret(), BACKUP_ENCRYPTION_KEY: bindings.secret(),
+      D1_IMPORT_TOKEN: bindings.secret(), BACKUP_ENCRYPTION_KEY: bindings.secret(),
       ...(mode === "development" || mode === "test" ? { BACKUP_KEYRING: bindings.secret() } : {}),
       BETTER_AUTH_SECRET: bindings.secret(), RESTORE_NEW_AUTH_SECRET: bindings.secret(), RESTORE_OPERATOR_TOKEN: bindings.secret(),
     },

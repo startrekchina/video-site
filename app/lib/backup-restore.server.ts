@@ -6,7 +6,7 @@ import { backupKeyId, backupKeys } from "./backup-keys.server";
 import { backupFingerprint, decryptBackupForRestore, type BackupScope } from "./backup-storage.server";
 
 const requireValid = (value: unknown) => { if (!value) throw new Error("RESTORE_VALIDATION_FAILED"); };
-type RecoveryEnv = Pick<Env, "APP_ENV" | "BACKUP_DATABASE_ID" | "BACKUP_ACCOUNT_ID" | "CLOUDFLARE_API_TOKEN" | "MEDIA_BUCKET" | "BACKUP_KEYRING" | "BACKUP_ENCRYPTION_KEY" | "BETTER_AUTH_SECRET">;
+type RecoveryEnv = Pick<Env, "APP_ENV" | "BACKUP_DATABASE_ID" | "BACKUP_ACCOUNT_ID" | "MEDIA_BUCKET" | "BACKUP_KEYRING" | "BACKUP_ENCRYPTION_KEY" | "BETTER_AUTH_SECRET"> & { D1_IMPORT_TOKEN: string };
 const businessTables = ["works", "seasons", "playable_units", "media_files", "subtitle_tracks", "user", "account", "member_profiles", "invitations",
   "passkey", "watch_progress", "favorites", "playlists", "playlist_items", "comments", "comment_replies", "discussion_votes"] as const;
 async function metadata(response: Response) {
@@ -44,7 +44,7 @@ export async function restoreBackup(env: RecoveryEnv, target: { db: D1Database; 
     requireValid(decrypted.source.authKeyId === authentication!.authKeyId);
     const endpoint = `https://api.cloudflare.com/client/v4/accounts/${env.BACKUP_ACCOUNT_ID}/d1/database/${target.id}/import`;
     const call = async (body: object) => metadata(await fetch(endpoint, { method: "POST", redirect: "manual", signal,
-      headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }));
+      headers: { Authorization: `Bearer ${env.D1_IMPORT_TOKEN}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }));
     const init = await call({ action: "init", etag: decrypted.md5 });
     requireValid(typeof init.filename === "string" && init.filename.length > 0 && init.filename.length <= 1024);
     if (init.upload_url) {

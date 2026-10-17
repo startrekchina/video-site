@@ -5,7 +5,7 @@ import recoveryWorker from "../tools/backup-restore/worker";
 import { backupKeyId } from "@/lib/backup-keys.server";
 
 const bindings = { ...env, APP_ENV: "test", BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", RESTORE_TARGET_DATABASE_ID: "00000000-0000-4000-8000-000000000001",
-  RESTORE_DB: env.TEST_RESTORE_DB, RESTORE_NEW_AUTH_SECRET: "fictional-new-auth-secret-0123456789abcdef", RESTORE_OPERATOR_TOKEN: "fictional-operator-token-0123456789abcdef" };
+  RESTORE_DB: env.TEST_RESTORE_DB, RESTORE_NEW_AUTH_SECRET: "fictional-new-auth-secret-0123456789abcdef", RESTORE_OPERATOR_TOKEN: "fictional-operator-token-0123456789abcdef", D1_IMPORT_TOKEN: "fictional-import-token" };
 const key = `backup-restore-control/test/${bindings.RESTORE_TARGET_DATABASE_ID}.json`;
 async function send(body: object, headers: Record<string, string> = {}, config = bindings) {
   const ctx = createExecutionContext(), response = await recoveryWorker.fetch(new Request("https://recovery.example.test/operate", { method: "POST",
