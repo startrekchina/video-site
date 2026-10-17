@@ -13,13 +13,13 @@ const uuid = "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12
 const jobIdPattern = new RegExp(`^\\d{16}-${uuid}$`, "u"), uuidPattern = new RegExp(`^${uuid}$`, "u");
 const maxExportBytes = 5 * 1024 ** 3 - 5 * 1024 ** 2 - 4096 - 28;
 const failureMessages = {
-  BACKUP_EXPORT_FAILED: "数据库导出失败，可以稍后重试。",
-  BACKUP_EXPORT_FORMAT: "导出文件长度未知、编码不受支持或超过单次存储上限，本次未保存。",
-  BACKUP_STORAGE_FAILED: "暂存或校验失败，没有完成，可以重试；已完整暂存的导出数据会在重试时直接使用。",
-  BACKUP_ENCRYPTION_FAILED: "加密或校验失败；已导出的数据会保留，重试时直接使用。",
-  BACKUP_INTERRUPTED: "备份中途中断（例如关闭了页面），没有完成，可以重试。",
-  BACKUP_TIMED_OUT: "备份超过执行时限，没有完成，可以重试。",
-  BACKUP_TARGET_FAILED: "上传或回读校验失败；加密文件已保留，可以先下载，也可以重试上传。",
+  BACKUP_EXPORT_FAILED: "数据库导出失败。",
+  BACKUP_EXPORT_FORMAT: "导出文件长度未知、编码不受支持或超过单次存储上限。",
+  BACKUP_STORAGE_FAILED: "暂存或校验失败。",
+  BACKUP_ENCRYPTION_FAILED: "加密或校验失败。",
+  BACKUP_INTERRUPTED: "备份中途中断（例如关闭了页面）。",
+  BACKUP_TIMED_OUT: "备份超过执行时限。",
+  BACKUP_TARGET_FAILED: "上传或回读校验失败，加密文件已保留。",
 } as const;
 type Failure = keyof typeof failureMessages;
 type Artifact = Awaited<ReturnType<typeof encryptBackup>>;
@@ -30,9 +30,9 @@ type Job = { id: string; environment: BackupScope["environment"]; createdAt: num
 type Lease = { jobId: string; attempt: string; deadline: number; updatedAt?: number };
 export type BackupFrequency = "daily" | "weekly" | "interval";
 const scheduleFailures = {
-  BACKUP_TARGET_UNAVAILABLE: "保存渠道或导出配置失效，本次没有执行；修复配置后可以手动创建备份。",
-  BACKUP_BUSY: "到点时已有备份或清理在进行，本次没有重复执行；请查看备份记录。",
-  BACKUP_STATE_FAILED: "本次备份的结果没有完整保存，请刷新记录查看；不会自动重试。",
+  BACKUP_TARGET_UNAVAILABLE: "保存渠道或导出配置失效，本次没有执行。",
+  BACKUP_BUSY: "到点时已有备份或清理在进行，本次没有执行。",
+  BACKUP_STATE_FAILED: "本次备份的结果没有完整保存，请刷新记录查看。",
 } as const;
 export type BackupSchedule = { enabled: boolean; target: ExternalBackupTarget; frequency: BackupFrequency; intervalDays: number | null;
   weekday: number | null; time: string; anchorDate: string | null; nextRunAt: number | null; lastRunAt: number | null;
@@ -511,7 +511,7 @@ export async function backupStatus(env: Env, after: string | null = null) {
   return { environment: environment(env), items: jobs.map(job => publicJob(job!.value)), after: page.truncated ? ids.at(-1)! : null,
     targets: { download: configured(env), ...Object.fromEntries(Object.entries(backupTargetAvailability(env)).map(([key, ready]) => [key, configured(env) && ready])) } as Record<BackupTarget, boolean>,
     schedule: await publicSchedule(schedule?.value ?? defaultSchedule(), env),
-    unavailableReason: configured(env) ? null : "本环境未配置数据库导出（本地开发环境不连接线上数据库），暂时不能创建备份。" };
+    unavailableReason: configured(env) ? null : "本环境未配置数据库导出，不能创建备份。" };
 }
 
 export async function backupsHttp(request: Request, env: Env, ctx: ExecutionContext, identity = createRequestIdentity(request, env)) {
@@ -555,7 +555,7 @@ export async function backupsHttp(request: Request, env: Env, ctx: ExecutionCont
     if (body.maintenanceConfirmed !== true || Object.keys(body).some(key => !["target", "maintenanceConfirmed"].includes(key))) throw invalid();
     if (body.target !== "download" && body.target !== "webdav" && body.target !== "s3"
       || body.target !== "download" && !backupTargetAvailability(env)[body.target]) throw new APIError("BAD_REQUEST", { code: "BACKUP_TARGET_UNAVAILABLE", message: "所选保存位置未配置或配置无效。" });
-    if (!configured(env)) throw new APIError("SERVICE_UNAVAILABLE", { code: "BACKUP_CONFIG_INVALID", message: "本环境未配置数据库导出（本地开发环境不连接线上数据库），暂时不能创建备份。" });
+    if (!configured(env)) throw new APIError("SERVICE_UNAVAILABLE", { code: "BACKUP_CONFIG_INVALID", message: "本环境未配置数据库导出，不能创建备份。" });
     const old = match ? await readJob(env, match[1]) : undefined;
     if (match && !old) throw new APIError("NOT_FOUND", { code: "BACKUP_NOT_FOUND", message: "找不到这次备份。" });
     if (old && (old.value.target ?? "download") !== body.target) throw invalid();

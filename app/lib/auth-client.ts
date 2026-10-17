@@ -19,7 +19,7 @@ const messages: Record<string, string> = {
   INVALID_TWO_FACTOR_COOKIE: "二步验证已超时，请重新登录。", INVALID_CODE: "动态验证码或备用码不正确。",
   ADMIN_CHANGE_REJECTED: "操作未生效：该成员状态可能已变化，或此操作涉及你自己或最后一位管理员。请刷新页面后查看。",
   BACKUP_OWNER_REQUIRED: "仅本站站长可操作备份。", BACKUP_BUSY: "已有备份或清理正在进行，请等它结束后再试。",
-  BACKUP_CONFIG_INVALID: "本环境未配置数据库导出（本地开发环境不连接线上数据库），暂时不能创建备份。", BACKUP_TARGET_UNAVAILABLE: "所选保存位置未配置或配置无效。",
+  BACKUP_CONFIG_INVALID: "本环境未配置数据库导出，不能创建备份。", BACKUP_TARGET_UNAVAILABLE: "所选保存位置未配置或配置无效。",
   BACKUP_STATE_CHANGED: "备份状态已变化，请刷新页面查看。", BACKUP_ALREADY_COMPLETE: "这次备份已经成功，无需重试。",
   BACKUP_NOT_FOUND: "找不到这次备份。", BACKUP_NOT_READY: "这次备份没有完成，或加密文件已过期清理，不能下载。",
   BACKUP_OBJECT_CHANGED: "备份文件缺失或已被改动，为安全起见拒绝下载。",
