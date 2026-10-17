@@ -139,6 +139,8 @@ D1 polling 契约由[官方导出测试](https://github.com/cloudflare/workers-s
 
 轮询修复本地自检：`pnpm test test/backups.test.ts test/backup-schedule.test.ts` 59 项通过，含新增 5 项成功与拒绝边界；`pnpm typecheck`、staging 构建和 `git diff --check` 通过。staging 构建首次因当前工作树缺少 `STAGING_D1_DATABASE_NAME` 在编译前停止，以 Node `--env-file` 注入已有私有环境映射后通过，未复制或改写配置。D1 REST 仍为模拟，复用既有暂存、加密和调度测试，不重复无关模块或浏览器检查；既有 cf/Vite 配置弃用提示保留，本地结果不替代 staging 实际备份、时限和内存验证。
 
+轮询修复 staging 交付（2026-10-17）：`8d3880e` 快进合入并推送 `dev`，Workers Builds 构建 `69834604-6e02-47ae-ab70-7b79e107ecbd` 成功，31 个应用测试文件共 391 项、工具 21 项、类型检查及 staging 构建通过。版本 `36706559-1760-4d26-9ad4-72a201021617` 承载 100% 流量，来源 SHA 匹配；运行时绑定、环境配置、11 个 Secret 绑定及兼容日期与发布前一致。匿名首页 `200`、备份页 `302` 到登录、状态接口 `401`，均带 `noindex` 和 `private, no-store`。没有代登录或再次触发真实导出，实际加密下载待开发者重试确认；未操作 production。
+
 ## 当前运维风险
 
 - cf beta.12 固定 strict 检查因 staging 最近由 script API 更新而拒绝上传；官方 beta.16 同样固定 `strict: true`，不能仅靠升级解除。staging 采用已获准的 Wrangler 补充发布，开发、构建和迁移继续使用 cf；生成配置须核对模式、目标、全部拆分模块及静态资源，不读取或重建既有运行时 Secrets。直接 API 发布仍需另行授权，不修改 CLI 内部实现或重建 Worker。
