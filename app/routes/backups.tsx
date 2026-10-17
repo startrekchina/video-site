@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { data, Link, useRevalidator } from "react-router";
-import { DownloadIcon, RefreshCwIcon } from "lucide-react";
+import { data, Link, useRevalidator, useSearchParams } from "react-router";
+import { ArchiveIcon, DownloadIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
 import type { Route } from "./+types/backups";
 import { backupStatus, isBackupOwner, type BackupFrequency } from "@/lib/backups.server";
 import { pageMember } from "@/lib/member.server";
@@ -10,13 +10,23 @@ import { pageTitle } from "@/lib/site";
 import { useAction } from "@/components/site/account-form";
 import { Page, PageHeading, PageHeadingDescription, PageHeadingTagline, PageHeadingTitle, Panel, PanelHeader, PanelTitle, Separator } from "@/components/site/panel";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { StatusButton } from "@/components/ui/status-button";
+import { Tag } from "@/components/ui/tag";
+import { toast } from "@/components/ui/toast";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const labels: Record<BackupTarget, string> = { download: "加密下载", webdav: "WebDAV", s3: "S3" };
+const environments: Record<string, string> = { development: "本地开发", test: "测试", staging: "测试站", production: "正式站" };
 type Status = Awaited<ReturnType<typeof backupStatus>>;
 type Job = Status["items"][number];
-const frequencyLabels: Record<BackupFrequency, string> = { daily: "每天", weekly: "每周", interval: "每隔 N 天" };
+const frequencyLabels: Record<BackupFrequency, string> = { daily: "每天", weekly: "每周", interval: "每隔几天" };
 const weekdayLabels = [[1, "周一"], [2, "周二"], [3, "周三"], [4, "周四"], [5, "周五"], [6, "周六"], [0, "周日"]] as const;
+// Native selects keep the Input look so the form reads as one control set.
+const select = "h-9 w-full rounded-lg border border-input bg-transparent px-2.5 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env, current = await pageMember(request, env, context.identity);
   if (!isBackupOwner(current.member, env)) throw data({ message: "仅本站站长可访问备份。" }, { status: 403, headers: current.headers });
@@ -24,11 +34,21 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 }
 export const meta = () => pageTitle("数据备份");
 const time = (value: number) => new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "short" }).format(value);
+const message = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
+
+function JobStatus({ job }: { job: Job }) {
+  if (job.deleted) return <Tag>已过期清理</Tag>;
+  if (job.status === "complete") return <Tag className="text-success">成功</Tag>;
+  if (job.status === "running") return <Tag>进行中</Tag>;
+  return <Tag className="text-destructive">失败</Tag>;
+}
 
 export default function BackupsPage({ loaderData: state }: Route.ComponentProps) {
-  const action = useAction(), scheduleAction = useAction(), revalidator = useRevalidator();
+  const scheduleAction = useAction(), revalidator = useRevalidator(), [params] = useSearchParams();
   const saved = state.schedule, savedTarget = saved.updatedAt || state.targets[saved.target] ? saved.target : state.targets.s3 ? "s3" : "webdav";
-  const [target, setTarget] = useState<BackupTarget>("download"), [confirmed, setConfirmed] = useState(false);
+  const [target, setTarget] = useState<BackupTarget>("download"), [busy, setBusy] = useState(false);
+  // undefined: no dialog; null: a new backup; a job: retrying that job.
+  const [confirming, setConfirming] = useState<Job | null | undefined>();
   const [scheduleEnabled, setScheduleEnabled] = useState(state.schedule.enabled), [scheduleTarget, setScheduleTarget] = useState<ExternalBackupTarget>(savedTarget);
   const [frequency, setFrequency] = useState<BackupFrequency>(state.schedule.frequency), [intervalDays, setIntervalDays] = useState(state.schedule.intervalDays ?? 7);
   const [weekday, setWeekday] = useState(state.schedule.weekday ?? 1), [scheduleTime, setScheduleTime] = useState(state.schedule.time);
@@ -39,16 +59,29 @@ export default function BackupsPage({ loaderData: state }: Route.ComponentProps)
     setIntervalDays(saved.intervalDays ?? 7); setWeekday(saved.weekday ?? 1); setScheduleTime(saved.time);
   }, [saved.enabled, savedTarget, saved.frequency, saved.intervalDays, saved.weekday, saved.time]);
   useEffect(() => {
-    if (!running || action.busy) return;
+    if (!running || busy) return;
     const timer = setInterval(() => revalidator.revalidate(), 5000);
     return () => clearInterval(timer);
-  }, [running, action.busy, revalidator]);
-  async function create(job?: Job) {
+  }, [running, busy, revalidator]);
+  async function start() {
+    if (confirming === undefined || busy) return;
+    const job = confirming; setBusy(true);
     try {
       const made = await call<Job>(job ? `/admin/backups/${job.id}/retry` : "/admin/backups", { target: job?.target ?? target, maintenanceConfirmed: true });
-      if (made.status !== "complete") throw new Error(made.failure?.message ?? "备份未确认成功，请刷新状态后人工重试。");
-      action.setMessage(labels[made.target] + "备份完整成功。" + (made.cleanup?.status === "failed" ? "过期清理未全部成功，可单独重试清理。" : ""));
-    } finally { revalidator.revalidate(); }
+      if (made.status !== "complete") toast.add({ title: made.failure?.message ?? "备份没有完成，请查看记录后重试。", type: "error" });
+      else toast.add({ title: (made.target === "download" ? "备份完成，可在记录中下载加密文件。" : `已备份到 ${labels[made.target]}，并通过回读校验。`)
+        + (made.cleanup?.status === "failed" ? "过期清理没有全部完成，可稍后在页面底部立即清理。" : ""), type: "success" });
+    } catch (error) { toast.add({ title: message(error, "备份没有完成，请稍后重试。"), type: "error" }); }
+    finally { setBusy(false); setConfirming(undefined); revalidator.revalidate(); }
+  }
+  async function cleanup() {
+    setBusy(true);
+    try {
+      const result = await call<{ status: string; deleted: number }>("/admin/backups/cleanup", {});
+      if (result.status === "complete") toast.add({ title: result.deleted ? `清理完成，删除了 ${result.deleted} 份过期备份。` : "没有需要清理的过期备份。", type: "success" });
+      else toast.add({ title: "清理没有全部完成，未删除的副本会保留。请检查保存位置配置和历史密钥后重试。", type: "error" });
+    } catch (error) { toast.add({ title: message(error, "清理没有完成，请稍后重试。"), type: "error" }); }
+    finally { setBusy(false); revalidator.revalidate(); }
   }
   async function saveSchedule(event: FormEvent) {
     event.preventDefault();
@@ -58,60 +91,85 @@ export default function BackupsPage({ loaderData: state }: Route.ComponentProps)
       scheduleAction.setMessage("自动备份设置已保存。"); revalidator.revalidate();
     });
   }
+  const after = params.get("after");
   return <Page narrow>
-    <PageHeading><PageHeadingTagline>站长运维 · {state.environment}</PageHeadingTagline><PageHeadingTitle>数据备份。</PageHeadingTitle>
-      <PageHeadingDescription>数据库包含成员敏感数据。只提供认证加密文件；媒体仍由本地冷备保管，恢复需要对应的历史认证与备份密钥。</PageHeadingDescription></PageHeading>
-    <div className="px-4 py-3 text-sm"><Link to="/admin" className="link-underline">返回管理后台</Link><span className="ml-4 text-muted-foreground">时间均为北京时间</span></div>
+    <PageHeading><PageHeadingTagline>站长运维 · {environments[state.environment] ?? state.environment}</PageHeadingTagline><PageHeadingTitle>数据备份。</PageHeadingTitle>
+      <PageHeadingDescription>备份的是整个数据库，含成员账号等敏感数据，只以加密文件保存和下载。媒体文件不在备份内，由站长本地冷备。恢复时需要备份当时的认证密钥与备份密钥，请离线妥善保管。</PageHeadingDescription></PageHeading>
+    <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3 text-sm"><Link to="/admin" className="link-underline">返回管理后台</Link><span className="text-muted-foreground">本页时间均为北京时间</span></div>
     <Separator /><Panel><PanelHeader><PanelTitle>手动备份</PanelTitle></PanelHeader>
-      <form className="space-y-4 px-4 py-4" onSubmit={event => { event.preventDefault(); if (confirmed) void action.run(() => create()); }}>
-        <fieldset disabled={action.busy || running}><legend className="mb-2 text-sm font-medium">保存目标</legend><div className="flex flex-wrap gap-4">
-          {(Object.keys(labels) as BackupTarget[]).map(value => <label key={value} className="flex items-center gap-2 text-sm"><input type="radio" name="target" value={value} checked={target === value} disabled={!state.targets[value]} onChange={() => setTarget(value)} />{labels[value]}{!state.targets[value] && <span className="text-xs text-muted-foreground">未就绪</span>}</label>)}
-        </div></fieldset>
-        {state.unavailableReason && <p role="status" className="text-sm text-muted-foreground">{state.unavailableReason}</p>}
-        <p className="text-sm text-muted-foreground">{state.notice}</p>
-        <label className="flex items-start gap-2 text-sm"><input className="mt-1" type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />我已了解查询可能受影响，选择合适时机执行，并独立保管所需密钥。</label>
-        <StatusButton type="submit" status={action.busy ? "loading" : "idle"} disabled={!confirmed || running || !state.targets[target]}>创建备份</StatusButton>
-      </form>
-    </Panel><div className="px-4 py-3">{action.feedback}</div>
+      <div className="space-y-4 p-4">
+        <Field><FieldLabel>保存位置</FieldLabel>
+          <ToggleGroup aria-label="保存位置" value={[target]} onValueChange={value => value[0] && setTarget(value[0] as BackupTarget)} variant="outline" className="w-full" disabled={busy || running}>
+            {(Object.keys(labels) as BackupTarget[]).map(value => <ToggleGroupItem key={value} value={value} disabled={!state.targets[value]} className="flex-1">{labels[value]}</ToggleGroupItem>)}
+          </ToggleGroup>
+          <FieldDescription>{target === "download" ? "生成加密文件，完成后在下方记录中下载到本机。" : `上传到预先配置的 ${labels[target]} 并回读核对；加密文件同样可以下载。`}
+            {(!state.targets.webdav || !state.targets.s3) && "未配置的保存位置不可选。"}</FieldDescription>
+        </Field>
+        {state.unavailableReason && <p role="status" className="text-sm text-destructive">{state.unavailableReason}</p>}
+        {running && <p role="status" className="text-sm text-muted-foreground">有备份正在进行，完成后才能再次创建。</p>}
+        <Button disabled={busy || running || !state.targets[target]} onClick={() => setConfirming(null)}>创建备份</Button>
+      </div>
+    </Panel>
     <Separator /><Panel><PanelHeader><PanelTitle>自动备份</PanelTitle></PanelHeader>
-      <form className="space-y-4 px-4 py-4" onSubmit={saveSchedule}>
-        <p className="text-sm text-muted-foreground">只有配置完整的 WebDAV 或 S3 目标后才能设置并启用。执行时间使用北京时间，Worker 每 5 分钟检查一次，正常到点后约 5 分钟内开始；错过多个时点只执行一次，失败不自动重试。</p>
-        <p className="text-sm text-muted-foreground">导出期间成员查询可能暂时不可用，请选择合适的维护时段，并独立保管历史认证与备份密钥。</p>
-        {!scheduleReady && <p role="status" className="text-sm text-muted-foreground">当前没有可用的外部备份渠道；直接下载和私有暂存不能启用定时备份。</p>}
-        {saved.enabled && !saved.targetReady && <p role="status" className="text-sm text-destructive">已保存的渠道当前不可执行。请修复服务端配置、选择可用渠道，或关闭自动备份。</p>}
-        <label className="flex items-start gap-2 text-sm"><input className="mt-1" type="checkbox" checked={scheduleEnabled} disabled={scheduleAction.busy || !scheduleReady && !scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} />启用自动备份</label>
-        <fieldset className="grid gap-4 sm:grid-cols-2" disabled={!scheduleReady || scheduleAction.busy}>
-          <label className="grid gap-1 text-sm"><span className="font-medium">保存渠道</span><select className="min-h-10 rounded-md border border-input bg-background px-3" value={scheduleTarget} onChange={event => setScheduleTarget(event.target.value as ExternalBackupTarget)}>{(["webdav", "s3"] as ExternalBackupTarget[]).map(value => <option key={value} value={value} disabled={!state.targets[value]}>{labels[value]}{!state.targets[value] ? "（未就绪）" : ""}</option>)}</select></label>
-          <label className="grid gap-1 text-sm"><span className="font-medium">频率</span><select className="min-h-10 rounded-md border border-input bg-background px-3" value={frequency} onChange={event => setFrequency(event.target.value as BackupFrequency)}>{(Object.keys(frequencyLabels) as BackupFrequency[]).map(value => <option key={value} value={value}>{frequencyLabels[value]}</option>)}</select></label>
-          {frequency === "interval" && <label className="grid gap-1 text-sm"><span className="font-medium">间隔天数</span><input className="min-h-10 rounded-md border border-input bg-background px-3" type="number" required min={1} max={30} value={intervalDays} onChange={event => setIntervalDays(Number(event.target.value))} /></label>}
-          {frequency === "weekly" && <label className="grid gap-1 text-sm"><span className="font-medium">每周几</span><select className="min-h-10 rounded-md border border-input bg-background px-3" value={weekday} onChange={event => setWeekday(Number(event.target.value))}>{weekdayLabels.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
-          <label className="grid gap-1 text-sm"><span className="font-medium">北京时间</span><input className="min-h-10 rounded-md border border-input bg-background px-3" type="time" required step={60} value={scheduleTime} onChange={event => setScheduleTime(event.target.value)} /></label>
-        </fieldset>
-        {saved.enabled && saved.nextRunAt && <p className="text-sm text-muted-foreground">下次执行：{time(saved.nextRunAt)} · {labels[saved.target]}</p>}
-        {saved.lastRunAt && <p className="text-sm text-muted-foreground">上次执行：{time(saved.lastRunAt)} · {saved.lastStatus === "failed" ? "未完成，请检查记录后人工重试。" : saved.lastStatus === "running" ? "正在执行" : "完整成功"}</p>}
-        {saved.failure && <p role="status" className="text-sm text-destructive">{saved.failure.message}</p>}
-        <StatusButton type="submit" status={scheduleAction.busy ? "loading" : "idle"} disabled={scheduleEnabled && !state.targets[scheduleTarget]}>保存定时设置</StatusButton>
-        {scheduleAction.feedback}
+      <form className="space-y-4 p-4" onSubmit={saveSchedule}>
+        <p className="text-sm text-muted-foreground">按设定的北京时间自动备份到 WebDAV 或 S3，到点后约 5 分钟内开始。错过多个时点只补做一次；失败不会自动重试，可在记录中手动重试。导出期间成员查询可能暂时不可用，建议选在访问较少的时段。</p>
+        {!scheduleReady && !saved.enabled ? <p role="status" className="text-sm">尚未配置 WebDAV 或 S3，暂时不能开启自动备份；加密下载只能手动创建。</p> : <>
+          {saved.enabled && !saved.targetReady && <p role="status" className="text-sm text-destructive">已保存的渠道当前不可执行，自动备份不会运行。请修复服务端配置、改选可用渠道，或关闭自动备份。</p>}
+          <label className="flex items-center gap-2 text-sm font-medium"><input className="size-4 accent-foreground" type="checkbox" checked={scheduleEnabled} disabled={scheduleAction.busy || !scheduleReady && !scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} />启用自动备份</label>
+          <fieldset className="grid gap-4 sm:grid-cols-2" disabled={!scheduleReady || scheduleAction.busy}>
+            <Field><FieldLabel htmlFor="schedule-target">保存渠道</FieldLabel><select id="schedule-target" className={select} value={scheduleTarget} onChange={event => setScheduleTarget(event.target.value as ExternalBackupTarget)}>
+              {(["webdav", "s3"] as ExternalBackupTarget[]).map(value => <option key={value} value={value} disabled={!state.targets[value]}>{labels[value]}{!state.targets[value] ? "（未配置）" : ""}</option>)}</select></Field>
+            <Field><FieldLabel htmlFor="schedule-time">时间</FieldLabel><Input id="schedule-time" type="time" required step={60} value={scheduleTime} onChange={event => setScheduleTime(event.target.value)} /></Field>
+            <Field className="sm:col-span-2"><FieldLabel>频率</FieldLabel>
+              <ToggleGroup aria-label="频率" value={[frequency]} onValueChange={value => value[0] && setFrequency(value[0] as BackupFrequency)} variant="outline" className="w-full">
+                {(Object.keys(frequencyLabels) as BackupFrequency[]).map(value => <ToggleGroupItem key={value} value={value} className="flex-1">{frequencyLabels[value]}</ToggleGroupItem>)}
+              </ToggleGroup></Field>
+            {frequency === "weekly" && <Field><FieldLabel htmlFor="schedule-weekday">星期</FieldLabel><select id="schedule-weekday" className={select} value={weekday} onChange={event => setWeekday(Number(event.target.value))}>
+              {weekdayLabels.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>}
+            {frequency === "interval" && <Field><FieldLabel htmlFor="schedule-interval">间隔天数</FieldLabel><Input id="schedule-interval" type="number" required min={1} max={30} value={intervalDays} onChange={event => setIntervalDays(Number(event.target.value))} />
+              <FieldDescription>1–30 天</FieldDescription></Field>}
+          </fieldset>
+          {(saved.enabled && saved.nextRunAt || saved.lastRunAt) && <dl className="grid gap-1 text-sm">
+            {saved.enabled && saved.nextRunAt && <div><dt className="inline text-muted-foreground">下次执行 </dt><dd className="inline">{time(saved.nextRunAt)} · {labels[saved.target]}</dd></div>}
+            {saved.lastRunAt && <div><dt className="inline text-muted-foreground">上次执行 </dt><dd className="inline">{time(saved.lastRunAt)} · {saved.lastStatus === "failed" ? "失败，请查看记录后手动重试" : saved.lastStatus === "running" ? "进行中" : "成功"}</dd></div>}
+          </dl>}
+          {saved.failure && <p role="status" className="text-sm text-destructive">{saved.failure.message}</p>}
+          <StatusButton type="submit" status={scheduleAction.busy ? "loading" : "idle"} disabled={scheduleEnabled && !state.targets[scheduleTarget]}>保存设置</StatusButton>
+          {scheduleAction.feedback}
+        </>}
       </form>
     </Panel>
-    <Separator /><Panel><PanelHeader className="flex-wrap gap-2"><PanelTitle>备份记录</PanelTitle><Button size="sm" variant="ghost" disabled={action.busy || revalidator.state !== "idle"} onClick={() => revalidator.revalidate()}><RefreshCwIcon />刷新状态</Button></PanelHeader>
-      <div className="divide-y divide-line">{state.items.map(job => <article key={job.id} className="space-y-2 px-4 py-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-sm font-medium">{time(job.backupTime ?? job.createdAt)} · {labels[job.target]}</h2><span className="text-xs text-muted-foreground">{job.deleted ? "已按保留策略清理" : job.status === "complete" ? "完整成功" : job.status === "running" ? "正在执行" : "未完成"}</span></div>
-        <p className="break-all font-mono text-[11px] text-muted-foreground">{job.id}</p>
-        {job.failure && <p role="status" className="text-sm text-destructive">{job.failure.message}</p>}
-        {job.r2Deleted && !job.deleted && <p className="text-xs text-muted-foreground">R2 暂存已清理，外部副本按该端保留策略保留。</p>}
-        {job.keyId && <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">文件与密钥指纹</summary><div className="space-y-1 break-all py-2 font-mono"><p>{job.byteLength?.toLocaleString()} bytes</p><p>Backup: {job.keyId}</p><p>Auth: {job.authKeyId ?? "未记录，恢复前须人工确认"}</p></div></details>}
-        {job.cleanup?.status === "failed" && <p className="text-xs text-destructive">备份成功，但过期清理未全部成功，可单独重试。</p>}
-        <div className="flex flex-wrap gap-2">{job.downloadReady && <Button variant="outline" size="sm" render={<a href={`/admin/backups/${job.id}/download`} download />}><DownloadIcon />下载加密副本</Button>}
-          {job.status === "failed" && !job.r2Deleted && <Button variant="outline" size="sm" disabled={action.busy || running || !confirmed || !state.targets[job.target]} onClick={() => void action.run(() => create(job))}>人工重试</Button>}</div>
-      </article>)}{!state.items.length && <p className="px-4 py-8 text-center text-sm text-muted-foreground">本环境还没有备份记录。</p>}</div>
-      <div className="screen-line-top flex flex-wrap items-center gap-3 px-4 py-3">{state.after && <Link className="link-underline text-sm" to={"/admin/backups?after=" + state.after}>更早记录</Link>}<Link className="link-underline text-sm" to="/admin/backups">最新记录</Link>
-        <Button className="ml-auto" variant="ghost" size="sm" disabled={action.busy || running} onClick={() => void action.run(async () => {
-          const result = await call<{ status: string; deleted: number }>("/admin/backups/cleanup", {});
-          revalidator.revalidate(); if (result.status !== "complete") throw new Error("清理未全部完成；请检查目标配置、历史密钥和存储状态，再人工重试。未完成的副本仍保留。");
-          action.setMessage(`清理完成，清理 ${result.deleted} 份过期备份；各端最后一份可恢复副本受保护。`);
-        })}>重试过期清理</Button></div>
+    <Separator /><Panel><PanelHeader><PanelTitle>备份记录</PanelTitle><Button size="sm" variant="ghost" disabled={busy || revalidator.state !== "idle"} onClick={() => revalidator.revalidate()}><RefreshCwIcon />刷新</Button></PanelHeader>
+      {!state.items.length ? <Empty className="rounded-none py-12"><EmptyHeader><EmptyMedia variant="icon"><ArchiveIcon /></EmptyMedia><EmptyTitle>还没有备份记录</EmptyTitle><EmptyDescription>创建备份后，结果和下载入口会显示在这里。</EmptyDescription></EmptyHeader></Empty>
+        : <div className="divide-y divide-line">{state.items.map(job => <article key={job.id} className="space-y-1.5 p-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2"><h2 className="text-sm font-medium">{time(job.backupTime ?? job.createdAt)}</h2><span className="text-sm text-muted-foreground">{labels[job.target]}</span><JobStatus job={job} /></div>
+            {(job.downloadReady || job.status === "failed" && !job.r2Deleted) && <div className="flex gap-2">
+              {job.downloadReady && <Button variant="outline" size="sm" render={<a href={`/admin/backups/${job.id}/download`} download />}><DownloadIcon />下载</Button>}
+              {job.status === "failed" && !job.r2Deleted && <Button variant="outline" size="sm" disabled={busy || running || !state.targets[job.target]} onClick={() => setConfirming(job)}><RotateCcwIcon />重试</Button>}
+            </div>}
+          </div>
+          {job.failure && <p role="status" className="text-sm text-destructive">{job.failure.message}</p>}
+          {job.r2Deleted && !job.deleted && <p className="text-sm text-muted-foreground">站内加密文件已过期清理，外部副本按其保留期保存。</p>}
+          {job.cleanup?.status === "failed" && <p className="text-sm text-muted-foreground">备份成功，但过期清理没有全部完成，可在页面底部立即清理。</p>}
+          <details className="text-xs text-muted-foreground"><summary className="w-fit cursor-pointer py-0.5">详细信息</summary>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1 font-mono [&_dd]:break-all">
+              <dt>任务 ID</dt><dd>{job.id}</dd>
+              {job.byteLength != null && <><dt>文件大小</dt><dd>{job.byteLength.toLocaleString()} 字节</dd></>}
+              {job.keyId && <><dt>备份密钥</dt><dd>{job.keyId}</dd><dt>认证密钥</dt><dd>{job.authKeyId ?? "未记录，恢复前须人工确认"}</dd></>}
+            </dl></details>
+        </article>)}</div>}
+      {(state.after || after) && <div className="screen-line-top flex flex-wrap gap-4 px-4 py-3 text-sm">
+        {after && <Link className="link-underline" to="/admin/backups">回到最新</Link>}{state.after && <Link className="link-underline" to={"/admin/backups?after=" + state.after}>更早的记录</Link>}</div>}
     </Panel>
-    <p className="px-4 py-4 text-xs text-muted-foreground">默认保留 30 天，各端最后一份完整可恢复副本超期保护。缺历史密钥的副本不算可恢复；无法确认保护副本或外部目标已变更时，保守停止相关删除。你下载到本机的文件不由站点清理。</p>
+    <Separator /><Panel><PanelHeader><PanelTitle>过期清理</PanelTitle><Button size="sm" variant="outline" disabled={busy || running} onClick={() => void cleanup()}>立即清理</Button></PanelHeader>
+      <p className="p-4 text-sm text-muted-foreground">备份默认保留 30 天，每次备份完成后自动清理过期副本。站内存储、WebDAV、S3 各自至少保留最后一份可恢复的副本，缺少对应密钥的副本不算可恢复；无法确认时不会删除，改换保存位置后旧位置的文件也不会删除。下载到本机的文件不受影响。</p>
+    </Panel>
+    <Dialog open={confirming !== undefined} onOpenChange={open => { if (!open && !busy) setConfirming(undefined); }}><DialogContent showCloseButton={!busy}>
+      <DialogHeader><DialogTitle>{confirming ? "重试这次备份？" : "开始备份？"}</DialogTitle>
+        <DialogDescription>保存位置：{labels[confirming?.target ?? target]}。导出期间成员查询可能暂时不可用，建议选在访问较少的时候。请保持本页打开直到完成，中途关闭会中断备份，之后可以重试。</DialogDescription></DialogHeader>
+      <DialogFooter><Button variant="outline" disabled={busy} onClick={() => setConfirming(undefined)}>取消</Button>
+        <StatusButton status={busy ? "loading" : "idle"} onClick={() => void start()}>{confirming ? "重试" : "开始备份"}</StatusButton></DialogFooter>
+    </DialogContent></Dialog>
   </Page>;
 }

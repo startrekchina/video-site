@@ -13,13 +13,13 @@ const uuid = "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12
 const jobIdPattern = new RegExp(`^\\d{16}-${uuid}$`, "u"), uuidPattern = new RegExp(`^${uuid}$`, "u");
 const maxExportBytes = 5 * 1024 ** 3 - 5 * 1024 ** 2 - 4096 - 28;
 const failureMessages = {
-  BACKUP_EXPORT_FAILED: "数据库导出失败，请稍后人工重试。",
-  BACKUP_EXPORT_FORMAT: "导出文件缺少可靠长度、编码不受支持或超过单次存储限制，未标记成功。",
-  BACKUP_STORAGE_FAILED: "备份存储或校验失败，完整副本会保留供人工重试。",
-  BACKUP_ENCRYPTION_FAILED: "加密或回读校验失败，完整源副本会保留供人工重试。",
-  BACKUP_INTERRUPTED: "备份请求中断，未确认完整成功；请检查状态后人工重试。",
-  BACKUP_TIMED_OUT: "备份超过执行时限，未确认完整成功；请检查状态后人工重试。",
-  BACKUP_TARGET_FAILED: "外部上传或回读校验失败；完整 R2 副本已保留，请人工重试。",
+  BACKUP_EXPORT_FAILED: "数据库导出失败，可以稍后重试。",
+  BACKUP_EXPORT_FORMAT: "导出文件长度未知、编码不受支持或超过单次存储上限，本次未保存。",
+  BACKUP_STORAGE_FAILED: "暂存或校验失败，没有完成，可以重试；已完整暂存的导出数据会在重试时直接使用。",
+  BACKUP_ENCRYPTION_FAILED: "加密或校验失败；已导出的数据会保留，重试时直接使用。",
+  BACKUP_INTERRUPTED: "备份中途中断（例如关闭了页面），没有完成，可以重试。",
+  BACKUP_TIMED_OUT: "备份超过执行时限，没有完成，可以重试。",
+  BACKUP_TARGET_FAILED: "上传或回读校验失败；加密文件已保留，可以先下载，也可以重试上传。",
 } as const;
 type Failure = keyof typeof failureMessages;
 type Artifact = Awaited<ReturnType<typeof encryptBackup>>;
@@ -30,9 +30,9 @@ type Job = { id: string; environment: BackupScope["environment"]; createdAt: num
 type Lease = { jobId: string; attempt: string; deadline: number; updatedAt?: number };
 export type BackupFrequency = "daily" | "weekly" | "interval";
 const scheduleFailures = {
-  BACKUP_TARGET_UNAVAILABLE: "所选外部目标或导出配置失效，本次未执行；修复配置后可手动创建备份。",
-  BACKUP_BUSY: "本次执行时已有备份或清理任务，未重复导出；请检查备份记录。",
-  BACKUP_STATE_FAILED: "本次备份状态未完整保存，请刷新备份记录检查，不会自动重试。",
+  BACKUP_TARGET_UNAVAILABLE: "保存渠道或导出配置失效，本次没有执行；修复配置后可以手动创建备份。",
+  BACKUP_BUSY: "到点时已有备份或清理在进行，本次没有重复执行；请查看备份记录。",
+  BACKUP_STATE_FAILED: "本次备份的结果没有完整保存，请刷新记录查看；不会自动重试。",
 } as const;
 export type BackupSchedule = { enabled: boolean; target: ExternalBackupTarget; frequency: BackupFrequency; intervalDays: number | null;
   weekday: number | null; time: string; anchorDate: string | null; nextRunAt: number | null; lastRunAt: number | null;
@@ -207,14 +207,14 @@ function publicJob(job: Job) {
 async function acquire(env: Env, job: Job) {
   const key = `${control(env)}lease.json`, previous = await record<Lease>(env.MEDIA_BUCKET, key);
   if (previous && previous.value.deadline > Date.now()) {
-    throw rejected("BACKUP_BUSY", "本环境已有备份或清理正在执行，请等待完成或中断状态生效。");
+    throw rejected("BACKUP_BUSY", "已有备份或清理正在进行，请等它结束后再试。");
   }
   if (previous) await delay(Math.max(0, (previous.value.updatedAt ?? 0) + 1100 - Date.now()));
   const lease: Lease = { jobId: job.id, attempt: job.attempt, deadline: job.deadline, updatedAt: Date.now() };
   const locked = await env.MEDIA_BUCKET.put(key, JSON.stringify(lease), {
     onlyIf: previous ? { etagMatches: previous.etag } : { etagDoesNotMatch: "*" },
   });
-  if (!locked) throw rejected("BACKUP_BUSY", "本环境已有备份正在执行，请稍后检查状态。");
+  if (!locked) throw rejected("BACKUP_BUSY", "已有备份正在进行，请稍后查看记录。");
   return { key, value: lease, etag: locked.etag };
 }
 async function release(env: Env, lease: Awaited<ReturnType<typeof acquire>>, ctx: ExecutionContext) {
@@ -397,9 +397,9 @@ async function manualCleanup(env: Env, requestSignal: AbortSignal, ctx: Executio
 
 async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionContext, target: BackupTarget, old?: Awaited<ReturnType<typeof readJob>>, scheduledId?: string) {
   const now = Date.now(), previous = old?.value;
-  if (previous?.status === "complete") throw rejected("BACKUP_ALREADY_COMPLETE", "该备份已完整完成，无需重试。");
-  if (previous?.deleted || previous?.r2Deleted) throw rejected("BACKUP_NOT_READY", "该备份的 R2 副本已清理，请创建新备份。");
-  if (previous?.status === "running" && previous.deadline > now) throw rejected("BACKUP_BUSY", "该备份仍在执行，请稍后检查状态。");
+  if (previous?.status === "complete") throw rejected("BACKUP_ALREADY_COMPLETE", "这次备份已经成功，无需重试。");
+  if (previous?.deleted || previous?.r2Deleted) throw rejected("BACKUP_NOT_READY", "这次备份的加密文件已过期清理，请创建新备份。");
+  if (previous?.status === "running" && previous.deadline > now) throw rejected("BACKUP_BUSY", "这次备份仍在进行，请稍后查看记录。");
   const reused = previous && await env.MEDIA_BUCKET.head(sourceKey(previous));
   const job: Job = { id: previous?.id ?? scheduledId ?? newJobId(now),
     environment: environment(env), createdAt: previous?.createdAt ?? now, startedAt: now, updatedAt: now,
@@ -511,8 +511,7 @@ export async function backupStatus(env: Env, after: string | null = null) {
   return { environment: environment(env), items: jobs.map(job => publicJob(job!.value)), after: page.truncated ? ids.at(-1)! : null,
     targets: { download: configured(env), ...Object.fromEntries(Object.entries(backupTargetAvailability(env)).map(([key, ready]) => [key, configured(env) && ready])) } as Record<BackupTarget, boolean>,
     schedule: await publicSchedule(schedule?.value ?? defaultSchedule(), env),
-    notice: "导出期间成员查询可能暂时不可用；请保持请求连接。下载文件需要独立保管的历史认证与备份密钥。",
-    unavailableReason: configured(env) ? null : "本环境导出配置未就绪；本地开发不调用远程 D1。" };
+    unavailableReason: configured(env) ? null : "本环境未配置数据库导出（本地开发环境不连接线上数据库），暂时不能创建备份。" };
 }
 
 export async function backupsHttp(request: Request, env: Env, ctx: ExecutionContext, identity = createRequestIdentity(request, env)) {
@@ -528,11 +527,11 @@ export async function backupsHttp(request: Request, env: Env, ctx: ExecutionCont
   const match = new RegExp(`^/admin/backups/(\\d{16}-${uuid})(?:/(retry|download))?$`, "u").exec(path);
   if (request.method === "GET" && match) {
     const stored = await readJob(env, match[1]);
-    if (!stored) throw new APIError("NOT_FOUND", { code: "BACKUP_NOT_FOUND", message: "找不到本环境的备份。" });
+    if (!stored) throw new APIError("NOT_FOUND", { code: "BACKUP_NOT_FOUND", message: "找不到这次备份。" });
     const job = stored.value;
     if (!match[2]) return json(publicJob(job));
     if (match[2] === "download") {
-      if (!job.result || job.deleted || job.r2Deleted) throw rejected("BACKUP_NOT_READY", "该备份尚未完整完成或 R2 副本已按保留策略清理，不能下载。");
+      if (!job.result || job.deleted || job.r2Deleted) throw rejected("BACKUP_NOT_READY", "这次备份没有完成，或加密文件已过期清理，不能下载。");
       const artifact = job.result;
       if (artifact.source.environment !== environment(env) || artifact.source.id !== job.sourceId
         || !new RegExp(`^encrypted-${uuid}$`, "u").test(artifact.file) || !artifact.etag) throw new Error("BACKUP_RECORD_INVALID");
@@ -540,7 +539,7 @@ export async function backupsHttp(request: Request, env: Env, ctx: ExecutionCont
       const object = await env.MEDIA_BUCKET.get(`backups/${job.environment}/${job.sourceId}/${artifact.file}.bin`, { onlyIf: { etagMatches: artifact.etag } });
       if (!object || !("body" in object) || object.size !== artifact.byteLength) {
         if (object && "body" in object) await object.body.cancel();
-        throw rejected("BACKUP_OBJECT_CHANGED", "备份对象缺失或版本已变化，拒绝下载未经校验的内容。");
+        throw rejected("BACKUP_OBJECT_CHANGED", "备份文件缺失或已被改动，为安全起见拒绝下载。");
       }
       return new Response(object.body, { headers: { "Content-Type": "application/octet-stream", "Content-Length": String(object.size),
         "Content-Disposition": `attachment; filename="backup-${job.environment}-${job.id}.stcnbak"` } });
@@ -555,10 +554,10 @@ export async function backupsHttp(request: Request, env: Env, ctx: ExecutionCont
     if (request.method !== "POST" || path !== "/admin/backups" && match?.[2] !== "retry") return new Response(null, { status: 404 });
     if (body.maintenanceConfirmed !== true || Object.keys(body).some(key => !["target", "maintenanceConfirmed"].includes(key))) throw invalid();
     if (body.target !== "download" && body.target !== "webdav" && body.target !== "s3"
-      || body.target !== "download" && !backupTargetAvailability(env)[body.target]) throw new APIError("BAD_REQUEST", { code: "BACKUP_TARGET_UNAVAILABLE", message: "所选外部目标配置不完整或无效。" });
-    if (!configured(env)) throw new APIError("SERVICE_UNAVAILABLE", { code: "BACKUP_CONFIG_INVALID", message: "本环境导出配置未就绪；本地开发不调用远程 D1。" });
+      || body.target !== "download" && !backupTargetAvailability(env)[body.target]) throw new APIError("BAD_REQUEST", { code: "BACKUP_TARGET_UNAVAILABLE", message: "所选保存位置未配置或配置无效。" });
+    if (!configured(env)) throw new APIError("SERVICE_UNAVAILABLE", { code: "BACKUP_CONFIG_INVALID", message: "本环境未配置数据库导出（本地开发环境不连接线上数据库），暂时不能创建备份。" });
     const old = match ? await readJob(env, match[1]) : undefined;
-    if (match && !old) throw new APIError("NOT_FOUND", { code: "BACKUP_NOT_FOUND", message: "找不到本环境的备份。" });
+    if (match && !old) throw new APIError("NOT_FOUND", { code: "BACKUP_NOT_FOUND", message: "找不到这次备份。" });
     if (old && (old.value.target ?? "download") !== body.target) throw invalid();
     return json(await runBackup(request.signal, env, ctx, body.target, old), 200);
   }
