@@ -264,7 +264,7 @@ async function exportSnapshot(env: Env, job: Job, signal: AbortSignal) {
       }
       return { metadata: { ...scope(job), createdAt: job.startedAt, schemaVersion, bookmark, authKeyId: backupKeyId(env.BETTER_AUTH_SECRET) }, body: download.body, byteLength };
     }
-    if (result.status !== undefined) throw new Error("BACKUP_EXPORT_FAILED");
+    if (result.status !== undefined && result.status !== "active") throw new Error("BACKUP_EXPORT_FAILED");
     await delay(1000, undefined, { signal });
   }
 }

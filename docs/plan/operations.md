@@ -133,6 +133,12 @@ staging 站长配置：指定用户名与邮箱已交叉核对为同一已验证
 
 2026-10-17 staging 交付：`dev` 的 `6809761` 经 Workers Builds 自动发布，应用全量 386 项、工具 21 项、类型检查和 staging 构建通过；版本 `61d59218-ea51-4d87-bf20-efa66f673e24` 承载 100% 流量，来源 SHA 一致。除站长邮箱外的运行时绑定及 11 个 Secrets 与发布前一致；公开首页 `200`，匿名备份页跳转登录，状态接口 `401`，均为 `private, no-store`。未使用指定账号代登录或执行备份，完整浏览器操作及平台演练缺口不变；production 未操作。
 
+staging 手动加密下载排查（2026-10-17）：失败任务的目标确为 `download`，记录 `BACKUP_EXPORT_FAILED`，约 1.44 秒结束且无备份产物，不涉及 WebDAV/S3 上传。只读复核确认环境资源映射一致、迁移表可查询且包含 16 个迁移。现有日志没有那次请求的上游响应，不能仅凭运行时 Secret 存在或本机占位 Token 的鉴权失败判断线上凭证有效性。
+
+D1 polling 契约由[官方导出测试](https://github.com/cloudflare/workers-sdk/blob/main/packages/wrangler/src/__tests__/d1/export.test.ts)交叉核对：`HTTP 202 / status: "active"` 表示导出进行中，须沿同一 bookmark 继续轮询，只有 `complete` 后才下载 SQL 并暂存、加密。新增真实手动下载 HTTP 入口回归在未修复代码上稳定得到与页面相同的 `BACKUP_EXPORT_FAILED` 和无产物结果，确认实现误拒绝 `active`。当前判断接受 `active` 及既有无 status 的中间响应，未知状态、明确失败及 bookmark 变化仍拒绝；未修改原测试基线、外部渠道配置或密钥。该协议缺陷已复现，但缺少 staging 当次上游响应，不能断言它是当次失败的唯一原因。开发者已授权本次修复提交、合入及推送 `dev`，触发 staging 自动发布；未再次触发真实导出，staging 成功路径仍待受控复验。
+
+轮询修复本地自检：`pnpm test test/backups.test.ts test/backup-schedule.test.ts` 59 项通过，含新增 5 项成功与拒绝边界；`pnpm typecheck`、staging 构建和 `git diff --check` 通过。staging 构建首次因当前工作树缺少 `STAGING_D1_DATABASE_NAME` 在编译前停止，以 Node `--env-file` 注入已有私有环境映射后通过，未复制或改写配置。D1 REST 仍为模拟，复用既有暂存、加密和调度测试，不重复无关模块或浏览器检查；既有 cf/Vite 配置弃用提示保留，本地结果不替代 staging 实际备份、时限和内存验证。
+
 ## 当前运维风险
 
 - cf beta.12 固定 strict 检查因 staging 最近由 script API 更新而拒绝上传；官方 beta.16 同样固定 `strict: true`，不能仅靠升级解除。staging 采用已获准的 Wrangler 补充发布，开发、构建和迁移继续使用 cf；生成配置须核对模式、目标、全部拆分模块及静态资源，不读取或重建既有运行时 Secrets。直接 API 发布仍需另行授权，不修改 CLI 内部实现或重建 Worker。

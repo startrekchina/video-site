@@ -301,6 +301,40 @@ it("continues polling the same bookmark and does not report completion before re
   expect((await create()).status).toBe("complete"); expect(poll).toBe(2);
 });
 
+it("completes an encrypted download after Cloudflare reports active exports with HTTP 202", async () => {
+  let poll = 0;
+  const network = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url) === signed) { expect(poll).toBe(3); return download(); }
+    expect(String(url)).toBe(`https://api.cloudflare.com/client/v4/accounts/${runtime.BACKUP_ACCOUNT_ID}/d1/database/${runtime.BACKUP_DATABASE_ID}/export`);
+    expect(JSON.parse(String(init?.body))).toEqual({ output_format: "polling", ...(poll ? { current_bookmark: "fictional-bookmark" } : {}) });
+    if (++poll === 3) return complete();
+    return Response.json({ success: true, result: { success: true, type: "export", status: "active", at_bookmark: "fictional-bookmark",
+      messages: ["Generating fictional.sql", "Uploaded part 1"] } }, { status: 202 });
+  });
+  vi.stubGlobal("fetch", network);
+  const job = await create();
+  expect(job).toMatchObject({ status: "complete", downloadReady: true, failure: null });
+  expect(poll).toBe(3); expect(network).toHaveBeenCalledTimes(4);
+  const response = await send(`/admin/backups/${job.id}/download`);
+  expect(response.status).toBe(200);
+  expect(Buffer.from(await response.arrayBuffer()).subarray(0, 8).toString()).toBe("STCNBKP1");
+});
+
+it.each([
+  ["error status", { status: "error" }],
+  ["unknown status", { status: "unexpected" }],
+  ["failed export", { success: false }],
+  ["changed bookmark", { at_bookmark: "different-bookmark" }],
+])("rejects %s while polling an active export without downloading a file", async (_name, change) => {
+  let poll = 0;
+  const network = vi.fn(async () => Response.json({ success: true, result: {
+    success: true, status: "active", at_bookmark: "fictional-bookmark", ...(++poll === 2 ? change : {}),
+  } }, { status: 202 }));
+  vi.stubGlobal("fetch", network);
+  expect(await create()).toMatchObject({ status: "failed", failure: { code: "BACKUP_EXPORT_FAILED" }, downloadReady: false });
+  expect(network).toHaveBeenCalledTimes(2);
+});
+
 it("keeps upstream errors and signed redirects private, and never follows redirects", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: false, errors: [{ message: `private failure ${signed}` }] }, { status: 500 })));
   const failed = await create(); expect(failed).toMatchObject({ status: "failed", failure: { code: "BACKUP_EXPORT_FAILED" }, downloadReady: false });
