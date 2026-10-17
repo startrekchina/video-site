@@ -9,7 +9,7 @@ import { playbackHttp } from "../app/lib/playback.server";
 import { progressHttp } from "../app/lib/progress.server";
 import { libraryHttp } from "../app/lib/library.server";
 import { discussionHttp } from "../app/lib/discussion.server";
-import { backupsHttp } from "../app/lib/backups.server";
+import { backupsHttp, runScheduledBackup } from "../app/lib/backups.server";
 import { mediaSyncCron, syncMedia } from "../app/lib/media-sync.server";
 
 declare module "react-router" {
@@ -31,8 +31,12 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 export default {
-  async scheduled(controller, env) {
-    if (controller.cron === mediaSyncCron) await syncMedia(env);
+  async scheduled(controller, env, ctx) {
+    if (controller.cron === mediaSyncCron) {
+      // D1 export can suspend queries. Do not start media scanning in the same backup tick.
+      const backup = await runScheduledBackup(env, ctx);
+      if (backup.status === "not_due") await syncMedia(env);
+    }
   },
   async fetch(request: Request, env, ctx) {
     const path = new URL(request.url).pathname;

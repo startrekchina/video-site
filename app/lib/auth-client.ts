@@ -30,8 +30,8 @@ export function authError(error: { code?: string; message?: string }, retry?: st
   if (error.code?.includes("CAPTCHA") || error.code?.includes("TURNSTILE")) return "人机验证失败，请重新验证。";
   return messages[error.code ?? ""] ?? "操作未完成，请检查输入或稍后重试。";
 }
-export async function call<T = Record<string, unknown>>(path: string, body?: object, captcha?: string): Promise<T> {
-  const response = await fetch(path, { method: body ? "POST" : "GET", credentials: "same-origin", cache: "no-store",
+export async function call<T = Record<string, unknown>>(path: string, body?: object, captcha?: string, method?: "GET" | "POST" | "PUT"): Promise<T> {
+  const response = await fetch(path, { method: method ?? (body ? "POST" : "GET"), credentials: "same-origin", cache: "no-store",
     headers: body ? { "Content-Type": "application/json", ...(captcha ? { "x-captcha-response": captcha } : {}) } : undefined,
     body: body ? JSON.stringify(body) : undefined }).catch(() => { throw new Error("网络连接失败，请检查网络后重试。"); });
   // A failed response may be a platform error page rather than JSON; it still gets the generic message below.

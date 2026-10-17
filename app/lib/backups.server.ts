@@ -7,7 +7,7 @@ import { checkWrite, readJson } from "./security.server";
 import { settings } from "./settings.server";
 import { encryptBackup, stageBackup, type BackupScope } from "./backup-storage.server";
 import { backupKeyId, backupKeys } from "./backup-keys.server";
-import { backupDestinationReceipt, backupTargetAvailability, deleteExternalBackup, uploadBackup, verifyExternalBackup, type BackupReceipt, type BackupTarget } from "./backup-targets.server";
+import { backupDestinationReceipt, backupTargetAvailability, deleteExternalBackup, uploadBackup, verifyExternalBackup, type BackupReceipt, type BackupTarget, type ExternalBackupTarget } from "./backup-targets.server";
 
 const uuid = "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}";
 const jobIdPattern = new RegExp(`^\\d{16}-${uuid}$`, "u"), uuidPattern = new RegExp(`^${uuid}$`, "u");
@@ -28,6 +28,15 @@ type Job = { id: string; environment: BackupScope["environment"]; createdAt: num
   cleanup?: { status: "complete" | "failed"; deleted: number }; deleted?: boolean; r2Deleted?: boolean; externalDeleted?: boolean;
   status: "running" | "failed" | "complete"; failure?: Failure; result?: Artifact };
 type Lease = { jobId: string; attempt: string; deadline: number; updatedAt?: number; cleanup?: boolean };
+export type BackupFrequency = "daily" | "weekly" | "interval";
+const scheduleFailures = {
+  BACKUP_TARGET_UNAVAILABLE: "所选外部目标或导出配置失效，本次未执行；修复配置后可手动创建备份。",
+  BACKUP_BUSY: "本次执行时已有备份或清理任务，未重复导出；请检查备份记录。",
+  BACKUP_STATE_FAILED: "本次备份状态未完整保存，请刷新备份记录检查，不会自动重试。",
+} as const;
+export type BackupSchedule = { enabled: boolean; target: ExternalBackupTarget; frequency: BackupFrequency; intervalDays: number | null;
+  weekday: number | null; time: string; anchorDate: string | null; nextRunAt: number | null; lastRunAt: number | null;
+  lastStatus: "running" | "complete" | "failed" | null; lastJobId: string | null; lastFailure: keyof typeof scheduleFailures | null; updatedAt: number };
 const rejected = (code: string, message: string) => new APIError("CONFLICT", { code, message });
 const invalid = () => new APIError("BAD_REQUEST", { code: "INVALID_INPUT", message: "备份请求无效。" });
 function environment(env: Env): BackupScope["environment"] {
@@ -37,8 +46,54 @@ function environment(env: Env): BackupScope["environment"] {
 const control = (env: Env) => `backup-control/${environment(env)}/`;
 const jobKey = (env: Env, id: string) => `${control(env)}jobs/${id}.json`;
 const sourceControlKey = (env: Env, id: string) => `${control(env)}sources/${id}.json`;
+const scheduleKey = (env: Env) => `${control(env)}schedule.json`;
+const newJobId = (now: number) => `${String(Number.MAX_SAFE_INTEGER - now).padStart(16, "0")}-${crypto.randomUUID()}`;
 const scope = (job: Job): BackupScope => ({ environment: job.environment, id: job.sourceId });
 const sourceKey = (job: Job) => `backups/${job.environment}/${job.sourceId}/source.json`;
+
+const HOUR_MS = 60 * 60 * 1000, DAY_MS = 24 * HOUR_MS, SHANGHAI_OFFSET_MS = 8 * HOUR_MS;
+const defaultSchedule = (): BackupSchedule => ({ enabled: false, target: "webdav", frequency: "daily", intervalDays: null, weekday: null,
+  time: "04:00", anchorDate: null, nextRunAt: null, lastRunAt: null, lastStatus: null, lastJobId: null, lastFailure: null, updatedAt: 0 });
+type ShanghaiDate = { year: number; month: number; day: number; weekday: number };
+function shanghaiDate(value: number): ShanghaiDate {
+  const date = new Date(value + SHANGHAI_OFFSET_MS);
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth(), day: date.getUTCDate(), weekday: date.getUTCDay() };
+}
+function localDayStart(value: ShanghaiDate) { return Date.UTC(value.year, value.month, value.day) - SHANGHAI_OFFSET_MS; }
+function localDateString(value: number) {
+  const date = shanghaiDate(value);
+  return `${String(date.year).padStart(4, "0")}-${String(date.month + 1).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`;
+}
+function parseLocalDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]), timestamp = Date.UTC(year, month - 1, day);
+  const date = new Date(timestamp);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? timestamp - SHANGHAI_OFFSET_MS : null;
+}
+function scheduledAt(dayStart: number, time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+  return dayStart + (hour * 60 + minute) * 60 * 1000;
+}
+function nextScheduleAt(schedule: Pick<BackupSchedule, "frequency" | "intervalDays" | "weekday" | "time" | "anchorDate">, after: number) {
+  const current = shanghaiDate(after), today = localDayStart(current);
+  if (schedule.frequency === "daily") {
+    const candidate = scheduledAt(today, schedule.time);
+    return candidate > after ? candidate : candidate + DAY_MS;
+  }
+  if (schedule.frequency === "weekly") {
+    const weekday = schedule.weekday!, delta = (weekday - current.weekday + 7) % 7;
+    let candidate = scheduledAt(today + delta * DAY_MS, schedule.time);
+    if (candidate <= after) candidate += 7 * DAY_MS;
+    return candidate;
+  }
+  const interval = schedule.intervalDays!, anchor = parseLocalDate(schedule.anchorDate!)!;
+  let days = Math.max(0, Math.floor((today - anchor) / DAY_MS));
+  days += (interval - (days % interval)) % interval;
+  let candidate = scheduledAt(anchor + days * DAY_MS, schedule.time);
+  while (candidate <= after) { days += interval; candidate = scheduledAt(anchor + days * DAY_MS, schedule.time); }
+  return candidate;
+}
 
 export function isBackupOwner(member: Member, env: Env) {
   // A live, verified member's email already passed Better Auth validation; invalid configured values cannot match it.
@@ -60,6 +115,75 @@ async function record<T>(bucket: R2Bucket, key: string) {
   if (!object) return null;
   if (object.size > 16384) { await object.body.cancel(); throw new Error("BACKUP_RECORD_INVALID"); }
   return { value: await object.json<T>(), etag: object.etag };
+}
+function validSchedule(value: BackupSchedule) {
+  if (!value || typeof value !== "object" || typeof value.enabled !== "boolean" || (value.target !== "webdav" && value.target !== "s3")
+    || !["daily", "weekly", "interval"].includes(value.frequency) || typeof value.time !== "string" || !/^\d{2}:\d{2}$/u.test(value.time)
+    || !Number.isSafeInteger(value.updatedAt) || value.updatedAt < 0 || value.nextRunAt !== null && (!Number.isSafeInteger(value.nextRunAt) || value.nextRunAt < 0)
+    || value.lastRunAt !== null && (!Number.isSafeInteger(value.lastRunAt) || value.lastRunAt < 0)
+    || value.lastStatus !== null && !["running", "complete", "failed"].includes(value.lastStatus)
+    || value.lastJobId !== null && (typeof value.lastJobId !== "string" || !jobIdPattern.test(value.lastJobId))
+    || value.lastFailure !== null && !Object.hasOwn(scheduleFailures, value.lastFailure)
+    || value.anchorDate !== null && (typeof value.anchorDate !== "string" || parseLocalDate(value.anchorDate) === null)) throw new Error("BACKUP_RECORD_INVALID");
+  const minute = Number(value.time.slice(3));
+  if (Number(value.time.slice(0, 2)) > 23 || minute > 59) throw new Error("BACKUP_RECORD_INVALID");
+  if (value.frequency === "interval" && (!Number.isSafeInteger(value.intervalDays) || value.intervalDays! < 1 || value.intervalDays! > 30)) throw new Error("BACKUP_RECORD_INVALID");
+  if (value.frequency !== "interval" && value.intervalDays !== null) throw new Error("BACKUP_RECORD_INVALID");
+  if (value.frequency === "weekly" && (!Number.isSafeInteger(value.weekday) || value.weekday! < 0 || value.weekday! > 6)) throw new Error("BACKUP_RECORD_INVALID");
+  if (value.frequency !== "weekly" && value.weekday !== null) throw new Error("BACKUP_RECORD_INVALID");
+  if (value.enabled !== (value.nextRunAt !== null) || (value.frequency === "interval") !== (value.anchorDate !== null)
+    || (value.lastStatus !== null) !== (value.lastRunAt !== null)) throw new Error("BACKUP_RECORD_INVALID");
+  return value;
+}
+async function readSchedule(env: Env) {
+  const stored = await record<BackupSchedule>(env.MEDIA_BUCKET, scheduleKey(env));
+  return stored ? { ...stored, value: validSchedule(stored.value) } : null;
+}
+async function publicSchedule(value: BackupSchedule, env: Env) {
+  const targets = backupTargetAvailability(env), ready = configured(env) && targets[value.target];
+  const stored = value.lastJobId ? await readJob(env, value.lastJobId) : null, job = stored ? publicJob(stored.value) : null;
+  const interrupted = value.lastStatus === "running" && Date.now() >= value.lastRunAt! + settings.backupTaskTimeout * 1000;
+  const stateFailed = !job || job.status === "running" ? value.lastFailure : null;
+  return { enabled: value.enabled, target: value.target, frequency: value.frequency, intervalDays: value.intervalDays,
+    weekday: value.weekday, time: value.time, nextRunAt: value.nextRunAt, lastRunAt: value.lastRunAt,
+    lastStatus: stateFailed ? "failed" as const : job?.status ?? (interrupted ? "failed" : value.lastStatus), lastJobId: job?.id ?? null,
+    failure: stateFailed ? { code: stateFailed, message: scheduleFailures[stateFailed] } : job?.failure ?? (
+      interrupted ? { code: "BACKUP_INTERRUPTED", message: failureMessages.BACKUP_INTERRUPTED } : null),
+    updatedAt: value.updatedAt, targetReady: ready,
+    available: configured(env) && Object.values(targets).some(Boolean) };
+}
+function parseScheduleInput(body: Record<string, unknown>, env: Env, previous: BackupSchedule | undefined, now: number): BackupSchedule {
+  const allowed = ["enabled", "target", "frequency", "intervalDays", "weekday", "time"];
+  if (Object.keys(body).some(key => !allowed.includes(key)) || typeof body.enabled !== "boolean"
+    || (body.target !== "webdav" && body.target !== "s3") || typeof body.frequency !== "string" || !["daily", "weekly", "interval"].includes(body.frequency)
+    || typeof body.time !== "string" || !/^\d{2}:\d{2}$/u.test(body.time)) throw invalid();
+  const hour = Number(body.time.slice(0, 2)), minute = Number(body.time.slice(3));
+  if (hour > 23 || minute > 59) throw invalid();
+  const frequency = body.frequency as BackupFrequency;
+  const intervalDays = frequency === "interval" ? body.intervalDays : null;
+  const weekday = frequency === "weekly" ? body.weekday : null;
+  if (frequency === "interval" && (!Number.isSafeInteger(intervalDays) || Number(intervalDays) < 1 || Number(intervalDays) > 30)) throw invalid();
+  if (frequency === "weekly" && (!Number.isSafeInteger(weekday) || Number(weekday) < 0 || Number(weekday) > 6)) throw invalid();
+  const existing = previous ?? defaultSchedule();
+  if ((!configured(env) || !backupTargetAvailability(env)[body.target]) && (body.enabled
+    || body.target !== existing.target || frequency !== existing.frequency || intervalDays !== existing.intervalDays
+    || weekday !== existing.weekday || body.time !== existing.time)) {
+    throw new APIError("BAD_REQUEST", { code: "BACKUP_TARGET_UNAVAILABLE", message: "所选外部目标配置不完整或无效，只能关闭原有定时备份。" });
+  }
+  const schedule: BackupSchedule = { enabled: body.enabled, target: body.target, frequency, intervalDays: intervalDays as number | null,
+    weekday: weekday as number | null, time: body.time, anchorDate: frequency === "interval" ? localDateString(now) : null,
+    nextRunAt: null, lastRunAt: previous?.lastRunAt ?? null, lastStatus: previous?.lastStatus ?? null,
+    lastJobId: previous?.lastJobId ?? null, lastFailure: previous?.lastFailure ?? null, updatedAt: Date.now() };
+  schedule.nextRunAt = schedule.enabled ? nextScheduleAt(schedule, now) : null;
+  return schedule;
+}
+export async function updateBackupSchedule(env: Env, body: Record<string, unknown>, now = Date.now()) {
+  const current = await readSchedule(env), schedule = parseScheduleInput(body, env, current?.value, now);
+  if (current) await delay(Math.max(0, current.value.updatedAt + 1100 - Date.now()));
+  schedule.updatedAt = Date.now();
+  const written = await env.MEDIA_BUCKET.put(scheduleKey(env), JSON.stringify(schedule), current ? { onlyIf: { etagMatches: current.etag } } : { onlyIf: { etagDoesNotMatch: "*" } });
+  if (!written) throw rejected("BACKUP_STATE_CHANGED", "备份设置已变化，请刷新后重试。");
+  return publicSchedule(schedule, env);
 }
 async function readJob(env: Env, id: string) {
   if (!jobIdPattern.test(id)) throw invalid();
@@ -237,7 +361,7 @@ async function cleanupBackups(env: Env, current: Job | undefined, signal: AbortS
   return { status: failed ? "failed" as const : "complete" as const, deleted };
 }
 async function manualCleanup(env: Env, requestSignal: AbortSignal) {
-  const now = Date.now(), job: Job = { id: `${String(Number.MAX_SAFE_INTEGER - now).padStart(16, "0")}-${crypto.randomUUID()}`,
+  const now = Date.now(), job: Job = { id: newJobId(now),
     environment: environment(env), createdAt: now, startedAt: now, updatedAt: now, deadline: now + settings.backupTaskTimeout * 1000,
     attempt: crypto.randomUUID(), sourceId: crypto.randomUUID(), status: "running" };
   await acquire(env, job);
@@ -254,13 +378,13 @@ async function manualCleanup(env: Env, requestSignal: AbortSignal) {
   }
 }
 
-async function runBackup(request: Request, env: Env, ctx: ExecutionContext, target: BackupTarget, old?: Awaited<ReturnType<typeof readJob>>) {
+async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionContext, target: BackupTarget, old?: Awaited<ReturnType<typeof readJob>>, scheduledId?: string) {
   const now = Date.now(), previous = old?.value;
   if (previous?.status === "complete") throw rejected("BACKUP_ALREADY_COMPLETE", "该备份已完整完成，无需重试。");
   if (previous?.deleted || previous?.r2Deleted) throw rejected("BACKUP_NOT_READY", "该备份的 R2 副本已清理，请创建新备份。");
   if (previous?.status === "running" && previous.deadline > now) throw rejected("BACKUP_BUSY", "该备份仍在执行，请稍后检查状态。");
   const reused = previous && await env.MEDIA_BUCKET.head(sourceKey(previous));
-  const job: Job = { id: previous?.id ?? `${String(Number.MAX_SAFE_INTEGER - now).padStart(16, "0")}-${crypto.randomUUID()}`,
+  const job: Job = { id: previous?.id ?? scheduledId ?? newJobId(now),
     environment: environment(env), createdAt: previous?.createdAt ?? now, startedAt: now, updatedAt: now,
     deadline: now + settings.backupTaskTimeout * 1000, attempt: crypto.randomUUID(),
     sourceId: reused ? previous!.sourceId : crypto.randomUUID(), target, status: "running",
@@ -274,7 +398,7 @@ async function runBackup(request: Request, env: Env, ctx: ExecutionContext, targ
   });
   if (!started) throw rejected("BACKUP_BUSY", "备份状态已变化，请刷新后重试。");
   const timeout = new AbortController(), timer = setTimeout(() => timeout.abort(), Math.max(0, job.deadline - Date.now()));
-  const signal = AbortSignal.any([request.signal, timeout.signal]); let phase: Failure = "BACKUP_EXPORT_FAILED";
+  const signal = AbortSignal.any([requestSignal, timeout.signal]); let phase: Failure = "BACKUP_EXPORT_FAILED";
   try {
     if (!reused) {
       phase = "BACKUP_STORAGE_FAILED";
@@ -302,7 +426,7 @@ async function runBackup(request: Request, env: Env, ctx: ExecutionContext, targ
     signal.throwIfAborted(); job.status = "complete";
   } catch (error) {
     job.status = "failed";
-    job.failure = timeout.signal.aborted ? "BACKUP_TIMED_OUT" : request.signal.aborted ? "BACKUP_INTERRUPTED"
+    job.failure = timeout.signal.aborted ? "BACKUP_TIMED_OUT" : requestSignal.aborted ? "BACKUP_INTERRUPTED"
       : error instanceof Error && error.message === "BACKUP_EXPORT_FORMAT" ? "BACKUP_EXPORT_FORMAT" : phase;
   }
   if (job.status === "complete") {
@@ -323,13 +447,46 @@ async function runBackup(request: Request, env: Env, ctx: ExecutionContext, targ
   return publicJob(job);
 }
 
+export async function runScheduledBackup(env: Env, ctx: ExecutionContext, now = Date.now()) {
+  const current = await readSchedule(env);
+  if (!current?.value.enabled || current.value.nextRunAt === null || current.value.nextRunAt > now) {
+    const lease = await record<Lease>(env.MEDIA_BUCKET, `${control(env)}lease.json`);
+    if (lease && lease.value.deadline > Date.now()) {
+      const job = lease.value.cleanup ? null : await readJob(env, lease.value.jobId);
+      if (!job || job.value.status === "running") return { status: "busy" as const };
+    }
+    return { status: "not_due" as const };
+  }
+  const available = configured(env) && backupTargetAvailability(env)[current.value.target];
+  await delay(Math.max(0, current.value.updatedAt + 1100 - Date.now()));
+  const started = Date.now(), claimedValue: BackupSchedule = { ...current.value, nextRunAt: nextScheduleAt(current.value, now), lastRunAt: started,
+    lastStatus: available ? "running" : "failed", lastJobId: available ? newJobId(started) : null,
+    lastFailure: available ? null : "BACKUP_TARGET_UNAVAILABLE", updatedAt: started };
+  const claimed = await env.MEDIA_BUCKET.put(scheduleKey(env), JSON.stringify(claimedValue), { onlyIf: { etagMatches: current.etag } });
+  if (!claimed) return { status: "busy" as const };
+  if (!available) return { status: "unavailable" as const };
+  let result: Awaited<ReturnType<typeof runBackup>> | undefined;
+  try {
+    result = await runBackup(new AbortController().signal, env, ctx, current.value.target, undefined, claimedValue.lastJobId!);
+  } catch (error) {
+    claimedValue.lastFailure = error instanceof APIError && error.body?.code === "BACKUP_BUSY" ? "BACKUP_BUSY" : "BACKUP_STATE_FAILED";
+  }
+  await delay(Math.max(0, claimedValue.updatedAt + 1100 - Date.now()));
+  const finished: BackupSchedule = { ...claimedValue, lastStatus: result?.status ?? "failed", updatedAt: Date.now() };
+  // A concurrent settings edit wins over this old invocation; storage failures must still fail the scheduled event.
+  await env.MEDIA_BUCKET.put(scheduleKey(env), JSON.stringify(finished), { onlyIf: { etagMatches: claimed.etag } });
+  return result ? { status: result.status, job: result } : { status: "failed" as const };
+}
+
 export async function backupStatus(env: Env, after: string | null = null) {
   if (after && !jobIdPattern.test(after)) throw invalid();
   const prefix = `${control(env)}jobs/`, page = await env.MEDIA_BUCKET.list({ prefix, limit: 20, ...(after ? { startAfter: `${prefix}${after}.json` } : {}) });
   const ids = page.objects.map(object => object.key.slice(prefix.length, -5)), jobs = await Promise.all(ids.map(id => readJob(env, id)));
   if (jobs.some(job => !job)) throw new Error("BACKUP_RECORD_UNAVAILABLE");
+  const schedule = await readSchedule(env);
   return { environment: environment(env), items: jobs.map(job => publicJob(job!.value)), after: page.truncated ? ids.at(-1)! : null,
     targets: { download: configured(env), ...Object.fromEntries(Object.entries(backupTargetAvailability(env)).map(([key, ready]) => [key, configured(env) && ready])) } as Record<BackupTarget, boolean>,
+    schedule: await publicSchedule(schedule?.value ?? defaultSchedule(), env),
     notice: "导出期间成员查询可能暂时不可用；请保持请求连接。下载文件需要独立保管的历史认证与备份密钥。",
     unavailableReason: configured(env) ? null : "本环境导出配置未就绪；本地开发不调用远程 D1。" };
 }
@@ -339,6 +496,10 @@ export async function backupsHttp(request: Request, env: Env, ctx: ExecutionCont
   const json = (data: unknown, status = 200) => Response.json({ data, requestId: request.headers.get("X-Site-Request-Id") ?? crypto.randomUUID() }, { status, headers: current.headers });
   if (request.method === "GET" && path === "/admin/backups/status") {
     return json(await backupStatus(env, url.searchParams.get("after")));
+  }
+  if (request.method === "PUT" && path === "/admin/backups/schedule") {
+    checkWrite(request, env);
+    return json(await updateBackupSchedule(env, await readJson(request)));
   }
   const match = new RegExp(`^/admin/backups/(\\d{16}-${uuid})(?:/(retry|download))?$`, "u").exec(path);
   if (request.method === "GET" && match) {
@@ -375,7 +536,7 @@ export async function backupsHttp(request: Request, env: Env, ctx: ExecutionCont
     const old = match ? await readJob(env, match[1]) : undefined;
     if (match && !old) throw new APIError("NOT_FOUND", { code: "BACKUP_NOT_FOUND", message: "找不到本环境的备份。" });
     if (old && (old.value.target ?? "download") !== body.target) throw invalid();
-    return json(await runBackup(request, env, ctx, body.target, old), 200);
+    return json(await runBackup(request.signal, env, ctx, body.target, old), 200);
   }
   return new Response(null, { status: 404 });
 }

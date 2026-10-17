@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import worker from "../workers/app";
 import { login, member, request } from "./fixtures/auth";
 import { verifyEncryptedBackup } from "@/lib/backup-storage.server";
+import { runScheduledBackup, updateBackupSchedule } from "@/lib/backups.server";
 import { settings } from "@/lib/settings.server";
 
 const runtime: Env = { ...env, APP_ENV: "test", OWNER_EMAIL: "NOVA@example.test", BACKUP_ACCOUNT_ID: "a".repeat(32),
@@ -30,9 +31,9 @@ function mockExport() {
   const fetcher = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => String(url) === signed ? download() : complete());
   vi.stubGlobal("fetch", fetcher); return fetcher;
 }
-async function send(path: string, body?: object, cookie = owner, bindings = runtime, headers: Record<string, string> = {}, signal?: AbortSignal) {
+async function send(path: string, body?: object, cookie = owner, bindings = runtime, headers: Record<string, string> = {}, signal?: AbortSignal, method?: string) {
   const ctx = createExecutionContext();
-  const response = await worker.fetch(new Request(request(path, body, cookie, headers), { signal }), bindings, ctx);
+  const response = await worker.fetch(new Request(request(path, body, cookie, headers), { method: method ?? (body ? "POST" : "GET"), signal }), bindings, ctx);
   await waitOnExecutionContext(ctx); return response;
 }
 const data = async <T = PublicJob>(response: Response) => (await response.json() as { data: T }).data;
@@ -188,6 +189,65 @@ it("rejects visitors, ordinary members and other administrators on every impleme
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   }
   expect(network).not.toHaveBeenCalled(); expect((await env.MEDIA_BUCKET.list()).objects).toHaveLength(0);
+});
+
+it("stores schedule settings privately, rejects direct-download scheduling, and exposes Beijing next-run metadata", async () => {
+  expect((await send("/admin/backups/schedule", { enabled: true, target: "download", frequency: "daily", time: "04:00" }, owner, runtime, {}, undefined, "PUT")).status).toBe(400);
+  const unavailable = await send("/admin/backups/schedule", { enabled: true, target: "webdav", frequency: "daily", intervalDays: null, weekday: null, time: "04:00" }, owner, runtime, {}, undefined, "PUT");
+  expect(unavailable.status).toBe(400);
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  const now = Date.UTC(2026, 9, 17, 0, 0);
+  const saved = await updateBackupSchedule(bindings, { enabled: true, target: "webdav", frequency: "weekly", intervalDays: null, weekday: 6, time: "09:30" }, now);
+  expect(saved).toMatchObject({ enabled: true, target: "webdav", frequency: "weekly", time: "09:30", targetReady: true });
+  expect(saved.nextRunAt).toBe(Date.UTC(2026, 9, 17, 1, 30));
+  const status = await data<{ schedule: { enabled: boolean; target: string; nextRunAt: number } }>(await send("/admin/backups/status"));
+  expect(status.schedule).toMatchObject({ enabled: true, target: "webdav", nextRunAt: saved.nextRunAt });
+});
+
+it("protects schedule PUT with live ownership, origin and JSON checks and persists only valid requests", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+  const body = { enabled: true, target: "webdav", frequency: "daily", time: "04:00" };
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  const put = (cookie = owner, headers = {}, config = bindings) => send("/admin/backups/schedule", body, cookie, config, headers, undefined, "PUT");
+  for (const cookie of ["", ordinary, admin]) expect((await put(cookie)).status).toBe(cookie ? 403 : 401);
+  expect((await put(owner, {}, { ...bindings, OWNER_EMAIL: "" })).status).toBe(403);
+  for (const headers of [{ Origin: "https://evil.invalid" }, { "Sec-Fetch-Site": "cross-site" }, { "Content-Type": "text/plain" }]) {
+    expect([400, 403]).toContain((await put(owner, headers)).status);
+  }
+  expect(await env.MEDIA_BUCKET.head("backup-control/test/schedule.json")).toBeNull();
+  const saved = await put(); expect(saved.status).toBe(200);
+  expect(await data(saved)).toMatchObject({ enabled: true, target: "webdav", targetReady: true });
+  expect(saved.headers.get("Cache-Control")).toBe("private, no-store");
+  expect((await send("/admin/backups/schedule", body, owner, bindings)).status).toBe(404);
+  await env.DB.prepare("UPDATE member_profiles SET role = 'member' WHERE user_id = ?").bind(ownerId).run();
+  expect((await put()).status).toBe(403);
+  await env.DB.prepare("UPDATE member_profiles SET role = 'admin', status = 'banned' WHERE user_id = ?").bind(ownerId).run();
+  expect((await put()).status).toBe(401);
+  await env.DB.prepare("UPDATE member_profiles SET status = 'active' WHERE user_id = ?").bind(ownerId).run();
+  // The ban trigger revoked the old session; email ownership must be tested with a new live session.
+  owner = await login("Nova");
+  await env.DB.prepare('UPDATE "user" SET email = ? WHERE id = ?').bind("other@example.test", ownerId).run();
+  expect((await put()).status).toBe(403);
+  await env.DB.prepare('UPDATE "user" SET email = ? WHERE id = ?').bind("nova@example.test", ownerId).run();
+  await env.DB.prepare("DELETE FROM session WHERE userId = ?").bind(ownerId).run();
+  expect((await put()).status).toBe(401);
+});
+
+it("claims one due schedule slot and does not run it twice", async () => {
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  let remote = new Uint8Array();
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith(bindings.WEBDAV_URL)) {
+      if (init?.method === "PUT") { remote = new Uint8Array(await new Response(init.body).arrayBuffer()); return new Response(null); }
+      return new Response(remote);
+    }
+    if (String(url) === signed) return download(); return complete();
+  }));
+  const now = Date.UTC(2026, 9, 17, 0, 0), schedule = await updateBackupSchedule(bindings, { enabled: true, target: "webdav", frequency: "daily", intervalDays: null, weekday: null, time: "08:00" }, now);
+  const ctx = createExecutionContext(), first = await runScheduledBackup(bindings, ctx, schedule.nextRunAt! + 1); await waitOnExecutionContext(ctx);
+  expect(first.status).toBe("complete");
+  const second = await runScheduledBackup(bindings, createExecutionContext(), schedule.nextRunAt! + 1);
+  expect(second.status).toBe("not_due");
 });
 
 it.each(["", "not-an-email", "other@example.test", " nova@example.test"])("rejects absent, invalid or nonmatching OWNER_EMAIL: %s", async email => {
