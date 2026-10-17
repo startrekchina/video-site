@@ -21,9 +21,11 @@ it.each(["webdav", "s3"] as ExternalBackupTarget[])("streams encrypted %s PUT an
   const network = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     expect(String(url)).toMatch(/^https:/u); expect(init?.redirect).toBe("manual");
     const headers = new Headers(init?.headers);
+    expect(headers.get("Accept-Encoding")).toBe("identity");
     if (target === "webdav") expect(headers.get("Authorization")).toBe("Basic " + Buffer.from("fictional-owner:fictional-password").toString("base64"));
     else {
       expect(headers.get("Authorization")).toMatch(/^AWS4-HMAC-SHA256 /u);
+      expect(headers.get("Authorization")).not.toMatch(/SignedHeaders=[^, ]*accept-encoding/u);
       expect(headers.get("X-Amz-Content-Sha256")).toBe(init?.method === "PUT" ? file.sha256 : createHash("sha256").digest("hex"));
       expect(String(url)).toContain("/fictional-backups/");
     }

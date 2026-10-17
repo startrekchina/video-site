@@ -17,9 +17,7 @@ async function metadata(response: Response) {
       const part = await reader.read(); if (part.done) break;
       length += part.value.byteLength; requireValid(length <= 65536); parts.push(part.value);
     }
-    const bytes = new Uint8Array(length); let offset = 0;
-    for (const part of parts) { bytes.set(part, offset); offset += part.byteLength; }
-    const data = JSON.parse(new TextDecoder().decode(bytes)) as { success?: boolean; result?: {
+    const data = JSON.parse(Buffer.concat(parts).toString("utf8")) as { success?: boolean; result?: {
       status?: string; success?: boolean; error?: string; upload_url?: string; filename?: string; at_bookmark?: string;
     } };
     requireValid(data.success === true && data.result && data.result.success !== false && !data.result.error && data.result.status !== "error");
@@ -58,7 +56,7 @@ export async function restoreBackup(env: RecoveryEnv, target: { db: D1Database; 
     }
     let state = await call({ action: "ingest", etag: decrypted.md5, filename: init.filename }), bookmark: string | undefined;
     while (state.status !== "complete") {
-      requireValid(state.status === undefined && typeof state.at_bookmark === "string" && state.at_bookmark.length > 0 && state.at_bookmark.length <= 256
+      requireValid((state.status === undefined || state.status === "active") && typeof state.at_bookmark === "string" && state.at_bookmark.length > 0 && state.at_bookmark.length <= 256
         && (!bookmark || bookmark === state.at_bookmark));
       bookmark = state.at_bookmark; await delay(1000, undefined, { signal });
       state = await call({ action: "poll", current_bookmark: bookmark });

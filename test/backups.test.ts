@@ -61,7 +61,7 @@ it("keeps a verified encrypted download after external failure and retries witho
   expect(exports).toBe(1); expect((await state(job.id)).result.file).toBe(first.result.file);
 }, 10000);
 
-it("retains verified ciphertext and remote ownership when final status persistence crosses the deadline", async () => {
+it("keeps a verified backup complete when retention cleanup crosses the deadline, without another upload", async () => {
   const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
   let remote = new Uint8Array(), exports = 0;
   const uploaded: string[] = [];
@@ -72,22 +72,46 @@ it("retains verified ciphertext and remote ownership when final status persisten
     }
     if (String(url) === signed) return download(); exports++; return complete();
   }));
-  const now = Date.now.bind(Date), list = env.MEDIA_BUCKET.list.bind(env.MEDIA_BUCKET);
-  const crossing = vi.spyOn(env.MEDIA_BUCKET, "list").mockImplementationOnce(options => {
+  const now = Date.now.bind(Date), list = env.MEDIA_BUCKET.list.bind(env.MEDIA_BUCKET); let beforeCleanup: unknown;
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const crossing = vi.spyOn(env.MEDIA_BUCKET, "list").mockImplementationOnce(async options => {
+    const page = await list(options);
+    beforeCleanup = (await (await env.MEDIA_BUCKET.get(page.objects[0].key))!.json<{ status: string }>()).status;
     vi.spyOn(Date, "now").mockImplementation(() => now() + settings.backupTaskTimeout * 1000 + 2000);
-    return list(options);
+    await vi.advanceTimersByTimeAsync(settings.backupTaskTimeout * 1000);
+    return page;
   });
   const body = { target: "webdav", maintenanceConfirmed: true };
   const job = await data(await send("/admin/backups", body, owner, bindings)); crossing.mockRestore();
-  expect(job).toMatchObject({ status: "failed", downloadReady: true, failure: { code: "BACKUP_TIMED_OUT" } });
+  expect(beforeCleanup).toBe("complete");
+  expect(job).toMatchObject({ status: "complete", downloadReady: true, failure: null, cleanup: { status: "failed" } });
   const first = await state(job.id);
   expect(first).toMatchObject({ receipt: { target: "webdav", name: expect.any(String) } });
   const downloaded = await send(`/admin/backups/${job.id}/download`, undefined, owner, bindings);
   expect(downloaded.status).toBe(200); await downloaded.body!.cancel();
-  expect(await data(await send(`/admin/backups/${job.id}/retry`, body, owner, bindings))).toMatchObject({ status: "complete", downloadReady: true });
-  expect(exports).toBe(1); expect(uploaded).toHaveLength(2); expect(uploaded[1]).toBe(uploaded[0]);
+  expect((await send(`/admin/backups/${job.id}/retry`, body, owner, bindings)).status).toBe(409);
+  expect(exports).toBe(1); expect(uploaded).toHaveLength(1);
   expect((await state(job.id)).result.file).toBe(first.result.file);
 }, 10000);
+
+it("holds the environment lease through cleanup after publishing backup success, without releasing a replacement lease", async () => {
+  let release!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; }), cleaning = new Promise<void>(resolve => { entered = resolve; });
+  const list = env.MEDIA_BUCKET.list.bind(env.MEDIA_BUCKET), leaseKey = "backup-control/test/lease.json";
+  vi.spyOn(env.MEDIA_BUCKET, "list").mockImplementationOnce(async options => { entered(); await blocked; return list(options); });
+  const pending = create(); await cleaning;
+  const lease = await (await env.MEDIA_BUCKET.get(leaseKey))!.json<{ jobId: string; attempt: string; deadline: number }>();
+  const replacement = { ...lease, attempt: crypto.randomUUID() };
+  try {
+    expect(await data(await send(`/admin/backups/${lease.jobId}`))).toMatchObject({ status: "complete", failure: null });
+    expect((await send("/admin/backups", input)).status).toBe(409);
+    expect((await send("/admin/backups/cleanup", {})).status).toBe(409);
+    const ctx = createExecutionContext();
+    expect(await runScheduledBackup(runtime, ctx)).toEqual({ status: "busy" }); await waitOnExecutionContext(ctx);
+    await env.MEDIA_BUCKET.put(leaseKey, JSON.stringify(replacement));
+  } finally { release(); await pending; }
+  expect(await (await env.MEDIA_BUCKET.get(leaseKey))!.json()).toEqual(replacement);
+});
 
 it("protects the last known-key R2 copy past retention and cleans only older backups, never media", async () => {
   const first = await create(), second = await create();
@@ -100,7 +124,7 @@ it("protects the last known-key R2 copy past retention and cleans only older bac
   expect((await data(await send(`/admin/backups/${first.id}`))).downloadReady).toBe(false);
   expect((await data(await send(`/admin/backups/${second.id}`))).downloadReady).toBe(true);
   expect(await env.MEDIA_BUCKET.head("library/fictional.mp4")).not.toBeNull();
-});
+}, 15000);
 
 it("cleans expired source prefixes abandoned by a retry without a source completion marker", async () => {
   const put = env.MEDIA_BUCKET.put.bind(env.MEDIA_BUCKET); let failed = false;
@@ -351,7 +375,7 @@ it("rejects missing lengths, oversized exports and compressed bodies without a s
     const job = await create(); expect(job).toMatchObject({ status: "failed", failure: { code: "BACKUP_EXPORT_FORMAT" } });
     const stored = await state(job.id); expect(await env.MEDIA_BUCKET.head(`backups/test/${stored.sourceId}/source.json`)).toBeNull();
   }
-});
+}, 15000);
 
 it("retries encryption without exporting again or changing the source date, preserving a full source after failure", async () => {
   const network = mockExport(), put = env.MEDIA_BUCKET.put.bind(env.MEDIA_BUCKET);
@@ -426,6 +450,20 @@ it("does not report success or expose storage errors when the final state write 
   const stored = await state(job.id); expect(await env.MEDIA_BUCKET.head(`backups/test/${stored.sourceId}/source.json`)).not.toBeNull();
 });
 
+it("preserves published backup success but reports a cleanup state-write failure instead of hiding it", async () => {
+  const put = env.MEDIA_BUCKET.put.bind(env.MEDIA_BUCKET);
+  vi.spyOn(env.MEDIA_BUCKET, "put").mockImplementation(async (key, value, options) => {
+    if (key.startsWith("backup-control/test/jobs/") && typeof value === "string" && JSON.parse(value).cleanup) throw new Error("private cleanup state failure");
+    return put(key, value, options);
+  });
+  const response = await send("/admin/backups", input);
+  expect(response.status).toBe(500); expect(await response.text()).not.toContain("private cleanup state failure");
+  const job = (await data<{ items: PublicJob[] }>(await send("/admin/backups/status"))).items[0];
+  expect(job).toMatchObject({ status: "complete", downloadReady: true, failure: null, cleanup: null });
+  expect((await send(`/admin/backups/${job.id}/retry`, input)).status).toBe(409);
+  expect(await (await env.MEDIA_BUCKET.get("backup-control/test/lease.json"))!.json()).toMatchObject({ deadline: 0 });
+});
+
 it("aborts a pending export at the execution deadline without scheduling an automatic retry", async () => {
   let entered!: () => void;
   const exporting = new Promise<void>(resolve => { entered = resolve; });
@@ -459,7 +497,7 @@ it("shows an expired running task as interrupted and permits recovery without au
   expect(network).not.toHaveBeenCalled();
   expect((await data(await send(`/admin/backups/${job.id}/retry`, input))).status).toBe("complete");
   expect(network).not.toHaveBeenCalled();
-});
+}, 15000);
 
 it("refuses changed ciphertext but allows the previously verified file to be downloaded after key rotation", async () => {
   const job = await create();

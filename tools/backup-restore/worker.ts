@@ -40,17 +40,13 @@ export default {
         const restored = await restoreBackup(env, target, scope, body.file, { keyId: body.keyId, authKeyId: body.authKeyId }, signal);
         return json(restored);
       }
-      if (body.action === "sanitize" && body.maintenanceConfirmed === true && typeof body.authKeyId === "string") {
-        const pair = backupKeys(env).find(pair => pair.authKeyId === body.authKeyId);
-        if (!pair || backupKeys(env).some(pair => pair.backupKey === env.RESTORE_NEW_AUTH_SECRET)) throw new Error("RESTORE_KEYS_INVALID");
-        const result = await sanitizeRestoredCredentials(target.db, pair.authSecret, env.RESTORE_NEW_AUTH_SECRET);
-        return json(result);
+      if ((body.action === "sanitize" && body.maintenanceConfirmed === true || body.action === "credentials") && typeof body.authKeyId === "string") {
+        const inventory = backupKeys(env), pair = inventory.find(pair => pair.authKeyId === body.authKeyId), newKeyId = backupKeyId(env.RESTORE_NEW_AUTH_SECRET);
+        if (!pair || inventory.some(pair => pair.keyId === newKeyId || pair.authKeyId === newKeyId)) throw new Error("RESTORE_KEYS_INVALID");
+        return json(body.action === "sanitize" ? await sanitizeRestoredCredentials(target.db, pair.authSecret, env.RESTORE_NEW_AUTH_SECRET)
+          : await verifyRestoredCredentials(target.db, env.RESTORE_NEW_AUTH_SECRET));
       }
       if (body.action === "validate" && typeof body.schemaVersion === "string") return json(await validateRestoredDatabase(target.db, env.MEDIA_BUCKET, body.schemaVersion, signal));
-      if (body.action === "credentials" && typeof body.authKeyId === "string") {
-        if (!backupKeys(env).some(pair => pair.authKeyId === body.authKeyId) || body.authKeyId === backupKeyId(env.RESTORE_NEW_AUTH_SECRET)) throw new Error("RESTORE_KEYS_INVALID");
-        return json(await verifyRestoredCredentials(target.db, env.RESTORE_NEW_AUTH_SECRET));
-      }
       if (body.action === "review" && (body.after === undefined || typeof body.after === "string" && body.after.length <= 128)) {
         const page = await target.db.prepare(`SELECT u.id, u.username, u.emailVerified, p.role, p.status, p.registration_state,
           (SELECT COUNT(*) FROM passkey k WHERE k.userId = u.id) AS passkeys, u.twoFactorEnabled

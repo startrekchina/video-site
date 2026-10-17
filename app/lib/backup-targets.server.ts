@@ -35,7 +35,7 @@ async function targetFetch(env: Env, target: ExternalBackupTarget, name: string,
   payload?: { body: ReadableStream<Uint8Array>; byteLength: number; sha256: string }) {
   const dest = destination(env, target);
   if (!dest || !/^video-site-(development|test|staging|production)-[a-f0-9-]+-encrypted-[a-f0-9-]+\.stcnbak$/u.test(name)) throw new Error("BACKUP_TARGET_INVALID");
-  const url = new URL(name, dest.base), headers = new Headers({ "Accept-Encoding": "identity" });
+  const url = new URL(name, dest.base), headers = new Headers();
   if (payload) {
     headers.set("Content-Type", "application/octet-stream"); headers.set("Content-Length", String(payload.byteLength));
   }
@@ -47,6 +47,7 @@ async function targetFetch(env: Env, target: ExternalBackupTarget, name: string,
       accessKeyId: env.S3_BACKUP_ACCESS_KEY_ID, secretAccessKey: env.S3_BACKUP_SECRET_ACCESS_KEY }).sign();
     for (const [key, value] of signed.headers) headers.set(key, value);
   }
+  headers.set("Accept-Encoding", "identity");
   signal.throwIfAborted();
   return fetch(url, { method, headers, body: payload?.body, signal, redirect: "manual", cache: "no-store" });
 }

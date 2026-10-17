@@ -27,7 +27,7 @@ type Job = { id: string; environment: BackupScope["environment"]; createdAt: num
   deadline: number; attempt: string; sourceId: string; target?: BackupTarget; receipt?: BackupReceipt; pendingReceipt?: BackupReceipt;
   cleanup?: { status: "complete" | "failed"; deleted: number }; deleted?: boolean; r2Deleted?: boolean; externalDeleted?: boolean;
   status: "running" | "failed" | "complete"; failure?: Failure; result?: Artifact };
-type Lease = { jobId: string; attempt: string; deadline: number; updatedAt?: number; cleanup?: boolean };
+type Lease = { jobId: string; attempt: string; deadline: number; updatedAt?: number };
 export type BackupFrequency = "daily" | "weekly" | "interval";
 const scheduleFailures = {
   BACKUP_TARGET_UNAVAILABLE: "所选外部目标或导出配置失效，本次未执行；修复配置后可手动创建备份。",
@@ -207,11 +207,7 @@ function publicJob(job: Job) {
 async function acquire(env: Env, job: Job) {
   const key = `${control(env)}lease.json`, previous = await record<Lease>(env.MEDIA_BUCKET, key);
   if (previous && previous.value.deadline > Date.now()) {
-    if (previous.value.cleanup) throw rejected("BACKUP_BUSY", "本环境正在清理备份，请稍后重试。");
-    const active = await readJob(env, previous.value.jobId);
-    if (!active || active.value.attempt !== previous.value.attempt || active.value.status === "running") {
-      throw rejected("BACKUP_BUSY", "本环境已有备份正在执行，请等待完成或中断状态生效。");
-    }
+    throw rejected("BACKUP_BUSY", "本环境已有备份或清理正在执行，请等待完成或中断状态生效。");
   }
   if (previous) await delay(Math.max(0, (previous.value.updatedAt ?? 0) + 1100 - Date.now()));
   const lease: Lease = { jobId: job.id, attempt: job.attempt, deadline: job.deadline, updatedAt: Date.now() };
@@ -219,6 +215,14 @@ async function acquire(env: Env, job: Job) {
     onlyIf: previous ? { etagMatches: previous.etag } : { etagDoesNotMatch: "*" },
   });
   if (!locked) throw rejected("BACKUP_BUSY", "本环境已有备份正在执行，请稍后检查状态。");
+  return { key, value: lease, etag: locked.etag };
+}
+async function release(env: Env, lease: Awaited<ReturnType<typeof acquire>>, ctx: ExecutionContext) {
+  const finish = (async () => {
+    await delay(Math.max(0, (lease.value.updatedAt ?? 0) + 1100 - Date.now()));
+    await env.MEDIA_BUCKET.put(lease.key, JSON.stringify({ ...lease.value, deadline: 0, updatedAt: Date.now() }), { onlyIf: { etagMatches: lease.etag } });
+  })();
+  ctx.waitUntil(finish.catch(() => {})); await finish;
 }
 
 async function exportMetadata(response: Response) {
@@ -293,6 +297,7 @@ async function deleteSource(env: Env, id: string, signal: AbortSignal) {
   await env.MEDIA_BUCKET.delete(sourceControlKey(env, id));
 }
 async function cleanupBackups(env: Env, current: Job | undefined, signal: AbortSignal) {
+  signal.throwIfAborted();
   const pairs = backupKeys(env), protectedR2 = { id: "", time: 0 }, protectedExternal = new Map<string, { id: string; time: number }>();
   const recoverable = (job: Job) => job.result && pairs.some(pair => pair.keyId === job.result!.keyId)
     && pairs.some(pair => pair.authKeyId === job.result!.source.authKeyId);
@@ -358,23 +363,18 @@ async function cleanupBackups(env: Env, current: Job | undefined, signal: AbortS
     after = page.truncated ? page.objects.at(-1)?.key : undefined;
     if (page.truncated && !after) throw new Error("BACKUP_RECORD_INVALID");
   } while (after);
+  signal.throwIfAborted();
   return { status: failed ? "failed" as const : "complete" as const, deleted };
 }
-async function manualCleanup(env: Env, requestSignal: AbortSignal) {
+async function manualCleanup(env: Env, requestSignal: AbortSignal, ctx: ExecutionContext) {
   const now = Date.now(), job: Job = { id: newJobId(now),
     environment: environment(env), createdAt: now, startedAt: now, updatedAt: now, deadline: now + settings.backupTaskTimeout * 1000,
     attempt: crypto.randomUUID(), sourceId: crypto.randomUUID(), status: "running" };
-  await acquire(env, job);
-  const key = `${control(env)}lease.json`, lease = await record<Lease>(env.MEDIA_BUCKET, key);
-  if (!lease || lease.value.attempt !== job.attempt) throw rejected("BACKUP_BUSY", "备份状态已变化，请稍后重试。");
-  await delay(1100);
-  const locked = await env.MEDIA_BUCKET.put(key, JSON.stringify({ ...lease.value, cleanup: true, updatedAt: Date.now() }), { onlyIf: { etagMatches: lease.etag } });
-  if (!locked) throw rejected("BACKUP_BUSY", "备份状态已变化，请稍后重试。");
+  const lease = await acquire(env, job);
   const timer = new AbortController(), timeout = setTimeout(() => timer.abort(), Math.max(0, job.deadline - Date.now()));
   try { return await cleanupBackups(env, undefined, AbortSignal.any([requestSignal, timer.signal])); }
   finally {
-    clearTimeout(timeout); await delay(1100);
-    await env.MEDIA_BUCKET.put(key, JSON.stringify({ ...lease.value, deadline: 0, cleanup: true, updatedAt: Date.now() }), { onlyIf: { etagMatches: locked.etag } });
+    clearTimeout(timeout); await release(env, lease, ctx);
   }
 }
 
@@ -389,72 +389,73 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
     deadline: now + settings.backupTaskTimeout * 1000, attempt: crypto.randomUUID(),
     sourceId: reused ? previous!.sourceId : crypto.randomUUID(), target, status: "running",
     ...(reused && previous?.result ? { result: previous.result, pendingReceipt: previous.pendingReceipt } : {}) };
-  await acquire(env, job);
-  // R2 limits writes to the same object to one per second; no per-poll status writes are needed.
-  if (previous) await delay(Math.max(0, previous.updatedAt + 1100 - Date.now()));
-  job.updatedAt = Date.now();
-  let started = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), {
-    onlyIf: old ? { etagMatches: old.etag } : { etagDoesNotMatch: "*" },
-  });
-  if (!started) throw rejected("BACKUP_BUSY", "备份状态已变化，请刷新后重试。");
+  const lease = await acquire(env, job);
   const timeout = new AbortController(), timer = setTimeout(() => timeout.abort(), Math.max(0, job.deadline - Date.now()));
-  const signal = AbortSignal.any([requestSignal, timeout.signal]); let phase: Failure = "BACKUP_EXPORT_FAILED";
+  const signal = AbortSignal.any([requestSignal, timeout.signal]);
   try {
-    if (!reused) {
-      phase = "BACKUP_STORAGE_FAILED";
-      if (!await env.MEDIA_BUCKET.put(sourceControlKey(env, job.sourceId), JSON.stringify({ jobId: job.id, createdAt: job.startedAt }), { onlyIf: { etagDoesNotMatch: "*" } })) throw new Error("BACKUP_RECORD_INVALID");
-      phase = "BACKUP_EXPORT_FAILED";
-      const exported = await exportSnapshot(env, job, signal); phase = "BACKUP_STORAGE_FAILED";
-      await stageBackup(env.MEDIA_BUCKET, exported.metadata, exported.body, exported.byteLength, signal);
+    // R2 limits writes to the same object to one per second; no per-poll status writes are needed.
+    if (previous) await delay(Math.max(0, previous.updatedAt + 1100 - Date.now()));
+    job.updatedAt = Date.now();
+    const started = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), {
+      onlyIf: old ? { etagMatches: old.etag } : { etagDoesNotMatch: "*" },
+    });
+    if (!started) throw rejected("BACKUP_BUSY", "备份状态已变化，请刷新后重试。");
+    let etag = started.etag, phase: Failure = "BACKUP_EXPORT_FAILED";
+    const save = async () => {
+      const finish = (async () => {
+        await delay(Math.max(0, job.updatedAt + 1100 - Date.now())); job.updatedAt = Date.now();
+        const saved = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), { onlyIf: { etagMatches: etag } });
+        if (!saved) throw rejected("BACKUP_STATE_CHANGED", "备份状态已变化，请刷新后检查。");
+        etag = saved.etag;
+      })();
+      // Only small status writes use the disconnect grace period, never backup or cleanup work.
+      ctx.waitUntil(finish.catch(() => {})); await finish;
+    };
+    try {
+      if (!reused) {
+        phase = "BACKUP_STORAGE_FAILED";
+        if (!await env.MEDIA_BUCKET.put(sourceControlKey(env, job.sourceId), JSON.stringify({ jobId: job.id, createdAt: job.startedAt }), { onlyIf: { etagDoesNotMatch: "*" } })) throw new Error("BACKUP_RECORD_INVALID");
+        phase = "BACKUP_EXPORT_FAILED";
+        const exported = await exportSnapshot(env, job, signal); phase = "BACKUP_STORAGE_FAILED";
+        await stageBackup(env.MEDIA_BUCKET, exported.metadata, exported.body, exported.byteLength, signal);
+      }
+      phase = "BACKUP_ENCRYPTION_FAILED";
+      job.result ??= await encryptBackup(env.MEDIA_BUCKET, scope(job), env.BACKUP_ENCRYPTION_KEY, signal);
+      if (target !== "download") {
+        phase = "BACKUP_TARGET_FAILED";
+        const intended = backupDestinationReceipt(env, target, job.result);
+        if (job.pendingReceipt && job.pendingReceipt.destinationId !== intended.destinationId) throw new Error("BACKUP_TARGET_CHANGED");
+        job.pendingReceipt = intended;
+        // Publish the immutable encrypted artifact and intended remote object before the first external write.
+        await delay(Math.max(0, job.updatedAt + 1100 - Date.now()), undefined, { signal }); job.updatedAt = Date.now();
+        const published = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), { onlyIf: { etagMatches: etag } });
+        if (!published) throw rejected("BACKUP_STATE_CHANGED", "备份状态已变化，请刷新后检查。");
+        etag = published.etag;
+        job.receipt = await uploadBackup(env, target, job.result, signal);
+        delete job.pendingReceipt;
+      }
+      if (Date.now() >= job.deadline) timeout.abort();
+      signal.throwIfAborted(); job.status = "complete";
+    } catch (error) {
+      job.status = "failed";
+      job.failure = timeout.signal.aborted ? "BACKUP_TIMED_OUT" : requestSignal.aborted ? "BACKUP_INTERRUPTED"
+        : error instanceof Error && error.message === "BACKUP_EXPORT_FORMAT" ? "BACKUP_EXPORT_FORMAT" : phase;
     }
-    phase = "BACKUP_ENCRYPTION_FAILED";
-    job.result ??= await encryptBackup(env.MEDIA_BUCKET, scope(job), env.BACKUP_ENCRYPTION_KEY, signal);
-    if (target !== "download") {
-      phase = "BACKUP_TARGET_FAILED";
-      const intended = backupDestinationReceipt(env, target, job.result);
-      if (job.pendingReceipt && job.pendingReceipt.destinationId !== intended.destinationId) throw new Error("BACKUP_TARGET_CHANGED");
-      job.pendingReceipt = intended;
-      // Publish the immutable encrypted artifact and intended remote object before the first external write.
-      await delay(Math.max(0, job.updatedAt + 1100 - Date.now()), undefined, { signal }); job.updatedAt = Date.now();
-      const published = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), { onlyIf: { etagMatches: started.etag } });
-      if (!published) throw rejected("BACKUP_STATE_CHANGED", "备份状态已变化，请刷新后检查。");
-      started = published;
-      job.receipt = await uploadBackup(env, target, job.result, signal);
-      delete job.pendingReceipt;
+    await save();
+    if (job.status === "complete") {
+      try { job.cleanup = await cleanupBackups(env, job, signal); }
+      catch { job.cleanup = { status: "failed", deleted: 0 }; }
+      await save();
     }
-    if (Date.now() >= job.deadline) timeout.abort();
-    signal.throwIfAborted(); job.status = "complete";
-  } catch (error) {
-    job.status = "failed";
-    job.failure = timeout.signal.aborted ? "BACKUP_TIMED_OUT" : requestSignal.aborted ? "BACKUP_INTERRUPTED"
-      : error instanceof Error && error.message === "BACKUP_EXPORT_FORMAT" ? "BACKUP_EXPORT_FORMAT" : phase;
-  }
-  if (job.status === "complete") {
-    try { job.cleanup = await cleanupBackups(env, job, signal); }
-    catch { job.cleanup = { status: "failed", deleted: 0 }; }
-  }
-  clearTimeout(timer);
-  const finish = (async () => {
-    await delay(Math.max(0, job.updatedAt + 1100 - Date.now())); job.updatedAt = Date.now();
-    if (job.status === "complete" && job.updatedAt >= job.deadline) {
-      job.status = "failed"; job.failure = "BACKUP_TIMED_OUT";
-    }
-    const saved = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), { onlyIf: { etagMatches: started.etag } });
-    if (!saved) throw rejected("BACKUP_STATE_CHANGED", "备份状态已变化，请刷新后检查。");
-  })();
-  // Only the small final status write uses the disconnect grace period, never the export/encryption pipeline.
-  ctx.waitUntil(finish.catch(() => {})); await finish;
-  return publicJob(job);
+    return publicJob(job);
+  } finally { clearTimeout(timer); await release(env, lease, ctx); }
 }
 
 export async function runScheduledBackup(env: Env, ctx: ExecutionContext, now = Date.now()) {
   const current = await readSchedule(env);
   if (!current?.value.enabled || current.value.nextRunAt === null || current.value.nextRunAt > now) {
     const lease = await record<Lease>(env.MEDIA_BUCKET, `${control(env)}lease.json`);
-    if (lease && lease.value.deadline > Date.now()) {
-      const job = lease.value.cleanup ? null : await readJob(env, lease.value.jobId);
-      if (!job || job.value.status === "running") return { status: "busy" as const };
-    }
+    if (lease && lease.value.deadline > Date.now()) return { status: "busy" as const };
     return { status: "not_due" as const };
   }
   const available = configured(env) && backupTargetAvailability(env)[current.value.target];
@@ -526,7 +527,7 @@ export async function backupsHttp(request: Request, env: Env, ctx: ExecutionCont
     checkWrite(request, env); const body = await readJson(request);
     if (request.method === "POST" && path === "/admin/backups/cleanup") {
       if (Object.keys(body).length) throw invalid();
-      return json(await manualCleanup(env, request.signal));
+      return json(await manualCleanup(env, request.signal, ctx));
     }
     if (request.method !== "POST" || path !== "/admin/backups" && match?.[2] !== "retry") return new Response(null, { status: 404 });
     if (body.maintenanceConfirmed !== true || Object.keys(body).some(key => !["target", "maintenanceConfirmed"].includes(key))) throw invalid();

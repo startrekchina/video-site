@@ -7,8 +7,7 @@ export type BackupScope = { environment: Environment; id: string };
 export type BackupMetadata = BackupScope & { createdAt: number; schemaVersion: string; bookmark: string; authKeyId?: string };
 type Fingerprint = { byteLength: number; sha256: string };
 type Source = Omit<BackupMetadata, "bookmark"> & Fingerprint;
-class BackupError extends Error {}
-function requireValid(value: unknown, code = "BACKUP_INVALID"): asserts value { if (!value) throw new BackupError(code); }
+function requireValid(value: unknown, code = "BACKUP_INVALID"): asserts value { if (!value) throw new Error(code); }
 const hex = (value: unknown, length: number): value is string => typeof value === "string" && value.length === length && /^[a-f0-9]+$/u.test(value);
 function prefix(scope: BackupScope) {
   requireValid(["development", "test", "staging", "production"].includes(scope.environment)
@@ -143,7 +142,7 @@ async function verifyStream(body: ReadableStream<Uint8Array>, scope: BackupScope
     requireValid((await exact(16)).equals(tag), "BACKUP_AUTHENTICATION_FAILED");
     requireValid(await take(1) === null, "BACKUP_TRAILING_DATA");
     let final: Buffer;
-    try { final = decipher.final(); } catch { throw new BackupError("BACKUP_AUTHENTICATION_FAILED"); }
+    try { final = decipher.final(); } catch { throw new Error("BACKUP_AUTHENTICATION_FAILED"); }
     plaintextLength += final.byteLength; plaintextHash.update(final);
     same({ byteLength: plaintextLength, sha256: plaintextHash.digest("hex") }, source);
     if (accept && final.byteLength) await accept(final);
@@ -157,7 +156,7 @@ export async function decryptBackupForRestore(bucket: R2Bucket, scope: BackupSco
   const destination = `backup-restore/${scope.environment}/${crypto.randomUUID()}/source.sql`;
   const object = await readObject(bucket, `${prefix(scope)}${file}.bin`, verified.etag);
   const tail = await bucket.get(`${prefix(scope)}${file}.bin`, { range: { suffix: 16 }, onlyIf: { etagMatches: verified.etag } });
-  if (!tail || !("body" in tail)) { await object.body.cancel(); throw new BackupError("BACKUP_OBJECT_UNAVAILABLE"); }
+  if (!tail || !("body" in tail)) { await object.body.cancel(); throw new Error("BACKUP_OBJECT_UNAVAILABLE"); }
   const tag = new Uint8Array(await tail.arrayBuffer()), stream = new FixedLengthStream(verified.source.byteLength), writer = stream.writable.getWriter();
   const md5 = createHash("md5"), stop = new AbortController(), combined = AbortSignal.any([signal, stop.signal]);
   const cancel = () => { void writer.abort().catch(() => {}); }; combined.addEventListener("abort", cancel, { once: true });

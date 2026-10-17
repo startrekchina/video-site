@@ -2,13 +2,14 @@ import { env } from "cloudflare:workers";
 import { applyD1Migrations, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, expect, it, vi } from "vitest";
 import recoveryWorker from "../tools/backup-restore/worker";
+import { backupKeyId } from "@/lib/backup-keys.server";
 
 const bindings = { ...env, APP_ENV: "test", BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", RESTORE_TARGET_DATABASE_ID: "00000000-0000-4000-8000-000000000001",
   RESTORE_DB: env.TEST_RESTORE_DB, RESTORE_NEW_AUTH_SECRET: "fictional-new-auth-secret-0123456789abcdef", RESTORE_OPERATOR_TOKEN: "fictional-operator-token-0123456789abcdef" };
 const key = `backup-restore-control/test/${bindings.RESTORE_TARGET_DATABASE_ID}.json`;
-async function send(body: object, headers: Record<string, string> = {}) {
+async function send(body: object, headers: Record<string, string> = {}, config = bindings) {
   const ctx = createExecutionContext(), response = await recoveryWorker.fetch(new Request("https://recovery.example.test/operate", { method: "POST",
-    headers: { Authorization: "Bearer " + bindings.RESTORE_OPERATOR_TOKEN, "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) }), bindings, ctx);
+    headers: { Authorization: "Bearer " + config.RESTORE_OPERATOR_TOKEN, "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) }), config, ctx);
   await waitOnExecutionContext(ctx); return response;
 }
 afterEach(() => vi.restoreAllMocks());
@@ -36,3 +37,27 @@ it("keeps internal failures private and cannot report credential cleanup without
   const failed = await send({ action: "validate", schemaVersion: "fictional" }); expect(failed.status).toBe(500);
   const text = await failed.text(); expect(text).toContain("RESTORE_FAILED"); expect(text).not.toContain("private-api-token-and-storage-path");
 }, 10000);
+const history = [
+  { backupKey: "fictional-old-backup-key-0123456789abcdef", authSecret: "fictional-old-auth-secret-0123456789abcdef" },
+  { backupKey: "fictional-other-backup-key-0123456789abcdef", authSecret: "fictional-other-auth-secret-0123456789abcdef" },
+];
+it.each(["sanitize", "credentials"].flatMap(action => [
+  [action, "current authentication", bindings.BETTER_AUTH_SECRET], [action, "selected authentication", history[0].authSecret],
+  [action, "other historical authentication", history[1].authSecret], [action, "current backup", bindings.BACKUP_ENCRYPTION_KEY],
+  [action, "historical backup", history[1].backupKey],
+]))("%s rejects reuse of the %s secret before accessing restored credentials", async (action, _kind, newSecret) => {
+  await applyD1Migrations(env.TEST_RESTORE_DB, env.TEST_MIGRATIONS);
+  const prepare = vi.spyOn(env.TEST_RESTORE_DB, "prepare"), config = { ...bindings, BACKUP_KEYRING: JSON.stringify(history), RESTORE_NEW_AUTH_SECRET: newSecret };
+  const response = await send({ action, maintenanceConfirmed: true, authKeyId: backupKeyId(history[0].authSecret) }, {}, config);
+  expect(response.status).toBe(500); expect(await response.json()).toMatchObject({ error: "RESTORE_FAILED" });
+  expect(prepare).not.toHaveBeenCalled();
+});
+it("accepts an independent new authentication secret for both cleanup and verification", async () => {
+  await applyD1Migrations(env.TEST_RESTORE_DB, env.TEST_MIGRATIONS);
+  const config = { ...bindings, BACKUP_KEYRING: JSON.stringify(history) };
+  for (const action of ["sanitize", "credentials"]) {
+    const response = await send({ action, maintenanceConfirmed: true, authKeyId: backupKeyId(history[0].authSecret) }, {}, config);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ credentialsCleared: true, authKeyId: backupKeyId(config.RESTORE_NEW_AUTH_SECRET) });
+  }
+});

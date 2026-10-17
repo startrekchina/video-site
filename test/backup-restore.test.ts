@@ -103,6 +103,35 @@ it("runs init/upload/ingest/poll within the recovery service, never forwards tok
   expect((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM d1_migrations").first<{ n: number }>())!.n).toBe(env.TEST_MIGRATIONS.length);
 });
+it("continues active ingest and poll responses until the isolated import completes", async () => {
+  const file = await artifact(), actions: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)); actions.push(body.action);
+    if (body.action === "init") return Response.json({ success: true, result: { filename: "fictional.sql" } });
+    if (body.action === "poll") expect(body.current_bookmark).toBe("fictional-import-bookmark");
+    if (actions.length < 4) return Response.json({ success: true, result: { success: true, status: "active", at_bookmark: "fictional-import-bookmark" } }, { status: 202 });
+    await applyD1Migrations(target.db, env.TEST_MIGRATIONS);
+    return Response.json({ success: true, result: { status: "complete" } });
+  }));
+  expect(await restoreBackup(runtime, target, file.source, file.file, { keyId: file.keyId, authKeyId: file.source.authKeyId! }, signal()))
+    .toMatchObject({ credentialsCleared: false, validation: { mediaVerified: true } });
+  expect(actions).toEqual(["init", "ingest", "poll", "poll"]);
+  expect((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
+});
+it.each([
+  ["error status", { status: "error" }], ["failed import", { success: false }],
+  ["unknown status", { status: "unexpected" }], ["changed bookmark", { at_bookmark: "different-bookmark" }],
+])("rejects %s after an active import and removes only recovery plaintext", async (_name, change) => {
+  const file = await artifact(); let calls = 0;
+  const network = vi.fn(async () => Response.json({ success: true, result: ++calls === 1 ? { filename: "fictional.sql" } : {
+    success: true, status: "active", at_bookmark: "fictional-import-bookmark", ...(calls === 3 ? change : {}),
+  } }));
+  vi.stubGlobal("fetch", network);
+  await expect(restoreBackup(runtime, target, file.source, file.file, { keyId: file.keyId, authKeyId: file.source.authKeyId! }, signal())).rejects.toThrow("RESTORE_VALIDATION_FAILED");
+  expect(network).toHaveBeenCalledTimes(3);
+  expect((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
+  expect(await env.MEDIA_BUCKET.head(`backups/test/${file.source.id}/${file.file}.bin`)).not.toBeNull();
+});
 it("rejects live/nonempty targets, wrong environments and unavailable key pairs before import", async () => {
   const file = await artifact(), network = vi.fn(); vi.stubGlobal("fetch", network);
   const keys = { keyId: file.keyId, authKeyId: file.source.authKeyId! };

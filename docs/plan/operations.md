@@ -54,9 +54,9 @@ staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2
 
 `backups.server.ts` 维护本环境任务、D1 REST 导出与 HTTP 生命周期，`backup-storage.server.ts` 承担暂存、认证加密与完整性校验。数据流为站长请求 → 本环境 R2 条件租约/任务记录 → D1 全量 polling export → 私有 R2 校验 → 加密及回读 → 完成记录；原始 SQL、bookmark、signed URL 和路径只在服务端，不进入状态响应。导出前读取迁移列表摘要，导出开始后不依赖 D1 查询。导出目标 ID 与 DB 绑定从同一配置派生，不接受客户端资源 ID。
 
-- HTTP 请求等待全流程，14 分钟主动截止，断线取消 fetch/流操作；`waitUntil` 只保护最终的小型状态写入，不承载备份。进程被直接终止时，租约到期后读取显示中断并允许人工重试，不自动重试或误报成功。staging 必须实测连接、中断及平台限制。
-- `backup-control/<environment>/` 保存任务与全环境单任务条件租约，`backups/` 保存源和密文，不新增业务表。每次导出前写入不可覆盖的 `sources/<sourceId>.json` 归属索引，保留任务 ID 与创建时间；重试换源后，索引仍可定位旧源残留。外部写入前额外持久化已校验密文与目标意图，防止中断后丢失远端对象归属。任务及租约相邻写入至少间隔 1.1 秒；条件写入防止过期执行者覆盖新尝试。列表按反向时间 ID 分页，每页最多 20 项，仅返回公开任务 ID 作为翻页位置。
-- 人工重试保留任务 ID；已有源完成记录时复用源及原导出日期，已校验密文在外部失败或最终状态保存超时时仍保留下载与重试引用，不重新导出或加密。否则使用新的源 ID，不覆盖上次残留。目标位置变更不将原失败任务静默改投新位置；需恢复原配置重试或创建新任务。失败只记录固定分类，不保存上游错误文本、URL 或凭证。
+- HTTP 请求等待全流程，14 分钟主动截止，断线取消 fetch/流操作；`waitUntil` 只保护小型状态写入和租约释放，不承载备份或清理。主备份在截止前完成校验后先持久化结果，再用原截止时间内的剩余窗口清理，不另起完整超时窗口。清理失败或超时只记录 `cleanup` 失败，不翻转备份成功；清理结果保存失败仍返回错误，`cleanup: null` 不表示清理成功。进程直接终止时，尚未保存完成结果的任务在租约到期后显示中断并允许人工重试；已保存的成功结果保留。staging 必须实测连接、中断及平台限制。
+- `backup-control/<environment>/` 保存任务与全环境单任务条件租约，`backups/` 保存源和密文，不新增业务表。每次导出前写入不可覆盖的 `sources/<sourceId>.json` 归属索引，保留任务 ID 与创建时间；重试换源后，索引仍可定位旧源残留。外部写入前额外持久化已校验密文与目标意图，防止中断后丢失远端对象归属。有效租约直到显式释放或到期均阻止其他备份、清理及定时媒体扫描，不因任务已经显示完成而提前放行清理并发。任务及租约相邻写入至少间隔 1.1 秒；状态保存和租约释放使用各自 ETag，过期执行者不能覆盖新尝试或释放新租约。列表按反向时间 ID 分页，每页最多 20 项，仅返回公开任务 ID 作为翻页位置。
+- 人工重试保留任务 ID；已有源完成记录时复用源及原导出日期，已校验密文在外部失败时仍保留下载与重试引用，不重新导出或加密。否则使用新的源 ID，不覆盖上次残留。已完整成功的备份拒绝重试，不因清理失败重复上传，过期清理通过独立入口重试。目标位置变更不将原失败任务静默改投新位置；需恢复原配置重试或创建新任务。失败只记录固定分类，不保存上游错误文本、URL 或凭证。
 - 下载只接受完成记录指向的文件，创建时已通过 SHA-256/GCM 校验，下载通过条件读取锁定同一 ETag/长度；ETag 仅锁定版本，不替代首次内容校验。更换备份密钥不阻止下载原密文，恢复仍需要对应历史密钥。
 - `download`、WebDAV/S3 与定时入口共用导出与认证加密，未配置的目标单独不可选。本地 `development` 禁止远程导出；线上需补齐独立 `CLOUDFLARE_API_TOKEN`、站长邮箱和备份密钥并另行获准发布。
 - 单次 R2 写入仍是当前边界：导出必须返回未压缩的可靠长度，SQL 大小为单次上传上限预留封装空间；缺少长度或超限明确失败，不缓存整份文件或伪造成功。真实 D1 导出响应、实际库规模及大文件路径需 staging 验证后再判断是否需要 multipart。
@@ -84,7 +84,7 @@ Cloudflare 导出响应均为模拟，D1/R2 使用本地 workerd；未做浏览�
 
 ### 外部目标与各端保留
 
-- WebDAV 目标目录由站长预建，文件平铺在预配 HTTPS 目录；S3 使用预配 HTTPS endpoint 的 path-style bucket URL，`aws4fetch@1.0.20` 签名已知 SHA-256，不将流体交给签名库缓存，也不采用库的自动重试。PUT/GET/DELETE 均拒绝重定向，凭证不转发至其他主机。
+- WebDAV 目标目录由站长预建，文件平铺在预配 HTTPS 目录；S3 使用预配 HTTPS endpoint 的 path-style bucket URL，`aws4fetch@1.0.20` 签名已知 SHA-256，不将流体交给签名库缓存，也不采用库的自动重试。`Accept-Encoding: identity` 在签名后设置，保持未压缩回读且不让运行时对该传输头的调整影响签名。PUT/GET/DELETE 均拒绝重定向，凭证不转发至其他主机。
 - PUT 后流式 GET 核对长度/SHA-256，不能以 ETag 代替。外部失败不影响完整 R2 密文的下载，任务仍显示所选目标失败，不能把这份下载副本报告为外部成功。
 - 默认 30 天。清理分页读取控制记录，以已持久化、具有认证/备份历史密钥且仍可校验的副本确定各端保护点；正在发布的任务不能作为唯一删除依据。R2 用已认证对象的版本与长度确认，外部保护点重新流式回读核验。每个外部目标位置独立识别，不对变更后的地址删除旧位置文件。
 - R2 与外部副本独立清理、独立记录；一端受保护不导致另一端永久超期保留。失败或控制状态保存失败不报告全部删除，人工清理可重试；没有可信保护点时不删除该端。清理在网页/定时的完整备份流程或人工请求中执行。只列举本环境任务及源归属索引的 `backups/<environment>/<sourceId>/`，不触碰媒体、本机下载及其他环境。换源遗留前缀满 30 天且不再被任务引用时，也必须有可信 R2 保护点才删除；先清空源前缀，成功后删除归属索引。
@@ -97,11 +97,11 @@ Cloudflare 导出响应均为模拟，D1/R2 使用本地 workerd；未做浏览�
 官方 [Time Travel 文档](https://developers.cloudflare.com/d1/reference/time-travel/)明确说明目前不能 clone/fork 新库，不能拿原地 Time Travel 代替本项目的默认隔离恢复。可执行路径是新建空 D1 后用完整备份导入，旧库始终保留。没有获准的隔离目标时停止，不覆盖旧库。
 
 1. 获得目标环境、维护窗口、临时 Worker/新 D1 和资源写入授权。确认无备份任务执行且定时保持关闭，暂停成员写入与媒体导入，保留旧库；工具本身不会暂停线上服务、切换绑定或重新开放。
-2. 在 `tools/backup-restore/.env` 设置 `.env.example` 中的映射，源 D1 与隔离 D1 ID 必须不同。准备被忽略的 `.dev.vars.restore-secrets.json`：`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`BETTER_AUTH_SECRET`、`RESTORE_NEW_AUTH_SECRET`、`RESTORE_OPERATOR_TOKEN`，引用历史密钥时另加 `BACKUP_KEYRING`。新认证 Secret 和操作 Token 各自独立、高熵且至少 32 字节；本次流程中不更换新 Secret。
+2. 在 `tools/backup-restore/.env` 设置 `.env.example` 中的映射，源 D1 与隔离 D1 ID 必须不同。准备被忽略的 `.dev.vars.restore-secrets.json`：`CLOUDFLARE_API_TOKEN`、`BACKUP_ENCRYPTION_KEY`、`BETTER_AUTH_SECRET`、`RESTORE_NEW_AUTH_SECRET`、`RESTORE_OPERATOR_TOKEN`，引用历史密钥时另加 `BACKUP_KEYRING`。新认证 Secret 和操作 Token 各自独立、高熵且至少 32 字节；本次流程中不更换新 Secret。`sanitize` 和 `credentials` 共用密钥清单校验，新认证 Secret 不得复用任何当前或历史认证/备份密钥，而不只排除恢复点所选的旧认证 Secret。
 3. 本地准备：`pnpm --dir tools/backup-restore install --frozen-lockfile`；进入该目录执行 `pnpm build` 和 `pnpm exec cf deploy --dry-run`。部署须另有明确授权，获准后才执行 `pnpm exec cf deploy --prebuilt --secrets-file .dev.vars.restore-secrets.json`。临时 Worker 的 workers.dev 地址仅用于带 Token 的本机运维请求；完成后按授权删除临时 Worker，不删除旧库或备份。
 4. 可直接使用本环境 R2 已认证密文；从本机/WebDAV/S3 恢复时，只向 Cloudflare 私有 R2 上传加密文件，按文件头的环境、源 ID 与密钥指纹选择对象，文件名可采用新的 `encrypted-<UUID>.bin`。不能上传/下载本机中间明文 SQL，也不能把外部地址或凭据放入操作请求。
 5. 本机 `.dev.vars.restore-client.json` 只含 `endpoint`（HTTPS `/operate`）及 `operatorToken`。将请求和结果放在被忽略的 `.cloudflare/`：`node tools/backup-restore/operate.mjs .dev.vars.restore-client.json .cloudflare/restore-request.json .cloudflare/restore-result.json`。结果文件使用独占创建，避免覆盖证据；Token 不放命令行或 URL。请求示例见下表。
-6. `restore` 仅接受空隔离库，先整份认证，再锁定同一密文版本流式解密至 `backup-restore/` 私有暂存；回读确认后在 Cloudflare 内执行官方 `init → PUT → ingest → poll`，上传 URL 不携带 API Token。SQL 暂存无论导入结果均尝试删除，密文保持不变；硬终止残留只能按本次恢复前缀人工检查清理。导入后不再是空库，失败时不盲目重新导入或删库，先检查阶段，必要时另建隔离目标。
+6. `restore` 仅接受空隔离库，先整份认证，再锁定同一密文版本流式解密至 `backup-restore/` 私有暂存；回读确认后在 Cloudflare 内执行官方 `init → PUT → ingest → poll`，上传 URL 不携带 API Token。导入的 `active` 或无 status 中间响应沿同一 bookmark 继续轮询，只有 `complete` 才进入数据校验；明确失败、未知状态及进行中 bookmark 变化均拒绝。SQL 暂存无论导入结果均尝试删除，密文保持不变；硬终止残留只能按本次恢复前缀人工检查清理。导入后不再是空库，失败时不盲目重新导入或删库，先检查阶段，必要时另建隔离目标。
 7. `validate` 核对迁移摘要、SQLite/外键完整性、业务计数/有序摘要及媒体关联。媒体版本与已认证恢复点相同则复用之前的全量哈希证据；不同版本流式重验长度/SHA-256，匹配后更新隔离库的媒体 ETag。缺媒体或不一致保持隔离，从本地冷备补齐后再检查。摘要结果与选定恢复点及恢复前记录复核，不把模拟导入当作平台成功。
 8. `sanitize` 在 Cloudflare 内先验证全部旧 TOTP、生成并回验新密文，再用 D1 原子 batch 重加密 TOTP、清空库可识别的备用码组、撤销会话/verification/未用邀请/未完成注册/原生临时 Token。密码、设备、已用邀请和讨论保留。旧认证 Secret 按文件头指纹从 keyring 选取，不能默认等于当前认证 Secret；单次工具上限 1000 个 TOTP，超限明确停止。
 9. `credentials` 用新 Secret 只读复核 TOTP、空备用码及旧凭证清理结果。`sanitize` 断线或结果不明时先执行此检查，不盲重试、换 Secret 或直接开放。分批 `review` 核对成员角色、封禁和设备；管理员维护期间人工 review 历史讨论并重新手动删除，不加删除台账或清空讨论。不明确的账号继续保持维护。
@@ -140,6 +140,16 @@ D1 polling 契约由[官方导出测试](https://github.com/cloudflare/workers-s
 轮询修复本地自检：`pnpm test test/backups.test.ts test/backup-schedule.test.ts` 59 项通过，含新增 5 项成功与拒绝边界；`pnpm typecheck`、staging 构建和 `git diff --check` 通过。staging 构建首次因当前工作树缺少 `STAGING_D1_DATABASE_NAME` 在编译前停止，以 Node `--env-file` 注入已有私有环境映射后通过，未复制或改写配置。D1 REST 仍为模拟，复用既有暂存、加密和调度测试，不重复无关模块或浏览器检查；既有 cf/Vite 配置弃用提示保留，本地结果不替代 staging 实际备份、时限和内存验证。
 
 轮询修复 staging 交付（2026-10-17）：`8d3880e` 快进合入并推送 `dev`，Workers Builds 构建 `69834604-6e02-47ae-ab70-7b79e107ecbd` 成功，31 个应用测试文件共 391 项、工具 21 项、类型检查及 staging 构建通过。版本 `36706559-1760-4d26-9ad4-72a201021617` 承载 100% 流量，来源 SHA 匹配；运行时绑定、环境配置、11 个 Secret 绑定及兼容日期与发布前一致。匿名首页 `200`、备份页 `302` 到登录、状态接口 `401`，均带 `noindex` 和 `private, no-store`。没有代登录或再次触发真实导出，实际加密下载待开发者重试确认；未操作 production。
+
+### T6.1 复核修复验证
+
+比较基线为 `99508fe`，证据针对本次备份恢复修复。直接改动 → 受影响入口 → 验证范围：D1 导入轮询 → 隔离恢复 → `active`/无 status、明确失败/未知状态/bookmark 变化及明文暂存清理；恢复密钥校验 → `sanitize`/`credentials` → 当前与全部历史认证/备份密钥拒绝复用、独立新密钥允许；传输头签名顺序 → WebDAV/S3 的 PUT/GET/DELETE → 保留 identity、S3 SignedHeaders 排除该头及内容回读；主备份/清理分阶段持久化与租约 → 手动备份、清理、Cron 和定时媒体扫描 → 清理越界仍保留成功、不重复上传、互斥、条件释放、状态写入失败及最后副本保护。两处等价精简由有界元数据导入与加密内核用例覆盖，不改变权限、数据表或资源配置。
+
+2026-10-17 本地 115 项定向范围分批全部通过：最终 `pnpm test test/backups.test.ts` 42 项通过，包含三条串行场景及相邻的换源残留清理；同轮七文件命令中另外六个文件的 73 项通过结果复用，分别为 `test/backup-restore.test.ts` 12 项、`test/backup-restore-http.test.ts` 14 项、`test/backup-targets.test.ts` 9 项、`test/backup-storage.test.ts` 17 项、`test/backup-schedule.test.ts` 19 项、`test/backup-page.test.ts` 2 项。其业务实现、依赖、配置及数据前提未变，不重复执行。任务 `running → complete → cleanup` 和租约 `领取 → 条件释放 → 再次领取` 的同键写入须间隔 1.1 秒；连续创建后保留清理、连续拒绝三种格式、过期运行任务恢复这三条用例按开发者确认使用 15 秒执行预算，避免原 5 秒预算引发超时及残留异步影响。全部业务断言、其他用例时限、测试运行器和备份的 14 分钟截止保持不变。
+
+`pnpm typecheck`、`pnpm build`（development）及 `tools/backup-restore/` 中以 `.env.example` 虚构资源映射执行的 `pnpm build` 全部通过；这些结果对应同轮修复代码，后续仅调整三条测试的执行预算与文档，不改变运行代码、类型契约、依赖或资源配置，复用而不重建。Standards 与 Spec 两轴静态复核均无新增阻断项，三份改动文档的 78 个本地路径/锚点和 `git diff --check` 通过。测试保留既有 cf/Vite 弃用提示；先前故障注入及超时残留的连接中断日志不作为通过证据，以完整备份文件的最终断言结果为准。
+
+未运行全量应用/工具测试：差异局限于备份恢复内核及其调用方，未改认证、讨论、媒体传输、测试运行器、依赖或发布配置，定时入口的媒体扫描互斥由调度用例覆盖。未改页面布局或交互实现，HTTP/SSR 用例覆盖受影响返回值与权限，不重复全站浏览器/实机验收。真实 staging 的网页下载/中断、S3 上传回读、15 分钟/内存和隔离恢复仍未验证。本次 Git 交付已获开发者授权：提交、快进合入并推送 `dev`，由既有流水线触发 staging 自动发布；发布状态与真实链路验证单独核对，不操作 production。
 
 ## 当前运维风险
 
