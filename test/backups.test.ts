@@ -94,6 +94,29 @@ it("keeps a verified backup complete when retention cleanup crosses the deadline
   expect((await state(job.id)).result.file).toBe(first.result.file);
 }, 10000);
 
+it("times out after an external upload without saving success, and retries the same remote object without exporting again", async () => {
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  let remote = new Uint8Array(), exports = 0, crossed = false;
+  const uploaded: string[] = [], now = Date.now.bind(Date);
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith(bindings.WEBDAV_URL)) {
+      if (init?.method === "PUT") { uploaded.push(String(url)); remote = new Uint8Array(await new Response(init.body).arrayBuffer()); return new Response(null); }
+      // The read-back is the last external step before success would be recorded; the clock stays moved for the retry.
+      if (!crossed) { crossed = true; vi.spyOn(Date, "now").mockImplementation(() => now() + settings.backupTaskTimeout * 1000 + 2000); }
+      return new Response(remote);
+    }
+    if (String(url) === signed) return download(); exports++; return complete();
+  }));
+  const body = { target: "webdav", maintenanceConfirmed: true };
+  const job = await data(await send("/admin/backups", body, owner, bindings));
+  expect(job).toMatchObject({ status: "failed", downloadReady: true, failure: { code: "BACKUP_TIMED_OUT" } });
+  const first = await state(job.id);
+  expect(first).toMatchObject({ receipt: { target: "webdav", name: expect.any(String) } });
+  expect(await data(await send(`/admin/backups/${job.id}/retry`, body, owner, bindings))).toMatchObject({ status: "complete", downloadReady: true });
+  expect(exports).toBe(1); expect(uploaded).toHaveLength(2); expect(uploaded[1]).toBe(uploaded[0]);
+  expect((await state(job.id)).result.file).toBe(first.result.file);
+}, 10000);
+
 it("holds the environment lease through cleanup after publishing backup success, without releasing a replacement lease", async () => {
   let release!: () => void, entered!: () => void;
   const blocked = new Promise<void>(resolve => { release = resolve; }), cleaning = new Promise<void>(resolve => { entered = resolve; });
@@ -470,6 +493,30 @@ it("preserves published backup success but reports a cleanup state-write failure
   const job = (await data<{ items: PublicJob[] }>(await send("/admin/backups/status"))).items[0];
   expect(job).toMatchObject({ status: "complete", downloadReady: true, failure: null, cleanup: null });
   expect((await send(`/admin/backups/${job.id}/retry`, input)).status).toBe(409);
+  expect(await (await env.MEDIA_BUCKET.get("backup-control/test/lease.json"))!.json()).toMatchObject({ deadline: 0 });
+});
+
+// The platform cancels a disconnected request, so its pending work never settles and its own catch/finally never run.
+it("settles an interrupted backup and frees its lease in the disconnect grace period when the request never resumes", async () => {
+  let entered!: () => void;
+  const exporting = new Promise<void>(resolve => { entered = resolve; });
+  vi.stubGlobal("fetch", vi.fn(() => { entered(); return new Promise<Response>(() => {}); }));
+  const controller = new AbortController(), ctx = createExecutionContext();
+  void worker.fetch(new Request(request("/admin/backups", input, owner), { signal: controller.signal }), runtime, ctx);
+  await exporting; controller.abort(); await waitOnExecutionContext(ctx);
+  const listing = await data<{ items: PublicJob[] }>(await send("/admin/backups/status"));
+  expect(listing.items).toMatchObject([{ status: "failed", failure: { code: "BACKUP_INTERRUPTED" }, downloadReady: false }]);
+  expect(await (await env.MEDIA_BUCKET.get("backup-control/test/lease.json"))!.json()).toMatchObject({ deadline: 0 });
+  mockExport(); expect(await create()).toMatchObject({ status: "complete", downloadReady: true });
+});
+
+it("frees the cleanup lease in the disconnect grace period when the request never resumes", async () => {
+  let entered!: () => void;
+  const cleaning = new Promise<void>(resolve => { entered = resolve; });
+  vi.spyOn(env.MEDIA_BUCKET, "list").mockImplementationOnce(() => { entered(); return new Promise<never>(() => {}); });
+  const controller = new AbortController(), ctx = createExecutionContext();
+  void worker.fetch(new Request(request("/admin/backups/cleanup", {}, owner), { signal: controller.signal }), runtime, ctx);
+  await cleaning; controller.abort(); await waitOnExecutionContext(ctx);
   expect(await (await env.MEDIA_BUCKET.get("backup-control/test/lease.json"))!.json()).toMatchObject({ deadline: 0 });
 });
 

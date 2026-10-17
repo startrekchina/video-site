@@ -224,6 +224,12 @@ async function release(env: Env, lease: Awaited<ReturnType<typeof acquire>>, ctx
   })();
   ctx.waitUntil(finish.catch(() => {})); await finish;
 }
+// A client disconnect ends the invocation and only waitUntil work outlives it, so the request's own catch/finally never run.
+function onDisconnect(signal: AbortSignal, settle: () => void) {
+  if (signal.aborted) { settle(); return () => {}; }
+  signal.addEventListener("abort", settle, { once: true });
+  return () => signal.removeEventListener("abort", settle);
+}
 
 async function exportMetadata(response: Response) {
   if (!response.body) throw new Error("BACKUP_EXPORT_FAILED");
@@ -381,9 +387,11 @@ async function manualCleanup(env: Env, requestSignal: AbortSignal, ctx: Executio
     attempt: crypto.randomUUID(), sourceId: crypto.randomUUID(), status: "running" };
   const lease = await acquire(env, job);
   const timer = new AbortController(), timeout = setTimeout(() => timer.abort(), Math.max(0, job.deadline - Date.now()));
+  let released: Promise<void> | undefined;
+  const detach = onDisconnect(requestSignal, () => { released = release(env, lease, ctx); });
   try { return await cleanupBackups(env, undefined, AbortSignal.any([requestSignal, timer.signal])); }
   finally {
-    clearTimeout(timeout); await release(env, lease, ctx);
+    clearTimeout(timeout); detach(); await (released?.catch(() => {}) ?? release(env, lease, ctx));
   }
 }
 
@@ -401,6 +409,7 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
   const lease = await acquire(env, job);
   const timeout = new AbortController(), timer = setTimeout(() => timeout.abort(), Math.max(0, job.deadline - Date.now()));
   const signal = AbortSignal.any([requestSignal, timeout.signal]);
+  let abandoned: Promise<void> | undefined, detach = () => {};
   try {
     // R2 limits writes to the same object to one per second; no per-poll status writes are needed.
     if (previous) await delay(Math.max(0, previous.updatedAt + 1100 - Date.now()));
@@ -409,17 +418,25 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
       onlyIf: old ? { etagMatches: old.etag } : { etagDoesNotMatch: "*" },
     });
     if (!started) throw rejected("BACKUP_BUSY", "备份状态已变化，请刷新后重试。");
-    let etag = started.etag, phase: Failure = "BACKUP_EXPORT_FAILED";
-    const save = async () => {
-      const finish = (async () => {
+    let etag = started.etag, phase: Failure = "BACKUP_EXPORT_FAILED", writes: Promise<void> = Promise.resolve();
+    const save = () => {
+      // Serialized so a disconnect write never races this request's own status write.
+      const finish = writes.catch(() => {}).then(async () => {
         await delay(Math.max(0, job.updatedAt + 1100 - Date.now())); job.updatedAt = Date.now();
         const saved = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), { onlyIf: { etagMatches: etag } });
         if (!saved) throw rejected("BACKUP_STATE_CHANGED", "备份状态已变化，请刷新后检查。");
         etag = saved.etag;
-      })();
+      });
+      writes = finish;
       // Only small status writes use the disconnect grace period, never backup or cleanup work.
-      ctx.waitUntil(finish.catch(() => {})); await finish;
+      ctx.waitUntil(finish.catch(() => {})); return finish;
     };
+    detach = onDisconnect(requestSignal, () => {
+      if (job.status === "running") { job.status = "failed"; job.failure = "BACKUP_INTERRUPTED"; }
+      abandoned = save().finally(() => release(env, lease, ctx));
+      ctx.waitUntil(abandoned.catch(() => {}));
+    });
+    const persist = () => abandoned ? abandoned.catch(() => {}) : save();
     try {
       if (!reused) {
         phase = "BACKUP_STORAGE_FAILED";
@@ -436,10 +453,7 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
         if (job.pendingReceipt && job.pendingReceipt.destinationId !== intended.destinationId) throw new Error("BACKUP_TARGET_CHANGED");
         job.pendingReceipt = intended;
         // Publish the immutable encrypted artifact and intended remote object before the first external write.
-        await delay(Math.max(0, job.updatedAt + 1100 - Date.now()), undefined, { signal }); job.updatedAt = Date.now();
-        const published = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), { onlyIf: { etagMatches: etag } });
-        if (!published) throw rejected("BACKUP_STATE_CHANGED", "备份状态已变化，请刷新后检查。");
-        etag = published.etag;
+        await save();
         job.receipt = await uploadBackup(env, target, job.result, signal);
         delete job.pendingReceipt;
       }
@@ -450,14 +464,14 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
       job.failure = timeout.signal.aborted ? "BACKUP_TIMED_OUT" : requestSignal.aborted ? "BACKUP_INTERRUPTED"
         : error instanceof Error && error.message === "BACKUP_EXPORT_FORMAT" ? "BACKUP_EXPORT_FORMAT" : phase;
     }
-    await save();
-    if (job.status === "complete") {
+    await persist();
+    if (job.status === "complete" && !abandoned) {
       try { job.cleanup = await cleanupBackups(env, job, signal); }
       catch { job.cleanup = { status: "failed", deleted: 0 }; }
-      await save();
+      await persist();
     }
     return publicJob(job);
-  } finally { clearTimeout(timer); await release(env, lease, ctx); }
+  } finally { clearTimeout(timer); detach(); await (abandoned?.catch(() => {}) ?? release(env, lease, ctx)); }
 }
 
 export async function runScheduledBackup(env: Env, ctx: ExecutionContext, now = Date.now()) {
