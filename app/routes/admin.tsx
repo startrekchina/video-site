@@ -4,6 +4,7 @@ import { BanIcon, ChevronDownIcon, ChevronRightIcon, MoreHorizontalIcon, PlusIco
 import type { Route } from "./+types/admin";
 import { pageMember } from "@/lib/member.server";
 import { adminHttp } from "@/lib/admin.server";
+import { isBackupOwner } from "@/lib/backups.server";
 import { call } from "@/lib/auth-client";
 import { pageTitle } from "@/lib/site";
 import { cn } from "@/lib/utils";
@@ -64,7 +65,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const members = tab === "members" ? await read<AdminMember[]>("data") : [];
   const invitations = tab === "invites" ? await read<Invitation[]>("invitations") : [];
   const roots = tab === "tree" ? await read<TreeMember[]>("roots") : [];
-  return data({ members, invitations, roots, stats, tab, self: current.member.user_id, totp: !!current.member.twoFactorEnabled, now: Date.now() }, { headers: current.headers });
+  return data({ members, invitations, roots, stats, tab, self: current.member.user_id, totp: !!current.member.twoFactorEnabled, backupOwner: isBackupOwner(current.member, env), now: Date.now() }, { headers: current.headers });
 }
 export const meta = () => pageTitle("管理后台");
 export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
@@ -92,6 +93,7 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
   const total = admin.tab === "members" ? admin.stats.filtered : admin.tab === "invites" ? admin.stats.invitationCount : admin.stats.roots;
   return <Page narrow>
     <PageHeading><PageHeadingTagline>管理后台</PageHeadingTagline><PageHeadingTitle>成员、邀请码和邀请链。</PageHeadingTitle><PageHeadingDescription>管理社区成员、邀请额度与关系链。片库与影视资料由站长离线维护。</PageHeadingDescription></PageHeading><div className="h-4" />
+    {admin.backupOwner && <div className="px-4 pb-4 text-sm"><Link className="link-underline" to="/admin/backups">数据备份与状态</Link></div>}
     <div className="screen-line-top screen-line-bottom grid grid-cols-3">
       {[["成员", admin.stats.active], ["已封禁", admin.stats.banned], ["未使用邀请码", admin.stats.validUnused]].map(([title, value], i) =>
         <div key={title} className={cn("flex flex-col gap-1 px-4 py-3", i > 0 && "border-l border-line")}><span className="text-sm text-muted-foreground">{title}</span><span className="font-mono text-2xl font-medium tabular-nums">{value}</span></div>)}

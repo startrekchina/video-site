@@ -18,6 +18,11 @@ const messages: Record<string, string> = {
   USER_VERIFICATION_REQUIRED: "请使用支持指纹、面容或设备 PIN 验证的通行密钥。",
   INVALID_TWO_FACTOR_COOKIE: "二步验证已超时，请重新登录。", INVALID_CODE: "动态验证码或备用码不正确。",
   ADMIN_CHANGE_REJECTED: "操作未生效：该成员状态可能已变化，或此操作涉及你自己或最后一位管理员。请刷新页面后查看。",
+  BACKUP_OWNER_REQUIRED: "仅本站站长可操作备份。", BACKUP_BUSY: "本环境已有备份或清理任务在执行，请稍后刷新状态。",
+  BACKUP_CONFIG_INVALID: "本环境备份配置未就绪，本地开发不会调用远程 D1。", BACKUP_TARGET_UNAVAILABLE: "所选外部目标配置不完整或无效。",
+  BACKUP_STATE_CHANGED: "备份状态已变化，请刷新检查。", BACKUP_ALREADY_COMPLETE: "该备份已完整完成，无需重试。",
+  BACKUP_NOT_FOUND: "找不到本环境的备份。", BACKUP_NOT_READY: "该备份尚未完整完成或已清理，不能下载。",
+  BACKUP_OBJECT_CHANGED: "备份对象缺失或版本已变化，拒绝下载未经校验的内容。",
 };
 export function authError(error: { code?: string; message?: string }, retry?: string | null) {
   if (error.code === "QUOTA_EXHAUSTED" && error.message?.startsWith("总额度不得低于当前占用")) return error.message;

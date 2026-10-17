@@ -1,0 +1,14 @@
+{
+  "name": "video-site-backup-restore",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cf build",
+    "dry-run": "cf deploy --dry-run"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "2.0.0-beta.sha-52b0dc0e9",
+    "cf": "1.0.0-beta.12",
+    "vite": "8.3.2"
+  }
+}

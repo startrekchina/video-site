@@ -16,6 +16,7 @@ export const settings = {
   playlistTitleMax: 60,
   playlistItemsMax: 200,
   backupRetention: 30 * DAY,
+  backupTaskTimeout: 14 * MINUTE,
   commentMaxLength: 1000,
   commentsPerPage: 10,
   repliesPerBatch: 10,

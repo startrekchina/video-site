@@ -19,7 +19,7 @@ export default defineConfig({
     cloudflareTest({
       main: "./workers/app.ts",
       experimental: { newConfig: true },
-      miniflare: { bindings: { ...testSecrets, TEST_MIGRATIONS: testMigrations, TEST_MEDIA_BASE64: readFileSync(mediaFixture).toString("base64") } },
+      miniflare: { d1Databases: ["TEST_RESTORE_DB"], bindings: { ...testSecrets, TEST_MIGRATIONS: testMigrations, TEST_MEDIA_BASE64: readFileSync(mediaFixture).toString("base64") } },
     }),
   ],
   resolve: { tsconfigPaths: true },
