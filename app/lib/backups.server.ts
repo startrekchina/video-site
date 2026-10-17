@@ -226,7 +226,7 @@ async function release(env: Env, lease: Awaited<ReturnType<typeof acquire>>, ctx
 }
 
 async function exportMetadata(response: Response) {
-  if (!response.ok || !response.body) { await response.body?.cancel(); throw new Error("BACKUP_EXPORT_FAILED"); }
+  if (!response.body) throw new Error("BACKUP_EXPORT_FAILED");
   const reader = response.body.getReader(), decoder = new TextDecoder(); let length = 0, text = "";
   try {
     while (true) {
@@ -234,7 +234,7 @@ async function exportMetadata(response: Response) {
       length += next.value.byteLength; if (length > 65536) throw new Error("BACKUP_EXPORT_FAILED");
       text += decoder.decode(next.value, { stream: true });
     }
-    return JSON.parse(text + decoder.decode()) as { success?: boolean; result?: {
+    return JSON.parse(text + decoder.decode()) as { success?: boolean; errors?: { code?: unknown }[]; result?: {
       status?: string; success?: boolean; at_bookmark?: string; result?: { signed_url?: string };
     } };
   } finally { await reader.cancel().catch(() => {}); }
@@ -245,31 +245,40 @@ async function exportSnapshot(env: Env, job: Job, signal: AbortSignal) {
   if (!migrations.results.length) throw new Error("BACKUP_EXPORT_FAILED");
   const schemaVersion = createHash("sha256").update(JSON.stringify(migrations.results.map(row => row.name))).digest("hex");
   const endpoint = `https://api.cloudflare.com/client/v4/accounts/${env.BACKUP_ACCOUNT_ID}/d1/database/${env.BACKUP_DATABASE_ID}/export`;
-  let bookmark: string | undefined;
-  while (true) {
-    signal.throwIfAborted();
-    const response = await fetch(endpoint, { method: "POST", redirect: "manual", signal,
-      headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ output_format: "polling", ...(bookmark ? { current_bookmark: bookmark } : {}) }) });
-    const data = await exportMetadata(response), result = data.result;
-    if (data.success !== true || !result || result.success === false || result.status === "error"
-      || typeof result.at_bookmark !== "string" || !result.at_bookmark || result.at_bookmark.length > 256
-      || bookmark && result.at_bookmark !== bookmark) throw new Error("BACKUP_EXPORT_FAILED");
-    bookmark = result.at_bookmark;
-    if (result.status === "complete") {
-      if (typeof result.result?.signed_url !== "string") throw new Error("BACKUP_EXPORT_FAILED");
-      const url = new URL(result.result.signed_url);
-      if (url.protocol !== "https:" || url.username || url.password || url.hash) throw new Error("BACKUP_EXPORT_FAILED");
-      // The URL comes from authenticated Cloudflare metadata. Never forward the API token or follow a redirect.
-      const download = await fetch(url, { redirect: "manual", signal, cache: "no-store", headers: { "Accept-Encoding": "identity" } });
-      const size = download.headers.get("Content-Length"), byteLength = Number(size), encoding = download.headers.get("Content-Encoding");
-      if (!download.ok || !download.body || !size || !/^\d+$/u.test(size) || byteLength <= 0 || byteLength > maxExportBytes || encoding && encoding !== "identity") {
-        await download.body?.cancel(); throw new Error("BACKUP_EXPORT_FORMAT");
+  let bookmark: string | undefined, httpStatus: number | undefined, data: Awaited<ReturnType<typeof exportMetadata>> | undefined;
+  try {
+    while (true) {
+      signal.throwIfAborted();
+      const response = await fetch(endpoint, { method: "POST", redirect: "manual", signal,
+        headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ output_format: "polling", ...(bookmark ? { current_bookmark: bookmark } : {}) }) });
+      httpStatus = response.status; data = undefined;
+      data = await exportMetadata(response); const result = data.result;
+      if (!response.ok || data.success !== true || !result || result.success === false || result.status === "error"
+        || typeof result.at_bookmark !== "string" || !result.at_bookmark || result.at_bookmark.length > 256
+        || bookmark && result.at_bookmark !== bookmark) throw new Error("BACKUP_EXPORT_FAILED");
+      bookmark = result.at_bookmark;
+      if (result.status === "complete") {
+        if (typeof result.result?.signed_url !== "string") throw new Error("BACKUP_EXPORT_FAILED");
+        const url = new URL(result.result.signed_url);
+        if (url.protocol !== "https:" || url.username || url.password || url.hash) throw new Error("BACKUP_EXPORT_FAILED");
+        // The URL comes from authenticated Cloudflare metadata. Never forward the API token or follow a redirect.
+        const download = await fetch(url, { redirect: "manual", signal, cache: "no-store", headers: { "Accept-Encoding": "identity" } });
+        const size = download.headers.get("Content-Length"), byteLength = Number(size), encoding = download.headers.get("Content-Encoding");
+        if (!download.ok || !download.body || !size || !/^\d+$/u.test(size) || byteLength <= 0 || byteLength > maxExportBytes || encoding && encoding !== "identity") {
+          await download.body?.cancel(); throw new Error("BACKUP_EXPORT_FORMAT");
+        }
+        return { metadata: { ...scope(job), createdAt: job.startedAt, schemaVersion, bookmark, authKeyId: backupKeyId(env.BETTER_AUTH_SECRET) }, body: download.body, byteLength };
       }
-      return { metadata: { ...scope(job), createdAt: job.startedAt, schemaVersion, bookmark, authKeyId: backupKeyId(env.BETTER_AUTH_SECRET) }, body: download.body, byteLength };
+      if (result.status !== undefined && result.status !== "active") throw new Error("BACKUP_EXPORT_FAILED");
+      await delay(1000, undefined, { signal });
     }
-    if (result.status !== undefined && result.status !== "active") throw new Error("BACKUP_EXPORT_FAILED");
-    await delay(1000, undefined, { signal });
+  } catch (error) {
+    // Statuses and numeric API codes only: upstream messages may carry signed URLs.
+    if (!signal.aborted) console.warn(JSON.stringify({ event: "backup_export_rejected", jobId: job.id, httpStatus, status: data?.result?.status,
+      errors: Array.isArray(data?.errors) ? data.errors.map(item => item?.code).filter(code => typeof code === "number") : undefined,
+      error: error instanceof Error && error.message.startsWith("BACKUP_") ? error.message : error instanceof Error ? error.name : "unknown" }));
+    throw error;
   }
 }
 

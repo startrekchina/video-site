@@ -359,6 +359,15 @@ it.each([
   expect(network).toHaveBeenCalledTimes(2);
 });
 
+it("logs the upstream status and numeric API codes of a rejected export without private values", async () => {
+  const warn = vi.spyOn(console, "warn");
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: false, errors: [{ code: 10000, message: `Authentication error ${signed}` }] }, { status: 403 })));
+  const failed = await create(); expect(failed).toMatchObject({ status: "failed", failure: { code: "BACKUP_EXPORT_FAILED" } });
+  const logged = warn.mock.calls.map(([line]) => String(line)).filter(line => line.includes("backup_export_rejected"));
+  expect(logged.map(line => JSON.parse(line))).toEqual([{ event: "backup_export_rejected", jobId: failed.id, httpStatus: 403, errors: [10000], error: "BACKUP_EXPORT_FAILED" }]);
+  for (const privateValue of [signed, "Authentication error", runtime.CLOUDFLARE_API_TOKEN, runtime.BACKUP_ACCOUNT_ID]) expect(logged.join()).not.toContain(privateValue);
+});
+
 it("keeps upstream errors and signed redirects private, and never follows redirects", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: false, errors: [{ message: `private failure ${signed}` }] }, { status: 500 })));
   const failed = await create(); expect(failed).toMatchObject({ status: "failed", failure: { code: "BACKUP_EXPORT_FAILED" }, downloadReady: false });
