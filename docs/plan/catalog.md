@@ -30,7 +30,7 @@
 | 作品 `works` | `id, kind, tmdb_id, title_zh, title_en, overview_zh, overview_en, year, poster_asset`；`kind` 仅为 `movie` / `series`；唯一键 `(kind, tmdb_id)`，不能把电影和剧集的 TMDB 数字空间混为一谈。 |
 | 季 `seasons` | `id, work_id, season_number, tmdb_id`，另存双语资料和季海报；唯一键 `(work_id, season_number)`，外键指向剧集作品。manifest 的季海报 `tmdb_id` 是剧集 ID，不是季 ID；季的 TMDB ID 从 TMDB 季详情取得。 |
 | 可播放单元 `playable_units` | `id, kind, work_id, season_id, episode_number, tmdb_id, duration_seconds`，集另存双语资料；未知时长可为 null，关联媒体后以实际时长为准。电影行无季号/集号，以 `work_id` 唯一；集行必须有季和集号，以 `(season_id, episode_number)` 唯一，且季属于同一作品。集记录即“集”对象，不再另建一份集表。 |
-| 媒体 `media_files` | `id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag`；外键关联单元，`object_key` 唯一，逻辑唯一键 `(playable_unit_id, format, variant)`。`r2_etag` 保存已验证的 R2 版本，历史未记录版本的行为不能作为新扫描验收依据。v1 只允许一条 MP4 片源，模型不限制以后增加格式或档位。 |
+| 媒体 `media_files` | `id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag`；外键关联单元，`object_key` 唯一，逻辑唯一键 `(playable_unit_id, format, variant)`。`r2_etag` 保存已验证的 R2 版本，历史未记录版本的行为不能作为新扫描验收依据。v1 每个单元一条 `variant = 'original'` 的原画 MP4，另可有 `variant` 为档位后缀的清晰度档位（[T4.9](playback.md#t49-多清晰度片源)）。 |
 | 字幕 `subtitle_tracks` | `id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256, r2_etag`；逻辑唯一键 `(playable_unit_id, track_key)`，`object_key` 唯一。扫描轨道标识为 `language.trackKey`，版本字段保存已验证 ETag；v1 仅发布中文/英文 VTT。 |
 | 媒体扫描 `media_sync_state` | 当前目录扫描的最后处理对象键、互斥租约及时间，仅在服务端保存；不向浏览器返回扫描位置或对象键。 |
 
@@ -54,7 +54,7 @@
 
 - 初始化输入为明确的 `environment`（仅 `staging` / `prod`）和仓库 manifest。启动时展示目标环境并校验资源归属，缺配置或身份歧义立即停止，不能默认写 prod。原本机媒体预检命令可继续使用，但不负责远端上传；本机绝对路径不进入 D1。
 - manifest 约束 v1 可导入作品和季；季条目的 `tmdb_id + season` 映射到所属剧和季号，再从 TMDB 获取季/集身份。电影和剧集分别使用其 TMDB 类型，不以标题匹配。manifest 的 `file` 是 `.jpg` 原图名，页面海报引用必须映射到仓库中存在的 `.webp` 静态资产；本项目海报留在 public，素材 README 中“生产导入 R2”的旧描述不改变 6.1 决策。
-- 固定对象命名为 `library/series/<作品 TMDB ID>/S<季号>/E<集号>.mp4`，电影为 `library/movie/<作品 TMDB ID>/movie.mp4`；季/集号至少两位且无多余前导零。字幕在同目录同主文件名下使用 `.<language>.<trackKey>.vtt`，language 为中文或英文，trackKey 为稳定轨道标识；D1 轨道标识保存为 `language.trackKey`。不同语言和多条同语言轨道分开匹配；不做模糊片名猜测。不合规则、范围外或没有占位记录的对象跳过并记录脱敏结果。
+- 固定对象命名为 `library/series/<作品 TMDB ID>/S<季号>/E<集号>.mp4`，电影为 `library/movie/<作品 TMDB ID>/movie.mp4`；季/集号至少两位且无多余前导零。清晰度档位在同目录同主文件名后加 `.2160p`/`.1080p`/`.720p`/`.480p`，如 `E03.720p.mp4`（[T4.9](playback.md#t49-多清晰度片源)，待实施）。字幕在同目录同主文件名下使用 `.<language>.<trackKey>.vtt`，language 为中文或英文，trackKey 为稳定轨道标识；D1 轨道标识保存为 `language.trackKey`。不同语言和多条同语言轨道分开匹配；不做模糊片名猜测。不合规则、范围外或没有占位记录的对象跳过并记录脱敏结果。
 - 没有片源的集可展示双语资料，但保持“片源暂缺”，不签发播放授权。TMDB 未给出时长时保存 null，展示“时长暂缺”，不填写假时长；关联 MP4 后以媒体实际时长为准。
 - 首次发现或对象版本变化时，服务器核对 MP4 顶层 box 完整边界、faststart、单 H.264 视频轨和 AAC 音轨、时长/字节数/码率，并流式计算 SHA-256；大文件不能整体读入内存。元数据块默认最多 32 MiB，超出时保持未关联并提示先在本机处理。文件在验证期间发生变化时放弃本轮关联。既有相同对象版本可跳过完整验证，重复扫描不重复挂接。
 - 字幕先按既有规则转为 VTT，再验证 UTF-8、`WEBVTT` 头、cue 时间语法、开始不晚于结束、时间可解析和标签/文本可安全渲染；ASS 转换明确提示样式丢失，不能把 ASS 原文件发布给 v1 播放器。语言限中文/英文，同一轨道用稳定 `trackKey` 识别。

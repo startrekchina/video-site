@@ -10,13 +10,15 @@ import { Poster, ProgressBar } from "@/components/site/media"
 import { Page, Panel, PanelFooterLink, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { DetailTop } from "./title"
-import { Player, SUBS, type SubtitleLang } from "@/components/site/player"
+import { Player, qualitySources, SUBS, type SubtitleLang } from "@/components/site/player"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
+import { toast } from "@/components/ui/toast"
 import { ShimmeringText } from "@/components/ui/shimmering-text"
 import { Tabs, TabsIndicator, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { NotFoundPage } from "./not-found"
 import { CommentsSection } from "./watch-comments"
+import { DanmakuAdmin, DanmakuBlockWords } from "./watch-danmaku"
 
 const NEXT_COUNTDOWN = 10
 const TOKEN_LATENCY_MS = 900
@@ -154,17 +156,22 @@ export function WatchPage() {
   const { unitId } = useParams()
   const unit = getUnit(unitId!)
   const viewer = useStore((s) => s.me?.username)
+  const isAdmin = useStore((s) => s.me?.role === "admin")
   const pr = useStore((s) => (unitId ? s.progress[unitId] : undefined))
   const [ended, setEnded] = useState(false)
   const [sub, setSub] = useState<SubtitleLang>(() => (localStorage.getItem("proto-sub") as SubtitleLang) || "zh")
   const [startFraction] = useState(() => (pr && !pr.watched ? pr.positionSec / pr.durationSec : 0))
+  const [quality, setQuality] = useState(() => localStorage.getItem("proto-quality"))
+  const emitterSlot = useRef<HTMLDivElement>(null)
 
   useEffect(() => setEnded(false), [unitId])
   useEffect(() => localStorage.setItem("proto-sub", sub), [sub])
+  useEffect(() => void (quality && localStorage.setItem("proto-quality", quality)), [quality])
 
   if (!unit) return <NotFoundPage />
   const next = nextUnit(unit.id)
   const dur = unit.runtimeMin * 60
+  const sources = qualitySources(unit)
 
   return (
     <Page>
@@ -192,12 +199,19 @@ export function WatchPage() {
               startFraction={startFraction}
               subtitle={sub}
               onSubtitleChange={setSub}
+              sources={sources}
+              quality={quality}
+              onQualityChange={setQuality}
+              viewer={viewer ?? ""}
+              onDanmakuError={(title) => toast.add({ title, type: "error" })}
+              emitterSlot={emitterSlot}
               onReport={(f) => actions.reportProgress(unit.id, Math.round(f * dur), dur)}
               onEnded={() => setEnded(true)}
               endOverlay={ended && next ? <NextUp key={next.id} next={next} onCancel={() => setEnded(false)} /> : null}
             />
           </TokenGate>
         </div>
+        <div ref={emitterSlot} className="px-2 pb-2 empty:hidden" />
       </div>
 
       <div className="h-4" />
@@ -220,6 +234,8 @@ export function WatchPage() {
               {pr?.watched ? <CheckIcon className="text-success" data-icon="inline-start" /> : null}
               {pr?.watched ? "已看完" : "标记为已看"}
             </Button>
+            <DanmakuBlockWords />
+            {isAdmin && <DanmakuAdmin unitId={unit.id} />}
             <AddToPlaylist item={unit.kind === "episode" ? { type: "unit", id: unit.id } : { type: "work", slug: unit.work.slug }} size="sm" />
             {next && (
               <Button variant="ghost" size="sm" render={<Link to={`/watch/${next.id}`} />} nativeButton={false}>

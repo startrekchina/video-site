@@ -4,7 +4,7 @@
 
 ## 范围与状态
 
-承接 A3/A8、B 6.6/6.14/7，依赖认证即时门禁与片库可播资源。T4.3/T4.4 功能、HTTP、121 分钟长时和设计复验通过；iPhone 实机验收通过。请求身份/媒体查询优化与签发 HEAD 并行修复已有本地和 staging 证据，核心安全与日志复验通过，历史尾延迟等性能缺口仍待补齐；并行修复经 PR #26 进入 `dev` 并随 staging 自动发布。性能任务统一维护在 [T4.5](authentication.md#t45-请求级身份与-d1-往返优化)；[T4.6](#t46-播放改用登录会话鉴权) 改为登录会话鉴权，HTTP 与 staging 正常路径已按新契约复验，长播与设计复验仍须重做。下一集/进度/片单队列由 community 负责。
+承接 A3/A8、B 6.6/6.14/7，依赖认证即时门禁与片库可播资源。T4.3/T4.4 功能、HTTP、121 分钟长时和设计复验通过；iPhone 实机验收通过。请求身份/媒体查询优化与签发 HEAD 并行修复已有本地和 staging 证据，核心安全与日志复验通过，历史尾延迟等性能缺口仍待补齐；并行修复经 PR #26 进入 `dev` 并随 staging 自动发布。性能任务统一维护在 [T4.5](authentication.md#t45-请求级身份与-d1-往返优化)；[T4.6](#t46-播放改用登录会话鉴权) 改为登录会话鉴权，HTTP 与 staging 正常路径已按新契约复验，长播与设计复验仍须重做。[T4.9](#t49-多清晰度片源) 多清晰度片源待实施。下一集/进度/片单队列与弹幕由 community 负责。
 
 ## 任务与验证摘要
 
@@ -99,6 +99,19 @@ GET 与 Range 只做一次 R2 读取：`get()` 带 `onlyIf: { etagMatches: r2_et
 - MP4 使用 `video/mp4`，字幕使用 `text/vtt; charset=utf-8`；字幕接受同样的鉴权和 GET/HEAD 规则。不复制上传时的 R2 HTTP 元数据，不能让其中的 `cacheControl` 变成公开缓存。
 - R2 `body` 以流交给响应，不整体 `arrayBuffer()` 或缓存进内存；媒体不压缩、不改写字节，Content-Length 与 Range 语义保持一致。
 - v1 不将授权媒体响应放进共享 CDN/Cache API；200、206、416 和错误均为 `private, no-store`。地址不含凭证；应用日志只记路由族、状态与资源 ID，不记 URL 或 query，平台的 query 脱敏与 invocation log 关闭照常保留。
+
+## T4.9 多清晰度片源
+
+开发者 2026-10-18 确认纳入 v1，规则见 [B 6.6](../detailed-requirements.md#66-播放与媒体分发)与 6.8；原型 `prototypes/frontend-v1` 的播放页提供交互参考。
+
+- 存储复用 `media_files.variant`：原画为 `original`，档位为后缀本身（`2160p`/`1080p`/`720p`/`480p`）；逻辑唯一键 `(playable_unit_id, format, variant)` 已覆盖，不改表结构。
+- 扫描把 `E03.720p.mp4`、`movie.720p.mp4` 识别为同一单元的档位，校验与原画相同（[片库 6.8.1](catalog.md#681-资料占位固定命名与幂等扫描)），与原画时长差超过 1 秒时不挂接并在报告中列出。单元可播状态与 `duration_seconds` 只由原画决定。
+- loader 的 `source` 增加 `qualities: [{ label, url }]`，原画在前、档位按后缀从高到低；每个档位仍走 `/media/:mediaFileId` 逐请求鉴权，不新增路由，打开页面时仍不访问 R2。
+- 播放器用 ArtPlayer 自定义控件的 `selector` 与 `switchQuality`（保留位置、播放状态与倍速），只有一档时不挂控件；选择存 `localStorage`，单元没有该档位时回到原画。出错时对当前档位地址发 HEAD，重新连接留在当前档位。
+
+- [ ] 扫描与挂接档位文件，同步[导入说明](../import-media.md)；用例覆盖白名单后缀、时长容差、缺原画、单档失败隔离、冲突与替换。
+- [ ] loader 与播放器接入清晰度选择；组件用例覆盖排序、单档隐藏、记住选择与回退、切换保留状态、出错重连留在当前档位。
+- [ ] 桌面与手机浏览器验证控制栏布局、切换与记忆；真实手机按 T4.4-mobile 方式补验切换。
 
 ## 播放器与媒体接口
 
