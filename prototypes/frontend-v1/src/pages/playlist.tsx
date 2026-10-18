@@ -199,7 +199,7 @@ export function PublicPlaylistsPage() {
     <Page>
       <PageHeading>
         <PageHeadingTagline>站内公开片单</PageHeadingTagline>
-        <PageHeadingTitle>其他成员整理并公开的片单。</PageHeadingTitle>
+        <PageHeadingTitle>其他成员整理并公开的片单.</PageHeadingTitle>
         <PageHeadingDescription>只有站内成员能看到。想分享自己的片单，在片单页把可见范围改成“站内公开”。</PageHeadingDescription>
       </PageHeading>
       <HeadingGap />

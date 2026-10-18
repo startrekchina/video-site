@@ -180,7 +180,7 @@ export function AccountPage() {
       </aside>
       <PageHeading>
         <PageHeadingTagline>账号与安全</PageHeadingTagline>
-        <PageHeadingTitle>管理登录方式、二步验证和登录设备。</PageHeadingTitle>
+        <PageHeadingTitle>管理登录方式、二步验证和登录设备.</PageHeadingTitle>
         <PageHeadingDescription className="font-mono text-sm">
         <dl className="flex flex-wrap gap-x-6 gap-y-1">
           <div>

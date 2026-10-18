@@ -307,7 +307,7 @@ export function AdminPage() {
     <Page narrow>
       <PageHeading>
         <PageHeadingTagline>管理后台</PageHeadingTagline>
-        <PageHeadingTitle>成员、邀请码和邀请链。</PageHeadingTitle>
+        <PageHeadingTitle>成员、邀请码和邀请链.</PageHeadingTitle>
         <PageHeadingDescription>内容由站长用离线工具导入，这里不提供上传。</PageHeadingDescription>
       </PageHeading>
       {isBackupOwner(me) ? (

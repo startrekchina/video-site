@@ -84,7 +84,7 @@ export function AboutPage() {
 
       <PageHeading>
         <PageHeadingTagline>关于</PageHeadingTagline>
-        <PageHeadingTitle>一个邀请制的私人观看站。</PageHeadingTitle>
+        <PageHeadingTitle>一个邀请制的私人观看站.</PageHeadingTitle>
         <PageHeadingDescription>本站是什么、怎么加入、保存了你的哪些数据，以及账号出了问题怎么办。</PageHeadingDescription>
       </PageHeading>
       <div className="h-4" />

@@ -153,7 +153,7 @@ function BackupsView({ demo }: { demo: string | null }) {
     <Page narrow>
       <PageHeading>
         <PageHeadingTagline>站长运维 · 正式站</PageHeadingTagline>
-        <PageHeadingTitle>数据备份。</PageHeadingTitle>
+        <PageHeadingTitle>数据备份.</PageHeadingTitle>
         <PageHeadingDescription>备份不含媒体文件，时间均为北京时间。恢复需要备份当时的认证密钥和备份密钥。</PageHeadingDescription>
       </PageHeading>
       <div className="px-4 py-3 text-sm">

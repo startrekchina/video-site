@@ -37,7 +37,7 @@ export function InvitesPage() {
     <Page narrow>
       <PageHeading>
         <PageHeadingTagline>邀请</PageHeadingTagline>
-        <PageHeadingTitle>把档案馆分享给信得过的朋友。</PageHeadingTitle>
+        <PageHeadingTitle>把档案馆分享给信得过的朋友.</PageHeadingTitle>
         <PageHeadingDescription>邀请码单次有效，默认 30 天内有效。请仅邀请信得过的朋友，受邀成员的违规行为可能会影响邀请人账号。</PageHeadingDescription>
       </PageHeading>
       <div className="h-4" />
