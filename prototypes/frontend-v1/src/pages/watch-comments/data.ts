@@ -36,7 +36,7 @@ export const EMPTY_UNIT = "tng-s03e24"
 
 export const ADMINS = new Set(["station_keeper", "ops_ensign"])
 
-const USERS = [
+export const USERS = [
   "station_keeper",
   "ops_ensign",
   "picard_fan",
@@ -287,13 +287,13 @@ const GENERIC_REPLY = [
   "新人表示受教了。",
 ]
 
-function hash(s: string) {
+export function hash(s: string) {
   let h = 2166136261
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619)
   return h >>> 0
 }
 
-function mulberry32(seed: number) {
+export function mulberry32(seed: number) {
   let a = seed
   return () => {
     a = (a + 0x6d2b79f5) | 0

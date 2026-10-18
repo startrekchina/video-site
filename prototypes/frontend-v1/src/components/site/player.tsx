@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import Artplayer from "artplayer"
+import artplayerPluginDanmuku, { type Danmu, type Option as DanmakuOption, type Result as DanmakuPlugin } from "artplayer-plugin-danmuku"
 
+import type { Unit } from "@/data/catalog"
+import { DANMAKU_COLORS, DANMAKU_LOCK_SECONDS, DANMAKU_MAX_LENGTH, danmakuActions, isBlocked, subscribeBlockedWords } from "@/data/danmaku"
 import clipUrl from "@/media/test-clip.mp4"
+import clip1080 from "@/media/test-clip.1080p.mp4"
+import clip480 from "@/media/test-clip.480p.mp4"
+import clip720 from "@/media/test-clip.720p.mp4"
 import enVtt from "@/media/test-clip.en.vtt?url"
 import zhVtt from "@/media/test-clip.zh.vtt?url"
 
@@ -14,11 +20,48 @@ const SUBS: { lang: SubtitleLang; label: string; url: string }[] = [
   { lang: "off", label: "关闭", url: "" },
 ]
 
-const REPORT_INTERVAL_MS = 15_000
+/** One verified MP4 of a unit. */
+export type QualitySource = { label: string; url: string }
 
 /**
- * ArtPlayer wrapper. Every unit plays the same synthetic clip; progress is reported as a fraction
- * so the parent can scale it to the unit's real runtime.
+ * Which tiers each unit has, simulating per-episode uploads: TNG, SNW and the films carry three
+ * tiers, TOS two, every other unit only its original file (so no quality control is shown).
+ * Ordered as the server would: the original first, then tiers high to low; the first is the default.
+ */
+export function qualitySources(unit: Unit): QualitySource[] {
+  const original = { label: "原画", url: clip1080 }
+  const p720 = { label: "720p", url: clip720 }
+  const p480 = { label: "480p", url: clip480 }
+  if (unit.kind === "movie" || unit.work.code === "TNG" || unit.work.code === "SNW") return [original, p720, p480]
+  if (unit.work.code === "TOS") return [original, p480]
+  return [{ label: "原画", url: clipUrl }]
+}
+
+/** The remembered tier when this unit has it, otherwise the highest. */
+function pickQuality(sources: QualitySource[], remembered: string | null) {
+  return sources.find((s) => s.label === remembered) ?? sources[0]
+}
+
+const DANMAKU_SETTINGS_KEY = "proto-danmaku"
+const DANMAKU_SETTING_FIELDS = ["visible", "opacity", "speed", "fontSize", "margin", "modes", "antiOverlap", "synchronousPlayback", "mode", "color"] as const
+
+function savedDanmakuSettings(): Partial<DanmakuOption> {
+  try {
+    const v = JSON.parse(localStorage.getItem(DANMAKU_SETTINGS_KEY) ?? "{}")
+    return v && typeof v === "object" ? v : {}
+  } catch {
+    return {}
+  }
+}
+
+const REPORT_INTERVAL_MS = 15_000
+// The plugin's in-bar emitter is a fixed 260px; with every control shown the bar needs ~800px.
+// shortcut: measured with the 60 s clip's time text; measure the bar instead once durations reach hours.
+const EMITTER_MIN_WIDTH = 820
+
+/**
+ * ArtPlayer wrapper. Every unit plays the same synthetic clip (at whichever quality tiers it has);
+ * progress is reported as a fraction so the parent can scale it to the unit's real runtime.
  */
 export function Player({
   unitKey,
@@ -28,6 +71,12 @@ export function Player({
   endOverlay,
   subtitle,
   onSubtitleChange,
+  sources,
+  quality,
+  onQualityChange,
+  viewer,
+  onDanmakuError,
+  emitterSlot,
 }: {
   unitKey: string
   startFraction: number
@@ -36,11 +85,18 @@ export function Player({
   endOverlay: React.ReactNode
   subtitle: SubtitleLang
   onSubtitleChange: (l: SubtitleLang) => void
+  sources: QualitySource[]
+  quality: string | null
+  onQualityChange: (label: string) => void
+  viewer: string
+  onDanmakuError: (message: string) => void
+  /** Strip below the player that holds the danmaku input when the player is too narrow for it. */
+  emitterSlot: React.RefObject<HTMLDivElement | null>
 }) {
   const container = useRef<HTMLDivElement>(null)
   const [layer, setLayer] = useState<HTMLElement | null>(null)
-  const cb = useRef({ onReport, onEnded, onSubtitleChange })
-  cb.current = { onReport, onEnded, onSubtitleChange }
+  const cb = useRef({ onReport, onEnded, onSubtitleChange, onQualityChange, onDanmakuError })
+  cb.current = { onReport, onEnded, onSubtitleChange, onQualityChange, onDanmakuError }
   const subRef = useRef(subtitle)
   subRef.current = subtitle
 
@@ -49,10 +105,11 @@ export function Player({
     const overlay = document.createElement("div")
     overlay.className = "absolute inset-0 pointer-events-none"
     const initial = SUBS.find((s) => s.lang === subRef.current)!
+    const current = pickQuality(sources, quality)
 
     const art = new Artplayer({
       container: container.current,
-      url: clipUrl,
+      url: current.url,
       lang: "zh-cn",
       theme: "#fafafa",
       volume: 0.6,
@@ -80,6 +137,27 @@ export function Player({
         style: { fontSize: "clamp(14px, 3.2vw, 28px)" },
       },
       layers: [{ name: "proto-end", html: overlay, style: { position: "absolute", inset: "0", pointerEvents: "none", zIndex: "30" } }],
+      // A unit with a single file gets no quality control at all.
+      controls:
+        sources.length > 1
+          ? [
+              {
+                name: "proto-quality",
+                position: "right",
+                index: 10,
+                style: { marginRight: "10px" },
+                html: current.label,
+                selector: sources.map((s) => ({ html: s.label, url: s.url, default: s === current })),
+                async onSelect(item) {
+                  // switchQuality keeps the position, play/pause state and playback rate.
+                  await art.switchQuality(item.url as string)
+                  art.notice.show = `清晰度：${item.html}`
+                  cb.current.onQualityChange(item.html as string)
+                  return item.html as string
+                },
+              },
+            ]
+          : [],
       settings: [
         {
           name: "subtitle-lang",
@@ -93,7 +171,53 @@ export function Player({
           },
         },
       ],
+      plugins: [
+        artplayerPluginDanmuku({
+          danmuku: async () => danmakuActions.list(unitKey).map((d) => ({ id: d.id, text: d.text, time: d.time, mode: d.mode, color: d.color })),
+          speed: 7,
+          fontSize: 22,
+          opacity: 0.9,
+          margin: [10, "25%"],
+          ...savedDanmakuSettings(),
+          COLOR: DANMAKU_COLORS,
+          maxLength: DANMAKU_MAX_LENGTH,
+          lockTime: DANMAKU_LOCK_SECONDS,
+          // Blocked words and deletions apply at display time, so changes take effect without a reload.
+          beforeVisible: (d: Danmu & { id?: string }) => !isBlocked(d.text) && (!d.id || danmakuActions.exists(unitKey, d.id)),
+          beforeEmit(d: Danmu & { id?: string }) {
+            const r = danmakuActions.send({ unitId: unitKey, author: viewer, text: d.text, mode: d.mode ?? 0, color: d.color ?? DANMAKU_COLORS[0], time: d.time ?? art.currentTime })
+            if (!r.ok) {
+              cb.current.onDanmakuError(r.reason)
+              return false
+            }
+            d.id = r.item.id
+            return true
+          },
+        }),
+      ],
     })
+    const danmaku = art.plugins.artplayerPluginDanmuku as DanmakuPlugin
+
+    const saveDanmakuSettings = () => {
+      const o = danmaku.option
+      const picked = Object.fromEntries(DANMAKU_SETTING_FIELDS.map((k) => [k, k === "visible" ? !danmaku.isHide : o[k]]))
+      localStorage.setItem(DANMAKU_SETTINGS_KEY, JSON.stringify(picked))
+    }
+    art.on("artplayerPluginDanmuku:config", saveDanmakuSettings)
+    art.on("artplayerPluginDanmuku:show", saveDanmakuSettings)
+    art.on("artplayerPluginDanmuku:hide", saveDanmakuSettings)
+    // Danmaku already on screen skip beforeVisible, so clear them; the rest re-enter at their times.
+    const offRemoved = danmakuActions.onRemoved((id) => id === unitKey && danmaku.reset())
+    const offBlocked = subscribeBlockedWords(() => danmaku.reset())
+
+    // The plugin's own narrow fallback hangs the input below the player, outside our fixed-height box.
+    const placeEmitter = () => {
+      const slot = emitterSlot.current
+      if (!slot || art.fullscreen || art.fullscreenWeb) return
+      danmaku.mount(art.width < EMITTER_MIN_WIDTH ? slot : art.template.$controlsCenter)
+    }
+    art.on("ready", placeEmitter)
+    art.on("resize", placeEmitter)
 
     let seeked = false
     art.on("ready", () => {
@@ -131,10 +255,12 @@ export function Player({
       report()
       window.clearInterval(timer)
       document.removeEventListener("visibilitychange", onHide)
+      offRemoved()
+      offBlocked()
       art.destroy(false)
       setLayer(null)
     }
-    // Re-create per unit; startFraction is read once at mount by design.
+    // Re-create per unit; startFraction, sources and quality are read once at mount by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unitKey])
 
