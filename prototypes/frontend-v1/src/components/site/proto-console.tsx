@@ -44,9 +44,13 @@ const PAGES: { to: string; label: string }[] = [
   { to: "/nope", label: "404" },
 ]
 
+const CONSOLE = !import.meta.env.PROD || Boolean(import.meta.env.VITE_PROTO_CONSOLE)
+const BADGE = "flex items-center gap-1.5 rounded-lg bg-amber-300 px-3 py-1.5 font-bold text-zinc-950 shadow-lg ring-2 ring-zinc-950"
+
 /**
- * Prototype-only control panel. Deliberately styled unlike the site (inverted, high-contrast)
- * so it is never mistaken for part of the design under review.
+ * Prototype marker and control panel. Deliberately styled unlike the site (inverted, high-contrast)
+ * so it is never mistaken for part of the design under review. Builds without the console still
+ * float the marker, so the public prototype is never taken for the real site.
  */
 export function ProtoConsole() {
   const [open, setOpen] = useState(false)
@@ -54,11 +58,14 @@ export function ProtoConsole() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
-  if (import.meta.env.PROD && !import.meta.env.VITE_PROTO_CONSOLE) return null
-
   return (
     <div className="fixed top-[calc(var(--header-height)+--spacing(2))] left-3 z-[60] font-mono text-xs">
-      {open ? (
+      {!CONSOLE ? (
+        <div className={BADGE}>
+          <FlaskConicalIcon className="size-3.5" />
+          前端原型
+        </div>
+      ) : open ? (
         <div className="w-72 rounded-lg bg-amber-300 p-3 text-zinc-950 shadow-xl ring-2 ring-zinc-950">
           <div className="mb-2 flex items-center justify-between">
             <span className="font-bold tracking-wider uppercase">Prototype console</span>
@@ -96,13 +103,9 @@ export function ProtoConsole() {
           <div className="mt-2 border-t border-zinc-950/20 pt-2 text-[11px] opacity-70">数据只在内存中，刷新即重置。人物均为虚构。</div>
         </div>
       ) : (
-        <button
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-amber-300 px-3 py-1.5 font-bold text-zinc-950 shadow-lg ring-2 ring-zinc-950"
-          aria-label="打开原型控制台"
-        >
+        <button onClick={() => setOpen(true)} className={BADGE} aria-label="前端原型，打开控制台">
           <FlaskConicalIcon className="size-3.5" />
-          PROTO
+          前端原型
         </button>
       )}
     </div>

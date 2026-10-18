@@ -119,7 +119,6 @@ export function SiteFooter({ minimal }: { minimal?: boolean }) {
               关于
             </Link>
           )}
-          <span className="font-mono text-xs max-sm:hidden">原型 · proto/frontend-v1</span>
           <ThemeSwitcher />
         </div>
       </div>
