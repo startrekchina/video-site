@@ -1,2 +1,4 @@
+allowBuilds:
+  workerd: true
 minimumReleaseAgeExclude:
   - lucide-react@1.49.0

@@ -8,7 +8,7 @@
 
 - 页面和视觉基准为 `proto/frontend-v1` 提交 `f03d9a8`；PR #3 将原型与相关素材保留在 `main`，后续迁移以需求文档为准。原型中的加载、空数据、失败和成功反馈可供对照，但模拟操作不证明真实后端正确。
 - 2026-10-04 的质量与开发准备度评估确认视觉方向、页面结构和主要交互足以指导正式开发，结论为有条件通过；不是所有业务和设备状态的完整验收。
-- 本目录自己的 `package.json`、锁文件、测试和启动入口用于重现参考原型。安装时使用 `pnpm install --frozen-lockfile`，不复制其他工作树的 `node_modules`；依赖、`dist` 和自生成 MP4 都不提交。
+- 本目录自己的 `package.json`、锁文件、测试和启动入口用于重现参考原型。安装时使用 `pnpm install --frozen-lockfile`，不复制其他工作树的 `node_modules`；依赖和构建产物不提交；自生成的测试 MP4 随仓库提交，供云端构建直接使用。
 - 已知问题须在正式迁移时修正：切集可能沿用上一集续播位置；手动标记后“继续观看”可能遗漏作品；“自动播放”可能只切换页面；片单顺序播放尚未携带队列上下文。首页推荐、认证/找回和混合片单规则见当前需求第 6.3–6.4、6.7、6.11 节，不以模拟代码决定正式行为。
 - 管理员删除评论与回复已纳入正式 v1，但原型未实现；正式版从当前业务数据库直接删除记录，顶层评论连同全部回复及赞踩移除，单条回复连同其赞踩移除，不显示删除占位，规则见需求第 6.12.4 节。恢复点或备份里的历史讨论会照原样恢复，由管理员在维护期间**人工复核并重新手动删除**，不引入隐藏标记、软删除或删除台账，也不宣称历史备份已被擦除。Better Auth 的正式第三阶段验收已完成，当前状态以根 PLAN 和认证模块计划为准；原型自身仍不提供这些正式能力，旧 POC 不是选型阻塞。本次只同步规则说明，不修改参考原型的页面、内存数据或交互，也不宣称新增能力已验收。
 - 正式工程多出的页面按正式工程 `87535ef` 的界面回填到原型，供设计审查：找回密码、重设密码、邮箱验证与等待验证、全站搜索 `/search`、站长数据备份 `/admin/backups`。这些页面只模拟等待和结果，不发信、不导出数据库也不生成文件，正式行为以需求和正式工程为准；原型仍不随正式工程的每次改动同步。
@@ -33,7 +33,7 @@
 
 ## 运行
 
-需要 Node 22+、pnpm，以及 PATH 上可用的 `bash` 和 `ffmpeg`（首次启动时生成测试视频）。
+需要 Node 22+ 和 pnpm。只有删除测试视频后重新生成时才需要 PATH 上可用的 `bash` 和 `ffmpeg`。
 
 ```bash
 cd prototypes/frontend-v1
@@ -41,9 +41,13 @@ pnpm install --frozen-lockfile
 pnpm dev          # http://localhost:6120（监听 0.0.0.0，局域网可访问）
 ```
 
-`pnpm build` 会先做类型检查再打包。测试视频 `src/media/test-clip.mp4` 是用 ffmpeg 生成的 60 秒测试图（H.264 + AAC，faststart），不提交到 git；字幕 VTT 已提交。所有单集和电影都播放同一段测试片段。
+`pnpm build` 会先做类型检查再打包。测试视频 `src/media/test-clip.mp4` 是用 ffmpeg 生成的 60 秒测试图（H.264 + AAC，faststart），与字幕 VTT 一起提交；缺失时 `pnpm dev`/`pnpm build` 会先调用 `pnpm gen:media` 重新生成。所有单集和电影都播放同一段测试片段。
 
 剧集与电影资料已缓存进 `src/data/tmdb.json`，随仓库提交、开箱即用。要重新从 TMDB 拉取（例如新增作品或更新资料）时，先在环境变量里设置 `TMDB_API_KEY`（key 只留在本机，不提交进仓库），再运行 `node scripts/fetch-tmdb.mjs`。
+
+## 部署
+
+Worker `stcn-video-site-prototype` 以纯静态资源（SPA 回退）发布在 workers.dev，公开访问，配置见 `cloudflare.config.ts`。Workers Builds 只监听 `frontend-prototype` 分支：推送改动了 `prototypes/frontend-v1/`（README 与 `screenshots/` 除外）或仓库根 `public/` 时，在本目录运行 `pnpm build` 和 `pnpm exec cf deploy --prebuilt`；Node 24.21.0、pnpm 12.6.0，不开分支或 PR 预览。手动发布：`pnpm build && pnpm exec cf deploy --prebuilt`。
 
 ## 非播放页单集剧照
 
