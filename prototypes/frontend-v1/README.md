@@ -162,6 +162,43 @@ node scripts/fetch-episode-stills.mjs --compress  # 使用来源缓存下载、�
 - **布局**：插件在控制栏里的发送框固定 260px，播放器宽度小于 820px 时挂到播放器下方，全屏时插件自动移回控制栏。480px 以下隐藏音量控件，给清晰度按钮留位置。
 - 弹幕不设快捷键：`D` 已用于切换深浅色。
 
+## 公开看板（待确认）
+
+要回答的问题：只靠 Cloudflare 能读到的 Workers、R2、D1 运行数据，公开看板长什么样。
+
+> 需求文档尚未包含公开看板。版式已选定仪表盘；是否公开、公开哪些数字待开发者确认。已定的约束：数据全部来自 Cloudflare API，不在自己的数据库里记录统计，所以只展示 31 天以内的数据，也没有人工维护的事件记录。所有数字都是虚构的：每小时的数据由该小时的时间戳生成，刷新后历史不变；每分钟速率在相邻两个小时的均值之间插值再加波动，同样由分钟时间戳生成。
+
+`/status` 成员和访客都能打开，没有导航入口。页面只用站点自己的组件和颜色：面板、斜纹分隔带、Geist Mono 数字、ToggleGroup 分段切换和直角进度条；曲线是单色细线，系列之间靠粗细和虚线区分；绘图区不画网格线，改铺一层点阵（16px 间距，站点 `dot-grid` 的两倍，避免看起来像一层灰色底纹），向四边淡出，坐标标签所在的边距不铺。
+
+数据写法偏工程化，中英文按职责取舍：指标名和面板名用中文（“R2 下行流量”“调用结果”），解释性的句子和标签不上页面（分区标题不带副标题，占比列表每行只有名称、占比条和百分比），原因记在本节；技术记号保留英文，包括单位、小写分位 `p50/p95/p99`、时间窗 `24h` / `1m`、聚合方式 `sum / 1h`、时区 `UTC+8`、产品与 API 原名（Workers、`clientDisconnected`、`GetObject`、Class A/B）。数量保留 3 位有效数字，用 K / M（`185K`、`1.03M`）。
+
+版式用宽列。24h / 7d / 30d 切换驱动所有序列，24 小时按小时汇总，7 天和 30 天按北京时间自然日汇总（当天不完整）。顶部 8 个数字只显示读数：R2 下行流量、每分钟下行速率、下行峰值（范围内每小时平均速率的最大值）、请求数、错误率、接口延迟 P95、CPU 时间 P99、D1 查询；上行只在媒体同步时才有量，放在 R2 面板的传输量里。下面是 R2 下行流量、最近 1 小时的每分钟下行速率、接口延迟 P50/P95/P99；再按产品分面板：Workers（每时段请求、CPU 时间、调用结果）、R2（操作类型、传输量）、D1（读写查询、查询耗时、读写行数、数据库大小），然后是最近 5 次部署和边缘节点、状态码。图表在宽屏加高（下行流量 320px、半宽图 240px），手机上保持 240px 和 192px，避免接近方形。
+
+图表用 [bklit](https://bklit.com/)（shadcn 注册表 `@bklit`，见 `components.json`），源码装在 `src/components/charts/`，依赖 visx 和 motion。它的 `--chart-*` 变量在 `globals.css` 里映射到站点的 foreground / muted / border 等令牌，所以保持单色并跟随主题，不另设 `.dark` 值。系统开启“减少动态效果”时，图表入场动画、每分钟刷新时的曲线过渡和状态点闪烁都会关掉。
+
+bklit 的部分文件按站点约定改过，重新执行 `shadcn add` 会覆盖：`chart-formatters.ts`（北京时间、`MM-DD` / `HH:mm`）、`chart-loading-label.tsx`（改为引用 `@/components/ui/shimmering-text`）。CLI 每次 `add` 还会往 `globals.css` 注入一组英文默认色和写错的 `var(----chart-*)`，需要删掉。
+
+数据对应的 Cloudflare GraphQL Analytics 数据集：
+
+| 看板数据 | 数据集与字段 | 状态 |
+| --- | --- | --- |
+| 请求数、错误数、调用结果、CPU 时间 P50/P99 | `workersInvocationsAdaptive`：`sum.requests/errors`、`quantiles.cpuTimeP50/P99`、维度 `status` | 文档已核对 |
+| 接口延迟（墙钟时间）分位 | 同上，墙钟时间分位的字段名 | 未核对，接入时需 introspection |
+| R2 下行 / 上行流量 | `r2BandwidthUsageAdaptiveGroups`：`bytesDownload`、`bytesUpload`，最细按分钟分组，不计 100 KiB 以下的传输 | 文档已核对 |
+| R2 操作类型、A/B 类 | `r2OperationsAdaptiveGroups`：按 `actionType` 汇总 `requests` | 文档已核对 |
+| D1 读写查询、行数、查询耗时 | `d1AnalyticsAdaptiveGroups`：`readQueries`、`writeQueries`、行数、`queryBatchTimeMs` 分位 | 文档已核对 |
+| 数据库大小 | `d1StorageAdaptiveGroups`：`databaseSizeBytes` | 文档已核对 |
+| 部署记录 | Workers 版本与部署 API | 未核对 |
+| 边缘节点、状态码 | zone 级 HTTP 请求分析 | 未核对 |
+
+以上数据集按账户查询，所有套餐至少保留 31 天；每 5 分钟最多 300 次查询，最近几分钟有汇总延迟。单次查询能覆盖的时长按数据集而定，账户的实际保留期和单次时长用 GraphQL 的 `settings` 节点（`notOlderThan`、`maxDuration`）查，超出单次时长时后端分段查询。公开页面不能每次访问都调用 API，服务端需要一层短时响应缓存（Workers Cache API），过期即丢弃，不算存储统计。
+
+每分钟下行速率：用 `r2BandwidthUsageAdaptiveGroups` 按 `datetimeMinute` 取最近 1 小时的 `bytesDownload`，舍掉最近 3 分钟（汇总未完成），缺失的分钟补 0，换算成 Mbps。这一组单独缓存约 60 秒；页面每分钟拉一次，标签页隐藏时暂停，回到前台立即刷新，标出“数据截至 HH:mm UTC+8”。它不是逐秒实时值，比真实情况晚约 3 分钟。Worker 经绑定读取 R2 的流量是否计入这个数据集还未核对；若不计入，这个速率和 R2 下行流量都要改用其他来源（例如 zone 级 HTTP 分析的响应字节，同样未核对）。
+
+刻意不展示：R2 存储量和对象数（`r2StorageAdaptiveGroups` 可读，但会透露片库规模，访客也能打开这个页面）、对象名和存储桶名。
+
+已知问题：bklit 图表的数值只能用指针悬停查看，没有键盘逐点浏览。原型打包成单个约 2.4 MB 的脚本，正式迁移时应按路由拆分。
+
 ## 页面
 
 | 路由 | 内容 | 对应用户故事 |
@@ -171,6 +208,7 @@ node scripts/fetch-episode-stills.mjs --compress  # 使用来源缓存下载、�
 | `/verify-pending` `/verify-email` | 等待验证（`?delivery=accepted` 已发出、其他值可能未发出、无参数为重新发送）、验证结果（成功、链接失效、改邮箱不属于当前账号）；从正式工程回填 | 4、64–65 |
 | `/search` | 全站搜索，同时查找剧集和电影，读取 `?q=`；从正式工程回填，正式工程同样没有页面内入口 | 18 |
 | `/`（访客） `/about` | 访客落地页（星图）、关于本站 | 1、51–52 |
+| `/status` | 公开看板（仪表盘），虚构数据 | 待确认 |
 | `/` | 影院式 hero（含继续观看）、收藏、剧集和电影分区 | 15、53 |
 | `/series` `/movies` `/title/:slug` | 网格和时间轴浏览、作品页、按季浏览、单集剧照与观看状态、中文缺失回退英文 | 16–19、29、54 |
 | `/watch/:unitId` | 播放、字幕切换、清晰度切换、弹幕、续播、进度上报、下一集提示、快捷键；选集列表下方的评论区 | 20–25、27–28、55–59、61、75–79 |

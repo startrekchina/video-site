@@ -14,6 +14,7 @@ const SCENARIOS: { key: Scenario; label: string; home: string }[] = [
 
 const PAGES: { to: string; label: string }[] = [
   { to: "/about", label: "关于" },
+  { to: "/status", label: "公开看板" },
   { to: "/login", label: "登录" },
   { to: "/register?code=Q-CONT-INUM-01", label: "注册（有效码）" },
   { to: "/register?code=BORG-X0X0-7777", label: "注册（过期码）" },
