@@ -94,6 +94,8 @@ function build(unitId: string, now: number): Danmaku[] {
 }
 
 let state: Record<string, Danmaku[]> = {}
+/** Send times per author, kept apart from the danmaku so deletions never refund the quota. */
+const sendTimes: Record<string, number[]> = {}
 let seq = 0
 const listeners = new Set<() => void>()
 const removedListeners = new Set<(unitId: string) => void>()
@@ -104,7 +106,7 @@ function ensure(unitId: string) {
   return state[unitId]
 }
 
-/** Characters as a reader counts them, so an emoji counts once. */
+/** Unicode code points, the same count the formal app uses for comments and playlist titles. */
 export const charCount = (s: string) => Array.from(s).length
 
 export type SendResult = { ok: true; item: Danmaku } | { ok: false; reason: string }
@@ -119,10 +121,12 @@ export const danmakuActions = {
     if (charCount(text) > DANMAKU_MAX_LENGTH) return { ok: false, reason: `弹幕最多 ${DANMAKU_MAX_LENGTH} 字。` }
     if (![0, 1, 2].includes(input.mode) || !DANMAKU_COLORS.includes(input.color.toUpperCase())) return { ok: false, reason: "弹幕样式无效。" }
     const now = Date.now()
-    const sentLastHour = Object.values(state)
-      .flat()
-      .filter((d) => d.author === input.author && now - d.createdAt < HOUR).length
-    if (sentLastHour >= DANMAKU_HOURLY_LIMIT) return { ok: false, reason: `每小时最多发送 ${DANMAKU_HOURLY_LIMIT} 条弹幕，请稍后再试。` }
+    // The member-wide interval lives here: the plugin's input lock resets whenever the player is recreated.
+    const times = (sendTimes[input.author] = (sendTimes[input.author] ?? []).filter((t) => now - t < HOUR))
+    if (times.length && now - times[times.length - 1] < DANMAKU_LOCK_SECONDS * 1000)
+      return { ok: false, reason: `发送太快了，请 ${DANMAKU_LOCK_SECONDS} 秒后再试。` }
+    if (times.length >= DANMAKU_HOURLY_LIMIT) return { ok: false, reason: `每小时最多发送 ${DANMAKU_HOURLY_LIMIT} 条弹幕，请稍后再试。` }
+    times.push(now)
     const item: Danmaku = {
       id: `${input.unitId}~new${++seq}`,
       unitId: input.unitId,

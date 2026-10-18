@@ -38,8 +38,9 @@
 
 开发者 2026-10-18 确认纳入 v1，规则见 [B 6.17](../detailed-requirements.md#617-弹幕)。界面直接使用 ArtPlayer 官方插件 `artplayer-plugin-danmuku`（原型锁定 5.3.0），原型播放页提供交互参考。
 
-- 表 `danmaku`：`id, playable_unit_id, author_user_id, position_seconds, text, mode, color, created_at`；单元与成员外键，`mode` 限 0/1/2，`color` 限 6 色白名单，正文按字符计数在服务端校验。索引 `(playable_unit_id, created_at)` 供读取最新 3000 条与管理员分页，`(author_user_id, created_at)` 供频率计数。直接删除，无软删除或台账。
-- 发送用单条条件插入同时检查 5 秒间隔与滚动 60 分钟 60 条，并发不超额，不另建计数表。
+- 表 `danmaku`：`id, playable_unit_id, author_user_id, position_seconds, text, mode, color, created_at`；单元与成员外键，`mode` 限 0/1/2，`color` 限 6 色白名单，正文与评论一样用 `[...text].length` 在服务端校验。索引 `(playable_unit_id, created_at)` 供读取最新 3000 条与管理员分页。直接删除，无软删除或台账。
+- 发送频率复用 `rate_limit_counters` 的条件插入（同管理员高影响操作）：同一语句检查最近 5 秒无记录且滚动 60 分钟少于 60 次，并发不超额，超出返回 `Retry-After`。计数与弹幕记录分开，删除弹幕不退还次数。
+- 插件的 `maxLength` 只是输入框的 `maxlength`，按 UTF-16 计数，含表情时比服务端的字符上限更早截断；服务端校验为准。
 - 成员读取只返回 `id, time, text, mode, color`；作者用户名与发送时间只出现在管理员列表。
 - 前端：插件 `danmuku` 回调读取弹幕；`beforeEmit` 调发送接口，失败返回 `false` 并用 toast 说明原因；`beforeVisible` 过滤屏蔽词与本页已删 ID；屏蔽词变化或删除后调用插件 `reset()`，因为已在画面上的弹幕不再经过 `beforeVisible`。插件设置在 `config`/`show`/`hide` 事件时写入 `localStorage`。插件把 SimHei 字体栈写进每条弹幕的内联样式，站点 CSS 用 `!important` 改为 `--font-sans`。插件在控制栏的发送框固定 260px，播放器宽度小于约 820px（原型含清晰度控件实测需约 800px）时用 `mount()` 挂到播放器下方的容器，全屏时插件自动移回控制栏；插件自带的窄屏回退把发送框挂在播放器底部外侧，会溢出播放器容器，不采用。
 
