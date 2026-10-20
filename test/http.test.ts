@@ -57,7 +57,7 @@ describe("worker responses", () => {
       await member(); const cookie = await login();
       const account = await exports.default.fetch("http://localhost:6120/account", { headers: { Cookie: cookie } });
       expect(account.status).toBe(200); expectSecurityHeaders(account);
-      const html = await account.text(); expect(html).toContain("管理登录方式、二步验证和登录设备。"); expect(html).toContain("Nova");
+      const html = await account.text(); expect(html).toContain("管理登录方式、二步验证和登录设备."); expect(html).toContain("Nova");
       expect(html).not.toMatch(/"password"|"token"|"secret"|backupCodes\":/);
       const forbidden = await exports.default.fetch("http://localhost:6120/admin", { headers: { Cookie: cookie } });
       expect(forbidden.status).toBe(403); expectSecurityHeaders(forbidden);

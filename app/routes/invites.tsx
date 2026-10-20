@@ -40,7 +40,7 @@ export default function InvitesPage({ loaderData: invites }: Route.ComponentProp
     });
   }
   return <Page narrow>
-    <PageHeading><PageHeadingTagline>邀请</PageHeadingTagline><PageHeadingTitle>把档案馆分享给信得过的朋友。</PageHeadingTitle>
+    <PageHeading><PageHeadingTagline>邀请</PageHeadingTagline><PageHeadingTitle>把档案馆分享给信得过的朋友.</PageHeadingTitle>
       <PageHeadingDescription>邀请码单次有效，默认 30 天内有效。请仅邀请信得过的朋友，受邀成员的违规行为可能会影响邀请人账号。</PageHeadingDescription></PageHeading><div className="h-4" />
     <div className="screen-line-top screen-line-bottom grid grid-cols-2">
       <div className="flex flex-col gap-1 px-4 py-3"><div className="text-sm text-muted-foreground">剩余额度</div><div className="font-mono text-3xl font-medium tabular-nums">{invites.unlimited ? "∞" : left}</div></div>
