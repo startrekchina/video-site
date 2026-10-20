@@ -362,6 +362,12 @@ describe("foreign keys", () => {
       id: "orphan", comment_id: "comment", author_user_id: "nova", reply_to_user_id: "missing",
       body_markdown: "Test", created_at: now,
     })],
+    ["danmaku unit", () => insert("danmaku", {
+      id: "orphan", playable_unit_id: "missing", author_user_id: "nova", position_seconds: 1, text: "Test", mode: 0, color: "#FFFFFF", created_at: now,
+    })],
+    ["danmaku author", () => insert("danmaku", {
+      id: "orphan", playable_unit_id: "movie-unit", author_user_id: "missing", position_seconds: 1, text: "Test", mode: 0, color: "#FFFFFF", created_at: now,
+    })],
     ["vote member", () => vote("comment", null, 1, "missing")],
     ["vote comment", () => vote("missing", null)],
     ["vote reply", () => vote(null, "missing")],

@@ -5,14 +5,19 @@ import { TabsTrigger } from "@/components/ui/tabs";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import type { PlaybackSource } from "@/lib/playback.server";
 import type { Episode, Work } from "@/lib/catalog";
+import { settings } from "@/lib/settings.server";
+import { forgetDanmaku, setBlockedWords } from "@/lib/danmaku-client";
+import type { Option as DanmakuOption } from "artplayer-plugin-danmuku";
 
 type Handler = (...args: unknown[]) => unknown;
 const state = vi.hoisted(() => ({
   effects: [] as (() => void | (() => void))[], refs: [] as { current: unknown }[], message: vi.fn(), options: null as unknown,
   pageState: [] as unknown[], pageIndex: null as number | null, refIndex: 0, handlers: new Map<string, Handler[]>(),
-  location: { state: null as unknown }, navigation: "POP",
+  location: { state: null as unknown }, navigation: "POP", danmaku: null as unknown,
   art: { currentTime: 1234, duration: 4000, seek: 0, url: "", destroy: vi.fn(), hotkey: { add: vi.fn() },
-    on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() } },
+    on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() },
+    width: 1200, fullscreen: false, fullscreenWeb: false, template: { $controlsCenter: { name: "controls-center" } },
+    plugins: { artplayerPluginDanmuku: { reset: vi.fn(), mount: vi.fn(), option: {} as Record<string, unknown>, isHide: false } } },
 }));
 // Run the real effects and player wiring with only the browser/ArtPlayer boundary replaced.
 vi.mock("react", async original => ({
@@ -27,11 +32,14 @@ vi.mock("react", async original => ({
   },
 }));
 vi.mock("artplayer", () => ({ default: class { constructor(options: unknown) { state.options = options; return state.art; } } }));
+vi.mock("artplayer-plugin-danmuku", () => ({ default: (option: unknown) => { state.danmaku = option; return () => state.art.plugins.artplayerPluginDanmuku; } }));
 vi.mock("react-router", async original => ({ ...await original<typeof import("react-router")>(), UNSAFE_withComponentProps: (component: unknown) => component,
   useLocation: () => state.location, useNavigationType: () => state.navigation }));
 vi.mock("@/components/ui/button", () => ({ Button: () => null }));
 
 const source: PlaybackSource = { url: "/media/source", qualities: [{ label: "原画", url: "/media/source" }], tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
+const danmaku = { maxLength: settings.danmaku.maxLength, lockTime: settings.rateLimits.danmaku.minInterval, colors: [...settings.danmaku.colors],
+  blockWordLimit: settings.danmaku.blockWordLimit, blockWordMaxLength: settings.danmaku.blockWordMaxLength };
 const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>();
 let cleanups: (void | (() => void))[] = [], blobs = 0;
 const page = { visibilityState: "visible", listeners: new Map<string, () => void>() };
@@ -45,6 +53,8 @@ beforeEach(() => {
   state.art.subtitle.switch.mockReset().mockResolvedValue(undefined);
   state.art.play.mockReset().mockResolvedValue(undefined);
   state.art.switchQuality.mockReset().mockResolvedValue(undefined);
+  state.art.width = 1200; state.art.fullscreen = false; state.art.fullscreenWeb = false; state.danmaku = null;
+  Object.assign(state.art.plugins.artplayerPluginDanmuku, { option: {}, isHide: false });
   fetch.mockReset().mockImplementation(async () => new Response("WEBVTT\n\n"));
   blobs = 0;
   vi.stubGlobal("fetch", fetch);
@@ -59,7 +69,7 @@ afterEach(() => { cleanups.forEach(cleanup => cleanup?.()); cleanups = []; vi.un
 
 async function mount(props: Partial<Parameters<typeof Player>[0]> = {}) {
   const callbacks = { onSubtitleChange: vi.fn(), onTracksChange: vi.fn() };
-  Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() }, subtitle: "en", ...callbacks, ...props });
+  Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() }, danmaku, subtitle: "en", ...callbacks, ...props });
   state.refs[0].current = {};
   cleanups = state.effects.map(effect => effect());
   await vi.dynamicImportSettled(); await new Promise(resolve => setTimeout(resolve, 0));
@@ -281,7 +291,7 @@ it("keeps watch page subtitle choices in step with a removed track without resta
   const work: Work = { slug: "test", kind: "movie", tmdbId: 1, titleZh: "测试片", titleEn: "Test", overviewZh: null,
     overviewEn: null, year: 2026, poster: "", code: "", seasonCount: 0, episodeCount: 1, watchedCount: 0,
     favorite: false, seasons: [], units: [unit] };
-  const loaderData = { work, unit, source, previous: "", next: "", reportInterval: 15 as const };
+  const loaderData = { work, unit, source, previous: "", next: "", reportInterval: 15 as const, danmaku, admin: false };
   const page = Watch({ loaderData, params: { id: unit.id }, matches: [
     { id: "root", params: {}, pathname: "/", data: { member: null, catalog: null }, loaderData: { member: null, catalog: null }, handle: undefined },
     { id: "routes/watch", params: { id: unit.id }, pathname: `/watch/${unit.id}`, data: loaderData, loaderData, handle: undefined },
@@ -394,7 +404,7 @@ it("offers the next unit when playback ends and autoplays only after a fresh ste
   const work: Work = { slug: "series", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
     poster: "", code: "", seasonCount: 1, episodeCount: 2, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [first, second] }], units: [first, second] };
   const view = (unit: Episode, previous?: string, next?: string) => {
-    const loaderData = { work, unit, source, previous, next, reportInterval: 15 as const };
+    const loaderData = { work, unit, source, previous, next, reportInterval: 15 as const, danmaku, admin: false };
     const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
     state.pageIndex = 0;
     const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
@@ -424,7 +434,7 @@ it("lets a playlist queue decide what follows and end on the way back to the pla
     poster: "", code: "", seasonCount: 1, episodeCount: 1, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [unit] }], units: [unit] };
   const movie = { id: "movie-unit", completed: false, poster: "", label: "电影", title: "测试信号" };
   const view = (queue: { id: string; title: string; next: typeof movie | null }) => {
-    const loaderData = { work, unit, source, previous: undefined, next: undefined, reportInterval: 15 as const, queue };
+    const loaderData = { work, unit, source, previous: undefined, next: undefined, reportInterval: 15 as const, danmaku, admin: false, queue };
     const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
     state.pageIndex = 0;
     const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
@@ -441,4 +451,78 @@ it("lets a playlist queue decide what follows and end on the way back to the pla
   player.onEnded!();
   const end = view({ id: "list", title: "虚构片单", next: null }).children as ReactElement<{ playlist: { id: string } }>;
   expect(end.props.playlist).toMatchObject({ id: "list" });
+});
+
+const plugin = () => state.art.plugins.artplayerPluginDanmuku;
+const danmakuOption = () => state.danmaku as DanmakuOption & Required<Pick<DanmakuOption, "beforeEmit" | "beforeVisible">> & { danmuku: () => Promise<unknown[]> };
+
+it("reads danmaku once and keeps playing without them when the read fails", async () => {
+  const items = [{ id: "d1", time: 1.5, text: "虚构", mode: 0, color: "#FFFFFF" }];
+  await mount();
+  expect(danmakuOption()).toMatchObject({ COLOR: [...danmaku.colors], maxLength: danmaku.maxLength, lockTime: danmaku.lockTime });
+  fetch.mockResolvedValueOnce(Response.json({ data: { items } }));
+  expect(await danmakuOption().danmuku()).toEqual(items);
+  expect(fetch).toHaveBeenLastCalledWith("/units/episode-unit/danmaku", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
+  expect(state.message).not.toHaveBeenCalled();
+  fetch.mockResolvedValueOnce(Response.json({ error: { code: "INTERNAL_ERROR" } }, { status: 500 }));
+  expect(await danmakuOption().danmuku()).toEqual([]);
+  expect(state.message).toHaveBeenLastCalledWith({ text: "弹幕加载失败，刷新页面可重试。", reconnect: false });
+});
+
+it("shows a sent danmaku only after the server accepts it and says why one was refused", async () => {
+  await mount(); state.art.currentTime = 12.34;
+  fetch.mockResolvedValueOnce(Response.json({ error: { code: "DANMAKU_RATE_LIMITED", message: "发送太快，请 5 秒后再试。" } }, { status: 429 }));
+  const draft = { text: " 虚构 ", mode: 1 as const, color: "#F2C14E" };
+  expect(await danmakuOption().beforeEmit(draft)).toBe(false);
+  expect(fetch).toHaveBeenLastCalledWith("/units/episode-unit/danmaku", expect.objectContaining({ method: "POST",
+    body: JSON.stringify({ text: " 虚构 ", time: 12.34, mode: 1, color: "#F2C14E" }) }));
+  expect(state.message).toHaveBeenLastCalledWith({ text: "发送太快，请 5 秒后再试。", reconnect: false });
+  fetch.mockRejectedValueOnce(new TypeError("offline"));
+  expect(await danmakuOption().beforeEmit({ ...draft })).toBe(false);
+  expect(state.message).toHaveBeenLastCalledWith({ text: "弹幕未发送，请稍后重试。", reconnect: false });
+  fetch.mockResolvedValueOnce(Response.json({ data: { item: { id: "d1", time: 12.3, text: "虚构", mode: 1, color: "#F2C14E" } } }));
+  expect(await danmakuOption().beforeEmit(draft)).toBe(true);
+  expect(draft).toMatchObject({ id: "d1", text: "虚构" });
+});
+
+it("hides blocked words and deleted danmaku, clearing the screen when either changes", async () => {
+  await mount();
+  const visible = (item: { id?: string; text: string }) => danmakuOption().beforeVisible(item);
+  expect(visible({ id: "a", text: "Engage!" })).toBe(true);
+  setBlockedWords(["engage"]);
+  expect(plugin().reset).toHaveBeenCalledOnce();
+  expect(visible({ id: "a", text: "ENGAGE!" })).toBe(false); expect(visible({ id: "b", text: "曲速" })).toBe(true);
+  forgetDanmaku("b");
+  expect(plugin().reset).toHaveBeenCalledTimes(2); expect(visible({ id: "b", text: "曲速" })).toBe(false);
+  // A destroyed player hears nothing more.
+  cleanups.forEach(cleanup => cleanup?.()); cleanups = [];
+  setBlockedWords([]);
+  expect(plugin().reset).toHaveBeenCalledTimes(2);
+});
+
+it("restores valid danmaku settings saved in this browser and saves them on every change", async () => {
+  const store = new Map([["player-danmaku", JSON.stringify({ opacity: 0.5, speed: 99, mode: 2, color: "#123456", fontSize: "4%", margin: [10, "bad"], visible: false, modes: [0, 3] })]]);
+  vi.stubGlobal("localStorage", { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value) });
+  await mount();
+  expect(danmakuOption()).toMatchObject({ opacity: 0.5, speed: 7, mode: 2, fontSize: "4%", margin: [10, "25%"], visible: false });
+  expect(danmakuOption()).not.toHaveProperty("color"); expect(danmakuOption()).not.toHaveProperty("modes");
+  const option = { visible: true, opacity: 0.8, speed: 5, fontSize: 25, margin: [10, "50%"], modes: [0, 1], antiOverlap: false, synchronousPlayback: true, mode: 1, color: "#5BA4E6", maxLength: 50 };
+  Object.assign(plugin(), { option, isHide: true });
+  for (const event of ["artplayerPluginDanmuku:config", "artplayerPluginDanmuku:show", "artplayerPluginDanmuku:hide"]) {
+    store.delete("player-danmaku"); await emit(event);
+    expect(JSON.parse(store.get("player-danmaku")!), event).toEqual({ ...option, visible: false, maxLength: undefined });
+  }
+});
+
+it("moves the danmaku emitter below the video when the control bar is too narrow, but not in fullscreen", async () => {
+  await mount();
+  const slot = { name: "slot" };
+  state.refs[4].current = slot;
+  await emit("resize"); await emit("resize");
+  expect(plugin().mount).toHaveBeenCalledExactlyOnceWith(state.art.template.$controlsCenter);
+  state.art.width = 819; await emit("resize");
+  expect(plugin().mount).toHaveBeenLastCalledWith(slot);
+  // The plugin itself moves the emitter into the bar in fullscreen and back afterwards.
+  state.art.fullscreen = true; state.art.width = 1920; await emit("resize");
+  expect(plugin().mount).toHaveBeenCalledTimes(2);
 });

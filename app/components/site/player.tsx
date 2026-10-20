@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type Artplayer from "artplayer";
+import type { Danmu, Result as DanmakuPlugin } from "artplayer-plugin-danmuku";
+import type { Danmaku } from "@/lib/danmaku.server";
+import { danmakuVisible, saveDanmakuSettings, savedDanmakuSettings, subscribeDanmakuFilter, type DanmakuLimits } from "@/lib/danmaku-client";
+import { libraryRequest } from "@/lib/library-client";
 import type { PlaybackSource } from "@/lib/playback.server";
 import { loadSubtitle, mediaErrorMessage } from "@/lib/playback-client";
 import { toast } from "@/components/ui/toast";
 import { saveProgress, type SavedProgress } from "@/lib/progress-client";
 
 type Notice = { text: string; reconnect: boolean; login?: true };
+// The plugin's control-bar emitter is a fixed 260px; with every control shown the bar needs about 800px (prototype measurement).
+const emitterMinWidth = 820;
 // The chosen quality is a per-browser preference (B 6.6); storage may be unavailable.
 const qualityKey = "player-quality";
 function rememberedQuality() { try { return localStorage.getItem(qualityKey); } catch { return null; } }
@@ -20,9 +26,11 @@ export function noticeToast(notice: Notice, actions: { reconnect: () => void; lo
 }
 
 // autoplay tries to start once the saved start is applied; onEnded and children (an overlay on the video) serve the next-up prompt.
-export function Player({ unitId, source, startSeconds, autoplay = false, progress, subtitle, onSubtitleChange, onTracksChange, onEnded, children }: { unitId: string; source: PlaybackSource; startSeconds: number; autoplay?: boolean; progress: ProgressReporting; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: PlaybackSource["tracks"]) => void; onEnded?: () => void; children?: React.ReactNode }) {
+export function Player({ unitId, source, startSeconds, autoplay = false, progress, danmaku, subtitle, onSubtitleChange, onTracksChange, onEnded, children }: { unitId: string; source: PlaybackSource; startSeconds: number; autoplay?: boolean; progress: ProgressReporting; danmaku: DanmakuLimits; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: PlaybackSource["tracks"]) => void; onEnded?: () => void; children?: React.ReactNode }) {
   const container = useRef<HTMLDivElement>(null), retry = useRef<() => void>(() => {});
   const frame = useRef<HTMLDivElement>(null), selectSubtitle = useRef<(id: string) => void>(() => {});
+  // Holds the danmaku emitter below the video when the control bar is too narrow; the plugin moves it back in fullscreen.
+  const emitter = useRef<HTMLDivElement>(null);
   // Only video failures offer reconnecting (or signing in again after 401/403); subtitle failures are retried by choosing the track again.
   const [notice, setNotice] = useState<Notice | null>(null);
   // One toast per notice: replacing or clearing the notice, or leaving the unit, closes it.
@@ -63,7 +71,7 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
     };
     // A video failure outranks other notices until a reconnect, so its recovery button is never replaced.
     const say = (text: string, kind: Kind = "other") => { if (kind === "video" || kind === "login" || !failed) show(text, kind); };
-    let subtitleJob: Promise<void> = Promise.resolve();
+    let subtitleJob: Promise<void> = Promise.resolve(), offDanmaku = () => {};
     const absolute = (url: string) => new URL(url, location.origin).href;
     const label = (text: string) => text.replace(/[&<>"']/gu, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
     const subtitles = () => [...tracks.map(track => ({ html: label(track.displayName), id: track.id, default: track.id === selected })), { html: "关闭", id: "off", default: selected === "off" }];
@@ -131,7 +139,8 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
       switching = true;
       try { await art.switchQuality(absolute(next.url)); } catch { /* Reported by video:error. */ } finally { switching = false; }
     };
-    void import("artplayer").then(({ default: Artplayer }) => {
+    const danmakuPath = `/units/${unitId}/danmaku`;
+    void Promise.all([import("artplayer"), import("artplayer-plugin-danmuku")]).then(([{ default: Artplayer }, { default: danmakuPlugin }]) => {
       if (disposed || !container.current) return;
       // ArtPlayer's own reconnects restart at 0 and, with cached leading bytes, can loop forever; the reconnect button is the only recovery path.
       Artplayer.RECONNECT_TIME_MAX = 0;
@@ -142,8 +151,39 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
         controls: source.qualities.length > 1 ? [{ name: "quality", position: "right", index: 10, style: { marginRight: "10px" }, html: quality.label,
           selector: source.qualities.map(item => ({ html: item.label, default: item === quality })),
           async onSelect(item) { await switchQuality(String(item.html)); return quality.label; } }] : [],
+        plugins: [danmakuPlugin({
+          // A failed read leaves this page without danmaku; playback goes on.
+          danmuku: async () => {
+            const result = await libraryRequest<{ items: Danmaku[] }>(danmakuPath, "GET");
+            if ("data" in result) return result.data.items;
+            if (!disposed) say("弹幕加载失败，刷新页面可重试。");
+            return [];
+          },
+          speed: 7, fontSize: 22, opacity: 0.9, margin: [10, "25%"], ...savedDanmakuSettings(danmaku.colors),
+          COLOR: [...danmaku.colors], maxLength: danmaku.maxLength, lockTime: danmaku.lockTime,
+          beforeVisible: (item: Danmu & { id?: string }) => danmakuVisible(item),
+          // Only a danmaku the server accepted appears; a refusal says why (B 6.17).
+          async beforeEmit(item: Danmu & { id?: string }) {
+            const result = await libraryRequest<{ item: Danmaku }>(danmakuPath, "POST", { text: item.text, time: art?.currentTime ?? 0, mode: item.mode ?? 0, color: item.color ?? danmaku.colors[0] });
+            if ("error" in result) { if (!disposed) say(result.error.message ?? "弹幕未发送，请稍后重试。"); return false; }
+            Object.assign(item, { id: result.data.item.id, text: result.data.item.text });
+            return true;
+          },
+        })],
       });
-      const player = art;
+      const player = art, plugin = player.plugins.artplayerPluginDanmuku as DanmakuPlugin;
+      const saveDanmaku = () => saveDanmakuSettings(plugin.option, plugin.isHide);
+      player.on("artplayerPluginDanmuku:config", saveDanmaku); player.on("artplayerPluginDanmuku:show", saveDanmaku); player.on("artplayerPluginDanmuku:hide", saveDanmaku);
+      // Danmaku already on screen skip beforeVisible, so a new block word or a deletion clears them; the rest re-enter at their times.
+      offDanmaku = subscribeDanmakuFilter(() => plugin.reset());
+      // The plugin's own narrow fallback hangs the emitter below the player box, outside the height-capped frame.
+      let placed: HTMLElement | undefined;
+      const placeEmitter = () => {
+        if (!emitter.current || player.fullscreen || player.fullscreenWeb) return;
+        const target = player.width < emitterMinWidth ? emitter.current : player.template.$controlsCenter;
+        if (target !== placed) { placed = target; plugin.mount(target as HTMLDivElement); }
+      };
+      player.on("ready", placeEmitter); player.on("resize", placeEmitter);
       player.once("ready", () => {
         if (startSeconds > 0 && startSeconds < player.duration) player.seek = startSeconds;
         position = player.currentTime; ready = true;
@@ -179,9 +219,9 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
     }).catch(() => say("播放器加载失败，请刷新页面。"));
     return () => {
       report(true); clearInterval(timer); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("pagehide", leave);
-      disposed = true; selectSubtitle.current = () => {}; art?.destroy(false);
+      disposed = true; selectSubtitle.current = () => {}; offDanmaku(); art?.destroy(false);
     };
   }, [unitId]);
   useEffect(() => selectSubtitle.current(subtitle), [subtitle]);
-  return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom))]"><div ref={container} className="size-full" />{children}</div></div>;
+  return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom))]"><div ref={container} className="size-full" />{children}</div><div ref={emitter} className="px-2 pb-2 empty:hidden" /></div>;
 }
