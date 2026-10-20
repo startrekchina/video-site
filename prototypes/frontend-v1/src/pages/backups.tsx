@@ -14,6 +14,7 @@ import { StatusButton } from "@/components/ui/status-button"
 import { Tag } from "@/components/ui/tag"
 import { toast } from "@/components/ui/toast"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { MaintenancePanel } from "@/pages/maintenance"
 
 // Owner backup page backfilled from the formal app for design review. Exports, uploads and files are simulated;
 // ?demo=empty shows a site without WebDAV/S3 and no records, ?demo=invalid a saved schedule whose channel broke.
@@ -153,7 +154,7 @@ function BackupsView({ demo }: { demo: string | null }) {
     <Page narrow>
       <PageHeading>
         <PageHeadingTagline>站长运维 · 正式站</PageHeadingTagline>
-        <PageHeadingTitle>数据备份。</PageHeadingTitle>
+        <PageHeadingTitle>数据备份.</PageHeadingTitle>
         <PageHeadingDescription>备份不含媒体文件，时间均为北京时间。恢复需要备份当时的认证密钥和备份密钥。</PageHeadingDescription>
       </PageHeading>
       <div className="px-4 py-3 text-sm">
@@ -161,6 +162,9 @@ function BackupsView({ demo }: { demo: string | null }) {
           返回管理后台
         </Link>
       </div>
+
+      <Separator />
+      <MaintenancePanel />
 
       <Separator />
       <Panel>

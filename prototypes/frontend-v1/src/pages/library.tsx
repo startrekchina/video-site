@@ -79,7 +79,7 @@ export function LibraryPage() {
     <Page>
       <PageHeading>
         <PageHeadingTagline>我的片库</PageHeadingTagline>
-        <PageHeadingTitle>收藏的作品和自己整理的片单。</PageHeadingTitle>
+        <PageHeadingTitle>收藏的作品和自己整理的片单.</PageHeadingTitle>
       </PageHeading>
       <div className="h-4" />
       <Panel>

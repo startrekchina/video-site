@@ -8,6 +8,10 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
+  --color-chart-label: var(--chart-label);
+  --color-chart-tooltip-background: var(--chart-tooltip-background);
+  --color-chart-tooltip-foreground: var(--chart-tooltip-foreground);
+  --color-chart-tooltip-muted: var(--chart-tooltip-muted);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-primary: var(--primary);
@@ -194,6 +198,34 @@
   --radius: 0.5rem;
   --header-height: --spacing(14);
   --fade-bottom-height: --spacing(24);
+
+  /* bklit charts (src/components/charts) paint with these; mapped onto the tokens above so they stay monochrome and follow the theme. */
+  --chart-1: var(--foreground);
+  --chart-2: var(--muted-foreground);
+  --chart-3: color-mix(in oklab, var(--muted-foreground) 60%, var(--background));
+  --chart-4: color-mix(in oklab, var(--muted-foreground) 35%, var(--background));
+  --chart-5: var(--border);
+  --chart-background: var(--background);
+  --chart-foreground: var(--foreground);
+  --chart-foreground-muted: var(--muted-foreground);
+  --chart-line-primary: var(--chart-1);
+  --chart-line-secondary: var(--chart-2);
+  --chart-crosshair: color-mix(in oklab, var(--foreground) 40%, transparent);
+  --chart-grid: var(--border);
+  --chart-brush-border: var(--chart-grid);
+  --chart-tooltip-background: var(--popover);
+  --chart-tooltip-foreground: var(--popover-foreground);
+  --chart-tooltip-muted: var(--muted-foreground);
+  --chart-marker-background: var(--background);
+  --chart-marker-border: var(--border);
+  --chart-marker-foreground: var(--foreground);
+  --chart-label: var(--muted-foreground);
+  --chart-scale-01: color-mix(in oklab, var(--foreground) 4%, var(--background));
+  --chart-scale-02: color-mix(in oklab, var(--foreground) 14%, var(--background));
+  --chart-scale-03: color-mix(in oklab, var(--foreground) 30%, var(--background));
+  --chart-scale-04: color-mix(in oklab, var(--foreground) 52%, var(--background));
+  --chart-scale-05: color-mix(in oklab, var(--foreground) 78%, var(--background));
+  --chart-scale-pattern-color: var(--line);
 }
 
 .dark {
