@@ -188,10 +188,15 @@ function QueueBar({ playlist, watched, current, next }: { playlist: Playlist; wa
 
 export function WatchPage() {
   const { unitId } = useParams()
-  const unit = getUnit(unitId!)
+  // Remount per unit so the resume point and the ended state never carry over to the next episode or queue item.
+  return <WatchUnit key={unitId} unitId={unitId!} />
+}
+
+function WatchUnit({ unitId }: { unitId: string }) {
+  const unit = getUnit(unitId)
   const viewer = useStore((s) => s.me?.username)
   const isAdmin = useStore((s) => s.me?.role === "admin")
-  const pr = useStore((s) => (unitId ? s.progress[unitId] : undefined))
+  const pr = useStore((s) => s.progress[unitId])
   const progress = useStore((s) => s.progress)
   const playlistId = useSearchParams()[0].get("playlist")
   const playlist = useStore((s) => s.playlists.find((p) => p.id === playlistId))
@@ -201,7 +206,6 @@ export function WatchPage() {
   const [quality, setQuality] = useState(() => localStorage.getItem("proto-quality"))
   const emitterSlot = useRef<HTMLDivElement>(null)
 
-  useEffect(() => setEnded(false), [unitId])
   useEffect(() => localStorage.setItem("proto-sub", sub), [sub])
   useEffect(() => void (quality && localStorage.setItem("proto-quality", quality)), [quality])
 
@@ -291,7 +295,8 @@ export function WatchPage() {
       <CommentsSection key={`${unit.id}:${viewer}`} unitId={unit.id} kind={unit.kind} />
 
       {ended && !next && (inQueue || unit.kind === "episode") && (
-        <div className="fixed inset-x-0 bottom-20 z-40 mx-auto flex w-fit items-center gap-3 rounded-xl bg-popover px-4 py-3 text-sm shadow-lg ring-1 ring-foreground/10">
+        // z-45: above the player frame (z-41) on short screens, under the sticky header (z-50).
+        <div className="fixed inset-x-0 bottom-20 z-45 mx-auto flex w-fit items-center gap-3 rounded-xl bg-popover px-4 py-3 text-sm shadow-lg ring-1 ring-foreground/10">
           {inQueue ? (
             <>
               片单已播放完

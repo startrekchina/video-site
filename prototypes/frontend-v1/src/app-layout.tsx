@@ -85,7 +85,9 @@ export function AppLayout() {
 export function AuthLayout() {
   const me = useStore((s) => s.me)
   const maintenance = useStore((s) => s.maintenance)
-  if (maintenance && !isBackupOwner(me)) return <MaintenanceLayout maintenance={maintenance} />
+  const { pathname } = useLocation()
+  // /login stays open so a signed-out owner can get back in; anyone else meets the maintenance page once signed in.
+  if (maintenance && !isBackupOwner(me) && pathname !== "/login") return <MaintenanceLayout maintenance={maintenance} />
   return (
     <Providers>
       <div className="group/layout relative isolate flex min-h-svh flex-col content-frame">
