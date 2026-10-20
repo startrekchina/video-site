@@ -18,6 +18,7 @@ import { GuestLanding } from "@/pages/guest-home/landing"
 import { HomePage } from "@/pages/home"
 import { InvitesPage } from "@/pages/invites"
 import { LibraryPage } from "@/pages/library"
+import { LibraryReportPage } from "@/pages/library-report"
 import { LoginPage } from "@/pages/login"
 import { NotFoundPage } from "@/pages/not-found"
 import { PlaylistPage, PublicPlaylistsPage } from "@/pages/playlist"
@@ -25,6 +26,7 @@ import { RegisterPage } from "@/pages/register"
 import { StatusPage } from "@/pages/status"
 import { TitlePage } from "@/pages/title"
 import { WatchPage } from "@/pages/watch"
+import { WelcomePage } from "@/pages/welcome"
 
 const router = createBrowserRouter([
   {
@@ -65,11 +67,13 @@ const router = createBrowserRouter([
           { path: "/playlists/:id", element: <PlaylistPage /> },
           { path: "/invites", element: <InvitesPage /> },
           { path: "/account", element: <AccountPage /> },
+          { path: "/welcome", element: <WelcomePage /> },
           {
             element: <RequireAdmin />,
             children: [
               { path: "/admin", element: <AdminPage /> },
               { path: "/admin/backups", element: <BackupsPage /> },
+              { path: "/admin/library", element: <LibraryReportPage /> },
             ],
           },
         ],

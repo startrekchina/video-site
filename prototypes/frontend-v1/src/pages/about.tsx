@@ -43,6 +43,25 @@ function Section({ id, title, children }: { id: string; title: string; children:
   )
 }
 
+/** Shown here and on /welcome. */
+export function MemberRules() {
+  return (
+    <ol className="divide-y divide-line">
+      {[
+        "账号只给自己用，不要借给别人。",
+        "邀请只发给信得过的朋友。若成员严重违规，其账号以及经他直接或间接邀请加入的成员账号可能一同被封禁。",
+        "不要把站内视频转发或分享到站外。",
+        "违反守则的账号会被封禁，封禁后立即无法登录。",
+      ].map((r, i) => (
+        <li key={r} className="flex gap-4 p-4">
+          <span className="font-mono text-sm text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
+          <span className="text-pretty">{r}</span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
 function Prose({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-col gap-3 p-4 text-pretty text-muted-foreground [&_strong]:font-medium [&_strong]:text-foreground">{children}</div>
 }
@@ -113,19 +132,7 @@ export function AboutPage() {
       <Separator />
 
       <Section id="rules" title="成员守则">
-        <ol className="divide-y divide-line">
-          {[
-            "账号只给自己用，不要借给别人。",
-            "邀请只发给信得过的朋友。若成员严重违规，其账号以及经他直接或间接邀请加入的成员账号可能一同被封禁。",
-            "不要把站内视频转发或分享到站外。",
-            "违反守则的账号会被封禁，封禁后立即无法登录。",
-          ].map((r, i) => (
-            <li key={r} className="flex gap-4 p-4">
-              <span className="font-mono text-sm text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
-              <span className="text-pretty">{r}</span>
-            </li>
-          ))}
-        </ol>
+        <MemberRules />
       </Section>
 
       <Separator />

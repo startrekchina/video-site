@@ -311,9 +311,12 @@ export function AdminPage() {
         <PageHeadingDescription>内容由站长用离线工具导入，这里不提供上传。</PageHeadingDescription>
       </PageHeading>
       {isBackupOwner(me) ? (
-        <div className="px-4 pb-4 text-sm">
+        <div className="flex gap-4 px-4 pb-4 text-sm">
           <Link className="link-underline" to="/admin/backups">
             数据备份与状态
+          </Link>
+          <Link className="link-underline" to="/admin/library">
+            片库完整性
           </Link>
         </div>
       ) : (

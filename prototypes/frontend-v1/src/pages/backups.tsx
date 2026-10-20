@@ -14,6 +14,7 @@ import { StatusButton } from "@/components/ui/status-button"
 import { Tag } from "@/components/ui/tag"
 import { toast } from "@/components/ui/toast"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { MaintenancePanel } from "@/pages/maintenance"
 
 // Owner backup page backfilled from the formal app for design review. Exports, uploads and files are simulated;
 // ?demo=empty shows a site without WebDAV/S3 and no records, ?demo=invalid a saved schedule whose channel broke.
@@ -161,6 +162,9 @@ function BackupsView({ demo }: { demo: string | null }) {
           返回管理后台
         </Link>
       </div>
+
+      <Separator />
+      <MaintenancePanel />
 
       <Separator />
       <Panel>

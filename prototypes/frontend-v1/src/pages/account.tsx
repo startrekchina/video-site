@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Tag } from "@/components/ui/tag"
 import { toast } from "@/components/ui/toast"
 
-function Row({ icon, title, meta, action }: { icon: React.ReactNode; title: React.ReactNode; meta?: React.ReactNode; action?: React.ReactNode }) {
+export function Row({ icon, title, meta, action }: { icon: React.ReactNode; title: React.ReactNode; meta?: React.ReactNode; action?: React.ReactNode }) {
   return (
     <li className="flex items-center gap-4 p-4 pr-2 transition-[background-color] ease-out hover:bg-accent-muted">
       <IconTile>{icon}</IconTile>
@@ -78,7 +78,7 @@ function PasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
   )
 }
 
-function TotpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+export function TotpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [code, setCode] = useState("")
   const [step, setStep] = useState<"scan" | "codes">("scan")
   return (

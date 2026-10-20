@@ -121,7 +121,8 @@ function UserMenu() {
   )
 }
 
-export function SiteHeader() {
+/** `bare` keeps only the mark and theme toggle, for the maintenance page where nothing else works. */
+export function SiteHeader({ bare }: { bare?: boolean }) {
   const me = useStore((s) => s.me)
   const tone = useHeaderTone()
   const { pathname } = useLocation()
@@ -149,7 +150,7 @@ export function SiteHeader() {
 
         <div className="flex-1" />
 
-        {me ? (
+        {bare ? null : me ? (
           <nav className="flex items-center gap-4 max-sm:hidden">
             {MAIN_NAV.map((n) => (
               <NavItem key={n.to} {...n} />
@@ -165,7 +166,7 @@ export function SiteHeader() {
         )}
 
         <div className="flex items-center">
-          {me ? (
+          {bare ? null : me ? (
             <>
               <Separator orientation="vertical" className="bg-line mr-2 max-sm:hidden data-vertical:h-5 data-vertical:self-center" />
               <CommandMenuTrigger className="max-sm:hidden" />

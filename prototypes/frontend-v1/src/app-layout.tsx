@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { Navigate, Outlet, useLocation } from "react-router"
 
-import { useStore } from "@/data/store"
+import { useStore, type Maintenance } from "@/data/store"
 import { BottomNav } from "@/components/site/bottom-nav"
 import { BottomRuler } from "@/components/site/bottom-ruler"
 import { CommandMenu } from "@/components/site/command-menu"
@@ -11,6 +11,8 @@ import { SiteFooter } from "@/components/site/site-footer"
 import { SiteHeader } from "@/components/site/site-header"
 import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { isBackupOwner } from "@/pages/backups"
+import { MaintenanceBanner, MaintenancePage } from "@/pages/maintenance"
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -38,15 +40,34 @@ function Providers({ children }: { children: React.ReactNode }) {
   )
 }
 
+/** Replaces every route for everyone but the owner while maintenance is on. */
+function MaintenanceLayout({ maintenance }: { maintenance: Maintenance }) {
+  return (
+    <Providers>
+      <div className="group/layout relative isolate flex min-h-svh flex-col content-frame">
+        <SiteHeader bare />
+        <main className="flex max-w-screen flex-1 flex-col overflow-x-clip px-2">
+          <MaintenancePage maintenance={maintenance} />
+        </main>
+        <SiteFooter minimal />
+        <ProtoConsole />
+      </div>
+    </Providers>
+  )
+}
+
 /** Hosts member pages and the public pages (guest home, about); guests get no search or catalogue stats. */
 export function AppLayout() {
   const me = useStore((s) => s.me)
+  const maintenance = useStore((s) => s.maintenance)
+  if (maintenance && !isBackupOwner(me)) return <MaintenanceLayout maintenance={maintenance} />
   return (
     <Providers>
       <div className="group/layout relative isolate content-frame">
         <ScrollToTop />
         <SiteHeader />
         <main className="max-w-screen overflow-x-clip px-2">
+          {maintenance && <MaintenanceBanner />}
           <Outlet />
         </main>
         <SiteFooter minimal={!me} />
@@ -62,6 +83,9 @@ export function AppLayout() {
 
 /** Sign-in flow pages: login and register. */
 export function AuthLayout() {
+  const me = useStore((s) => s.me)
+  const maintenance = useStore((s) => s.maintenance)
+  if (maintenance && !isBackupOwner(me)) return <MaintenanceLayout maintenance={maintenance} />
   return (
     <Providers>
       <div className="group/layout relative isolate flex min-h-svh flex-col content-frame">

@@ -41,8 +41,10 @@ const PAGES: { to: string; label: string }[] = [
   { to: "/playlists/p1", label: "片单详情" },
   { to: "/invites", label: "邀请" },
   { to: "/account", label: "账号与安全" },
+  { to: "/welcome", label: "新成员欢迎页" },
   { to: "/admin", label: "管理后台" },
   { to: "/admin/backups", label: "数据备份" },
+  { to: "/admin/library", label: "片库完整性" },
   { to: "/admin/backups?demo=invalid", label: "数据备份（渠道失效）" },
   { to: "/admin/backups?demo=empty", label: "数据备份（未配置、无记录）" },
   { to: "/nope", label: "404" },
@@ -59,6 +61,7 @@ const BADGE = "flex items-center gap-1.5 rounded-lg bg-amber-300 px-3 py-1.5 fon
 export function ProtoConsole() {
   const [open, setOpen] = useState(false)
   const scenario = useStore((s) => s.scenario)
+  const maintenance = useStore((s) => s.maintenance)
   const art = useArt()
   const landing = useLanding()
   const chart = useChart()
@@ -137,6 +140,15 @@ export function ProtoConsole() {
               </button>
             ))}
           </div>
+          <div className="mb-1 text-[11px] font-bold uppercase opacity-70">维护模式（站长以外都看到维护页）</div>
+          <button
+            className={cn("mb-3 w-full rounded px-2 py-1 text-left hover:bg-zinc-950/10", maintenance && "bg-zinc-950 text-amber-300 hover:bg-zinc-950")}
+            onClick={() =>
+              maintenance ? actions.endMaintenance() : actions.startMaintenance({ since: new Date().toISOString(), until: new Date(Date.now() + 2 * 3_600_000).toISOString(), note: "" })
+            }
+          >
+            {maintenance ? "已开启，点击结束" : "开启（预计 2 小时）"}
+          </button>
           <div className="mb-1 text-[11px] font-bold uppercase opacity-70">跳转页面</div>
           <div className="grid max-h-56 gap-0.5 overflow-y-auto">
             {PAGES.map((p) => (
