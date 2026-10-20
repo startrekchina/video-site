@@ -4,6 +4,9 @@ import { useLocation, useNavigate } from "react-router"
 
 import { actions, useStore, type Scenario } from "@/data/store"
 import { cn } from "@/lib/utils"
+import { ARTS, useArt } from "@/components/site/footer-art"
+import { LANDINGS, useLanding } from "@/pages/guest-home/landing"
+import { CHARTS, useChart } from "@/pages/guest-home/star-chart"
 
 const SCENARIOS: { key: Scenario; label: string; home: string }[] = [
   { key: "guest", label: "访客（未登录）", home: "/" },
@@ -56,6 +59,9 @@ const BADGE = "flex items-center gap-1.5 rounded-lg bg-amber-300 px-3 py-1.5 fon
 export function ProtoConsole() {
   const [open, setOpen] = useState(false)
   const scenario = useStore((s) => s.scenario)
+  const art = useArt()
+  const landing = useLanding()
+  const chart = useChart()
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
@@ -86,6 +92,48 @@ export function ProtoConsole() {
                 }}
               >
                 {s.label}
+              </button>
+            ))}
+          </div>
+          <div className="mb-1 text-[11px] font-bold uppercase opacity-70">访客首页（待选，切到访客场景）</div>
+          <div className="mb-3 grid grid-cols-3 gap-1">
+            {LANDINGS.map((l) => (
+              <button
+                key={l.key}
+                className={cn("truncate rounded px-2 py-1 hover:bg-zinc-950/10", landing === l.key && "bg-zinc-950 text-amber-300 hover:bg-zinc-950")}
+                onClick={() => {
+                  actions.setScenario("guest")
+                  navigate(`/?landing=${l.key}`)
+                }}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+          <div className="mb-1 text-[11px] font-bold uppercase opacity-70">星图（待选，宽屏）</div>
+          <div className="mb-3 grid grid-cols-3 gap-1">
+            {CHARTS.map((c) => (
+              <button
+                key={c.key}
+                className={cn("truncate rounded px-2 py-1 hover:bg-zinc-950/10", chart === c.key && "bg-zinc-950 text-amber-300 hover:bg-zinc-950")}
+                onClick={() => {
+                  actions.setScenario("guest")
+                  navigate(`/?landing=now&chart=${c.key}`)
+                }}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+          <div className="mb-1 text-[11px] font-bold uppercase opacity-70">页脚线稿（待选）</div>
+          <div className="mb-3 grid grid-cols-3 gap-1">
+            {ARTS.map((a) => (
+              <button
+                key={a.key}
+                className={cn("rounded px-2 py-1 hover:bg-zinc-950/10", art === a.key && "bg-zinc-950 text-amber-300 hover:bg-zinc-950")}
+                onClick={() => navigate({ search: `?art=${a.key}` })}
+              >
+                {a.label}
               </button>
             ))}
           </div>

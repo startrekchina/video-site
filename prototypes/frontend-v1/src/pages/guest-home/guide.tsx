@@ -40,7 +40,7 @@ const FAQ = [
 ]
 
 /** Deterministic bar widths for the decorative barcode. */
-function bars(seed: string) {
+export function bars(seed: string) {
   const src = seed || "STARFLEET-ARCHIVE"
   return Array.from({ length: 42 }, (_, i) => ((src.charCodeAt(i % src.length) * (i + 7)) % 3) + 1)
 }
@@ -141,6 +141,15 @@ export function GuestGuide() {
         </div>
       </section>
 
+      <GuideSections />
+    </Page>
+  )
+}
+
+/** How joining works, what members get, rules and FAQ; shared by the landing page candidates. */
+export function GuideSections() {
+  return (
+    <>
       <Separator />
 
       <Panel>
@@ -212,6 +221,6 @@ export function GuestGuide() {
         </div>
         <PanelFooterLink to="/about">关于本站</PanelFooterLink>
       </Panel>
-    </Page>
+    </>
   )
 }

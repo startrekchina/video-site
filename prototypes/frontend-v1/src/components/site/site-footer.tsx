@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { ThemeSwitcher } from "@/components/ui/theme-switcher"
 
 import { dependencies } from "../../../package.json"
+import { FooterArt } from "./footer-art"
 import { SiteMark } from "./site-mark"
 
 const REPO = "https://github.com/startrekchina/video-site"
@@ -122,7 +123,7 @@ export function SiteFooter({ minimal }: { minimal?: boolean }) {
           <ThemeSwitcher />
         </div>
       </div>
-      <div className="h-[calc(var(--fade-bottom-height)+env(safe-area-inset-bottom,0px))]" />
+      <FooterArt />
     </footer>
   )
 }

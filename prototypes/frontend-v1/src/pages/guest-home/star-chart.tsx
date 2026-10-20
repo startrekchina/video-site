@@ -1,8 +1,9 @@
 import { useState } from "react"
-import { ArrowRightIcon, FingerprintIcon, TicketIcon } from "lucide-react"
+import { ArrowRightIcon, FingerprintIcon, MoveRightIcon, TicketIcon } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 
 import { actions } from "@/data/store"
+import { useVariant } from "@/lib/use-variant"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/site/panel"
 import { Button } from "@/components/ui/button"
@@ -18,6 +19,15 @@ import { GuestGuide } from "./guide"
 // Follows the site theme. LCARS lives inside the plate only (condensed Antonio labels, amber system
 // brackets, the red and cyan target); everything else uses the site's own faces. Says nothing about
 // the catalogue; /about carries the rest.
+// Candidate atlas (?chart=atlas) adds the furniture of a printed atlas plate: range rings round Sol, a
+// legend with a scale bar, a galactic band in the star field and a grey second tier of star names.
+
+export const CHARTS = [
+  { key: "now", label: "现状" },
+  { key: "atlas", label: "距离环 + 图例" },
+  { key: "territory", label: "+ 疆域" },
+] as const
+export const useChart = () => useVariant("chart", CHARTS.map((c) => c.key))
 
 const rng = (seed: number) => () => (seed = (seed * 16807) % 2147483647) / 2147483647
 
@@ -35,6 +45,39 @@ const STARS = (() => {
     for (let i = 0; i < 10; i++) stars.push(star(cx + gauss() * 1.5, cy + gauss() * 3))
   return stars
 })()
+
+// Atlas field: a sparse even scatter plus the galactic band, a diagonal through Sol (the Sun sits in the
+// galactic plane) from the upper left to the lower right, which keeps the legend's corner and the
+// nebula's quiet. Band stars are fainter and never ringed, and none fall inside the target.
+const ATLAS_STARS = (() => {
+  const rnd = rng(23)
+  const gauss = () => Math.sqrt(-2 * Math.log(rnd() || 1e-9)) * Math.cos(2 * Math.PI * rnd())
+  const stars: { x: number; y: number; size: number; opacity: number }[] = []
+  const add = (x: number, y: number, faint = false) => {
+    if (x < 0 || x > 100 || y < 0 || y > 100 || (Math.abs(x - 50) < 6 && Math.abs(y - 50) < 9)) return
+    const m = rnd()
+    const size = faint ? (m < 0.75 ? 1.5 : m < 0.95 ? 2 : 3) : m < 0.6 ? 1.5 : m < 0.86 ? 2 : m < 0.96 ? 3 : 4.5
+    stars.push({ x, y, size, opacity: (faint ? 0.35 : 0.45) + rnd() * 0.45 })
+  }
+  const band = (x: number) => 50 + 0.5 * (x - 50)
+  for (let i = 0; i < 90; i++) add(rnd() * 100, rnd() * 100)
+  for (let i = 0; i < 300; i++) {
+    const x = rnd() * 100
+    add(x, band(x) + gauss() * (i < 220 ? 5 : 14), true)
+  }
+  for (const [cx, cy] of [[15, 32.5], [60, 24], [70, 60], [90, 70]])
+    for (let i = 0; i < 10; i++) add(cx + gauss() * 1.5, cy + gauss() * 3)
+  return stars
+})()
+
+// Grey second tier under the amber systems. The two nearest sit inside the rings their distances
+// belong in (Alpha Centauri 4.4 ly, Wolf 359 7.9 ly); the rest are only placed.
+const NEAR = [
+  { name: "Alpha Centauri", x: "41%", y: "calc(50% + 40px)", flip: true },
+  { name: "Wolf 359", x: "38%", y: "calc(50% - 90px)" },
+  { name: "Andoria", x: "78%", y: "62%" },
+  { name: "Tellar", x: "54%", y: "88%" },
+]
 
 // A nebula drawn the way a survey map draws relief: three nested, slightly lumpy contours.
 const CONTOURS = [1, 0.7, 0.42].map((k, i) => {
@@ -121,6 +164,162 @@ function Target() {
   )
 }
 
+const LABEL = "font-display text-[10px] leading-none tracking-wider text-muted-foreground uppercase"
+const HALO = "[text-shadow:0_0_2px_var(--background),0_0_4px_var(--background)]"
+// Labels the rings may run through cut the line, as the sector codes do.
+const KNOCKOUT = "bg-background px-0.5"
+const RING_TEXT = "text-[#1f9fa9] dark:text-[#9ff1e4]"
+
+/**
+ * The atlas candidate's furniture. Scale: one major column is 10 ly, so a ring of n ly is n * 5% of the
+ * plate wide and the rings cross the horizontal crosshair on grid lines. Ring labels sit west of Sol,
+ * clear of the sector codes. Only the width carries the scale: the plate's height follows the screen.
+ */
+function Atlas() {
+  return (
+    <>
+      {/* Viewbox units are light years; the stroke and dashes stay in screen pixels. */}
+      <svg className={cn("absolute top-1/2 left-1/2 aspect-square w-3/4 -translate-1/2 overflow-visible", RING_TEXT)} viewBox="-15 -15 30 30" fill="none">
+        {[5, 10, 15].map((ly) => (
+          <circle key={ly} r={ly} stroke="currentColor" strokeOpacity={0.55} strokeWidth={1} strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
+        ))}
+      </svg>
+      {[5, 10, 15].map((ly) => (
+        <span key={ly} className={cn("absolute top-[calc(50%+4px)]", KNOCKOUT, LABEL, RING_TEXT)} style={{ right: `calc(${50 + ly * 2.5}% + 3px)` }}>
+          {ly} ly
+        </span>
+      ))}
+      <span className={cn("absolute top-[calc(50%+5px)] right-3 flex items-center gap-1", LABEL, HALO)}>
+        Galactic core
+        <MoveRightIcon className="size-3.5" />
+      </span>
+
+      {NEAR.map(({ name, x, y, flip }) => (
+        <div key={name} className={cn("absolute flex -translate-y-1/2 items-center gap-1.5", flip && "-translate-x-full flex-row-reverse")} style={{ left: x, top: y }}>
+          <span className="size-[3px] shrink-0 rounded-full bg-foreground" />
+          <span className={cn(LABEL, KNOCKOUT, "whitespace-nowrap")}>{name}</span>
+        </div>
+      ))}
+    </>
+  )
+}
+
+const BORDER_DASH = "10 3 2 3"
+
+/** Atlas-plate legend in the empty lower-left cell, drawn over the territory tints. */
+function Legend({ borders }: { borders: boolean }) {
+  return (
+    <div className={cn("absolute bottom-4 left-4 flex flex-col gap-2 border bg-background p-2.5", LABEL)}>
+      <div className="text-foreground">Legend</div>
+      <div className="flex items-center gap-2">
+        <span className="flex w-8 items-center justify-between">
+          {[1.5, 2, 3].map((s) => (
+            <span key={s} className="rounded-full bg-foreground/70" style={{ width: s, height: s }} />
+          ))}
+          <span className="size-[4.5px] rounded-full bg-foreground/70 shadow-[0_0_0_2px_var(--background),0_0_0_3px_var(--foreground)]" />
+        </span>
+        Star magnitude
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="-my-1.5 flex w-8 justify-center">
+          <Bracket />
+        </span>
+        Named system
+      </div>
+      <div className="flex items-center gap-2">
+        <svg className={cn("h-px w-8", RING_TEXT)} fill="none">
+          <line x2="100%" stroke="currentColor" strokeOpacity={0.55} strokeDasharray="5 4" />
+        </svg>
+        Range from Sol
+      </div>
+      {borders && (
+        <div className="flex items-center gap-2">
+          <svg className="h-px w-8 text-muted-foreground" fill="none">
+            <line x2="100%" stroke="currentColor" strokeDasharray={BORDER_DASH} />
+          </svg>
+          Border
+        </div>
+      )}
+      {/* 5 ly at the rings' scale: 12.5% of the plate's width. */}
+      <div className="mt-1 flex w-[12.5cqw] flex-col gap-1">
+        <div className="flex h-1 border border-muted-foreground">
+          {Array.from({ length: 5 }, (_, i) => (
+            <span key={i} className={cn("flex-1", i % 2 === 0 && "bg-muted-foreground")} />
+          ))}
+        </div>
+        <div className="flex justify-between">
+          <span>0</span>
+          <span>5 ly</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Catmull-Rom through the given points, sampled so it can feed both a polyline and a clip polygon. */
+const spline = (pts: number[][], steps = 8) =>
+  pts
+    .slice(0, -1)
+    .flatMap((p1, i) => {
+      const [p0, p2] = [pts[i - 1] ?? p1, pts[i + 1]]
+      const p3 = pts[i + 2] ?? p2
+      return Array.from({ length: steps }, (_, s) => {
+        const t = s / steps
+        return [0, 1].map(
+          (k) => 0.5 * (2 * p1[k] + (p2[k] - p0[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t * t + (3 * p1[k] - p0[k] - 3 * p2[k] + p3[k]) * t ** 3),
+        )
+      })
+    })
+    .concat([pts.at(-1)!])
+
+// Territory candidate geometry, in shares of the plate. The Neutral Zone bends along the Romulan
+// border and is widest open at Sol's latitude, where its west edge meets the 10 ly ring on the grid
+// line; Nimbus III stays inside it. The Klingon border runs above the Mutara Nebula with Qo'noS behind it.
+const zoneWest = (y: number) => 20 + 5 * Math.sin((Math.PI * y) / 100)
+const ROMULAN_EDGE = Array.from({ length: 21 }, (_, i) => [zoneWest(i * 5), i * 5])
+const FEDERATION_EDGE = ROMULAN_EDGE.map(([x, y]) => [x + 5, y])
+const KLINGON_EDGE = spline([[57, 0], [56, 14], [61, 25], [70, 26], [78, 20], [88, 16], [100, 14]])
+
+const polygon = (pts: number[][]) => `polygon(${pts.map(([x, y]) => `${x.toFixed(2)}% ${y.toFixed(2)}%`).join(",")})`
+const polyline = (pts: number[][]) => pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ")
+
+const REGION = "absolute font-display text-[13px] leading-tight tracking-[0.3em] whitespace-nowrap text-muted-foreground/80 uppercase"
+
+/**
+ * The powers: the bent Neutral Zone, the Klingon border as a dash-dot line, the two rivals tinted in
+ * their canonical colours (Federation space stays plain paper) and each power named in wide-spaced type.
+ * The tints lie over the labels beneath them so knocked-out label boxes don't show as white patches.
+ */
+function Territory() {
+  return (
+    <>
+      <div className="absolute inset-0 diagonal-stripes" style={{ clipPath: polygon([...ROMULAN_EDGE, ...FEDERATION_EDGE.toReversed()]) }} />
+      <svg className="absolute inset-0 size-full" viewBox="0 0 100 100" preserveAspectRatio="none" fill="none">
+        <polyline points={polyline(ROMULAN_EDGE)} className="stroke-border" vectorEffect="non-scaling-stroke" />
+        <polyline points={polyline(FEDERATION_EDGE)} className="stroke-border" vectorEffect="non-scaling-stroke" />
+        <polyline points={polyline(KLINGON_EDGE)} className="stroke-muted-foreground" strokeDasharray={BORDER_DASH} vectorEffect="non-scaling-stroke" />
+      </svg>
+      <span
+        className="absolute -translate-1/2 rotate-180 bg-background py-1.5 font-display text-[10px] tracking-[0.25em] whitespace-nowrap text-muted-foreground uppercase [writing-mode:vertical-rl]"
+        style={{ left: `${zoneWest(68) + 2.5}%`, top: "68%" }}
+      >
+        Neutral Zone
+      </span>
+
+      <span className={cn(REGION, "top-[13%] left-[3%] -translate-y-1/2")}>
+        Romulan
+        <br />
+        Star Empire
+      </span>
+      <span className={cn(REGION, "top-[26px] right-[18px]")}>Klingon Empire</span>
+      <span className={cn(REGION, "right-[18px] bottom-[18px]")}>United Federation of Planets</span>
+
+      <div className="absolute inset-0 bg-[#5c9f63]/7 dark:bg-[#b9e6a2]/6" style={{ clipPath: polygon([[0, 0], ...ROMULAN_EDGE, [0, 100]]) }} />
+      <div className="absolute inset-0 bg-[#d8322b]/5 dark:bg-[#ef4b3f]/7" style={{ clipPath: polygon([...KLINGON_EDGE, [100, 0]]) }} />
+    </>
+  )
+}
+
 // Minor grid: dotted hairlines, --sub per major cell each way, cut from a dotted fill by a mask of
 // 1px stripes.
 const minorLines = (axis: "x" | "y"): React.CSSProperties => ({
@@ -149,13 +348,16 @@ const ruler = (edge: "top" | "bottom" | "left" | "right"): React.CSSProperties =
  * screen.
  */
 function Plate() {
+  const chart = useChart()
+  const atlas = chart !== "now"
+  const territory = chart === "territory"
   return (
     <div
       aria-hidden
-      className="relative isolate aspect-[2/1] overflow-hidden select-none [--gx:4] [--gy:2] [--sub:4] [--tg:3rem] lg:aspect-auto lg:h-[calc(2*var(--row))] lg:[--tg:4.5rem]"
+      className="@container relative isolate aspect-[2/1] overflow-hidden select-none [--gx:4] [--gy:2] [--sub:4] [--tg:3rem] lg:aspect-auto lg:h-[calc(2*var(--row))] lg:[--tg:4.5rem]"
     >
       <div className="absolute inset-0 [--star:0.7] dark:[--star:0.85]">
-        {STARS.map((s, i) => (
+        {(atlas ? ATLAS_STARS : STARS).map((s, i) => (
           <span
             key={i}
             className={cn("absolute -translate-1/2 rounded-full bg-foreground", s.size > 4 && "shadow-[0_0_0_2px_var(--background),0_0_0_3px_var(--foreground)]")}
@@ -171,11 +373,13 @@ function Plate() {
         <div key={k} className="absolute inset-y-0 w-px bg-border" style={{ left: `calc(${k} * 100% / var(--gx))` }} />
       ))}
 
-      <div className="absolute inset-y-0 left-1/4 w-12 border-x diagonal-stripes">
-        <span className="absolute top-9 left-1/2 -translate-x-1/2 rotate-180 bg-background py-1.5 font-display text-[10px] tracking-[0.25em] whitespace-nowrap text-muted-foreground uppercase [writing-mode:vertical-rl]">
-          Neutral Zone
-        </span>
-      </div>
+      {!territory && (
+        <div className="absolute inset-y-0 left-1/4 w-12 border-x diagonal-stripes">
+          <span className="absolute top-9 left-1/2 -translate-x-1/2 rotate-180 bg-background py-1.5 font-display text-[10px] tracking-[0.25em] whitespace-nowrap text-muted-foreground uppercase [writing-mode:vertical-rl]">
+            Neutral Zone
+          </span>
+        </div>
+      )}
 
       {/* Centred 88px above the crosshair: half the contours, the label and a 16px gap. */}
       <div className="absolute top-[calc(50%-88px)] left-[84%] -translate-1/2">
@@ -184,7 +388,9 @@ function Plate() {
             <path key={i} d={d} />
           ))}
         </svg>
-        <span className="absolute top-full left-1/2 -translate-x-1/2 font-display text-[10px] tracking-[0.25em] whitespace-nowrap text-muted-foreground uppercase">Mutara Nebula</span>
+        <span className={cn("absolute top-full left-1/2 -translate-x-1/2 font-display text-[10px] tracking-[0.25em] whitespace-nowrap text-muted-foreground uppercase", atlas && KNOCKOUT)}>
+          Mutara Nebula
+        </span>
       </div>
 
       {(["top", "bottom", "left", "right"] as const).map((edge) => (
@@ -206,6 +412,10 @@ function Plate() {
           </span>
         )
       })}
+
+      {atlas && <Atlas />}
+      {territory && <Territory />}
+      {atlas && <Legend borders={territory} />}
 
       {SYSTEMS.map(({ name, x, y }) => (
         <div key={name} className="absolute flex -translate-y-1/2 items-center gap-1" style={{ left: x, top: y }}>
