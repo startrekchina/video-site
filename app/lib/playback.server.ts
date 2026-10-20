@@ -1,7 +1,10 @@
 import { APIError } from "better-auth/api";
 import { createRequestIdentity, liveMemberSql, type D1Reader } from "./member.server";
+import { settings } from "./settings.server";
 
-export type PlaybackSource = { url: string; tracks: { id: string; language: string; displayName: string; url: string }[] };
+// url is the original; qualities lists it first, then the linked tiers from high to low (B 6.6).
+export type PlaybackSource = { url: string; qualities: { label: string; url: string }[]; tracks: { id: string; language: string; displayName: string; url: string }[] };
+const variants: readonly string[] = ["original", ...settings.qualityTiers];
 type Resource = { id: string | null; object_key: string; byte_length: number; r2_etag: string | null };
 const fail = (status: "UNAUTHORIZED" | "BAD_REQUEST" | "NOT_FOUND" | "SERVICE_UNAVAILABLE", code: string, message: string): never => { throw new APIError(status, { code, message }); };
 const missing = (id: string | null): never => {
@@ -14,13 +17,16 @@ async function storage<T>(read: () => Promise<T>) {
 
 // Verified sources come from D1 only; every media request checks the current R2 version itself.
 export async function playbackSource(db: D1Reader, unitId: string): Promise<PlaybackSource | null> {
-  const [files, tracks] = await db.batch<{ id: string; language: string; display_name: string }>([
-    db.prepare("SELECT id FROM media_files WHERE playable_unit_id = ? AND format = 'mp4' AND r2_etag IS NOT NULL AND r2_etag <> ''").bind(unitId),
+  const [files, tracks] = await db.batch<{ id: string; variant: string; language: string; display_name: string }>([
+    db.prepare("SELECT id, variant FROM media_files WHERE playable_unit_id = ? AND format = 'mp4' AND r2_etag IS NOT NULL AND r2_etag <> ''").bind(unitId),
     db.prepare(`SELECT id, language, display_name FROM subtitle_tracks WHERE playable_unit_id = ? AND format = 'vtt'
       AND r2_etag IS NOT NULL AND r2_etag <> '' ORDER BY language, track_key`).bind(unitId),
   ]);
-  if (files.results.length !== 1) return null;
-  return { url: `/media/${files.results[0].id}`, tracks: tracks.results.map(track => ({ id: track.id, language: track.language, displayName: track.display_name, url: `/subtitles/${track.id}` })) };
+  const linked = files.results.filter(file => variants.includes(file.variant)).sort((a, b) => variants.indexOf(a.variant) - variants.indexOf(b.variant));
+  // Tiers never stand in for a missing original.
+  if (linked[0]?.variant !== "original") return null;
+  const qualities = linked.map(file => ({ label: file.variant === "original" ? "原画" : file.variant, url: `/media/${file.id}` }));
+  return { url: qualities[0].url, qualities, tracks: tracks.results.map(track => ({ id: track.id, language: track.language, displayName: track.display_name, url: `/subtitles/${track.id}` })) };
 }
 
 function rangeRequest(header: string, total: number) {

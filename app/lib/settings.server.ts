@@ -20,6 +20,9 @@ export const settings = {
   commentMaxLength: 1000,
   commentsPerPage: 10,
   repliesPerBatch: 10,
+  // Quality tiers from high to low (B 6.6); a tier links only when its duration is within the tolerance of the original.
+  qualityTiers: ["2160p", "1080p", "720p", "480p"],
+  qualityDurationTolerance: 1,
 
   session: {
     expiresIn: 30 * DAY,

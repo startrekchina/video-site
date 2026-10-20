@@ -12,7 +12,7 @@ const state = vi.hoisted(() => ({
   pageState: [] as unknown[], pageIndex: null as number | null, refIndex: 0, handlers: new Map<string, Handler[]>(),
   location: { state: null as unknown }, navigation: "POP",
   art: { currentTime: 1234, duration: 4000, seek: 0, url: "", destroy: vi.fn(), hotkey: { add: vi.fn() },
-    on: vi.fn(), once: vi.fn(), play: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() } },
+    on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() } },
 }));
 // Run the real effects and player wiring with only the browser/ArtPlayer boundary replaced.
 vi.mock("react", async original => ({
@@ -31,7 +31,7 @@ vi.mock("react-router", async original => ({ ...await original<typeof import("re
   useLocation: () => state.location, useNavigationType: () => state.navigation }));
 vi.mock("@/components/ui/button", () => ({ Button: () => null }));
 
-const source: PlaybackSource = { url: "/media/source", tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
+const source: PlaybackSource = { url: "/media/source", qualities: [{ label: "原画", url: "/media/source" }], tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
 const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>();
 let cleanups: (void | (() => void))[] = [], blobs = 0;
 const page = { visibilityState: "visible", listeners: new Map<string, () => void>() };
@@ -44,6 +44,7 @@ beforeEach(() => {
   state.art.on.mockImplementation(listen); state.art.once.mockImplementation(listen);
   state.art.subtitle.switch.mockReset().mockResolvedValue(undefined);
   state.art.play.mockReset().mockResolvedValue(undefined);
+  state.art.switchQuality.mockReset().mockResolvedValue(undefined);
   fetch.mockReset().mockImplementation(async () => new Response("WEBVTT\n\n"));
   blobs = 0;
   vi.stubGlobal("fetch", fetch);
@@ -219,6 +220,58 @@ it("keeps a member's pause across a reconnect and reports a blocked automatic re
   (state.refs[1].current as () => void)(); state.art.play.mockRejectedValueOnce(new Error("Fictional autoplay restriction"));
   await emit("video:canplay"); await new Promise(resolve => setTimeout(resolve, 0));
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请点击播放"), reconnect: false });
+});
+
+const tiers: PlaybackSource = { ...source, qualities: [{ label: "原画", url: "/media/source" }, { label: "1080p", url: "/media/p1080" }, { label: "720p", url: "/media/p720" }] };
+type Control = { name: string; html: string; selector: { html: string; default: boolean }[]; onSelect: (item: { html: string }) => Promise<string> };
+const control = () => (state.options as { controls: Control[] }).controls[0];
+function remember(label: string | null) {
+  const storage = { getItem: vi.fn(() => label), setItem: vi.fn() };
+  vi.stubGlobal("localStorage", storage); return storage;
+}
+
+it("shows no quality control when a unit has only its original", async () => {
+  await mount();
+  expect((state.options as { controls: unknown[] }).controls).toEqual([]);
+});
+
+it("starts on the remembered quality when the unit has it and on the original otherwise", async () => {
+  remember("720p"); await mount({ source: tiers });
+  expect(state.options).toMatchObject({ url: "http://localhost:6120/media/p720" });
+  expect(control()).toMatchObject({ name: "quality", html: "720p", selector: [{ html: "原画", default: false }, { html: "1080p", default: false }, { html: "720p", default: true }] });
+  cleanups.forEach(cleanup => cleanup?.()); state.effects.length = 0; state.refs.length = 0; state.refIndex = 0;
+  remember("2160p"); await mount({ source: tiers });
+  expect(state.options).toMatchObject({ url: "http://localhost:6120/media/source" }); expect(control().html).toBe("原画");
+});
+
+it("switches quality in place, remembers it, keeps the position through the switch and recovers on the chosen quality", async () => {
+  const storage = remember(null); await mount({ source: tiers }); state.message.mockClear();
+  await emit("video:play"); await emit("video:timeupdate");
+  // While switching, the element pauses and briefly reports 0; neither is the member's position or choice.
+  state.art.switchQuality.mockImplementationOnce(async () => { state.art.currentTime = 0; await emit("video:pause"); await emit("video:timeupdate"); state.art.currentTime = 1234; });
+  expect(await control().onSelect({ html: "720p" })).toBe("720p");
+  expect(state.art.switchQuality).toHaveBeenCalledExactlyOnceWith("http://localhost:6120/media/p720");
+  expect(storage.setItem).toHaveBeenCalledExactlyOnceWith("player-quality", "720p");
+  expect(reports()).toEqual([]);
+  // A failure checks and reconnects the current quality, back at the last position and play state.
+  fetch.mockResolvedValueOnce(new Response(null, { status: 503 })); await emit("video:error");
+  expect(fetch).toHaveBeenLastCalledWith("http://localhost:6120/media/p720", { method: "HEAD", credentials: "same-origin", cache: "no-store" });
+  state.art.currentTime = 0; (state.refs[1].current as () => void)();
+  expect(state.art.url).toBe("http://localhost:6120/media/p720");
+  await emit("video:canplay");
+  expect(state.art.currentTime).toBe(1234); expect(state.art.play).toHaveBeenCalledOnce();
+});
+
+it("reconnects on a newly chosen quality when the current one has failed", async () => {
+  remember(null); await mount({ source: tiers }); state.message.mockClear();
+  await emit("video:timeupdate");
+  fetch.mockResolvedValueOnce(new Response(null, { status: 404 })); await emit("video:error");
+  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("片源暂时无法播放"), reconnect: true });
+  state.art.currentTime = 0;
+  expect(await control().onSelect({ html: "1080p" })).toBe("1080p");
+  expect(state.art.switchQuality).not.toHaveBeenCalled();
+  expect(state.art.url).toBe("http://localhost:6120/media/p1080"); expect(state.message).toHaveBeenLastCalledWith(null);
+  await emit("video:canplay"); expect(state.art.currentTime).toBe(1234);
 });
 
 it("keeps watch page subtitle choices in step with a removed track without restarting the player", async () => {

@@ -29,7 +29,7 @@
 | 工程基础与环境 | 已完成第二阶段；T4.7 业务写入来源校验与 T4.8 构建资源缓存本地自检通过，T4.8 响应头 staging 核对通过；保留 beta 工具链风险 | [foundation.md](docs/plan/foundation.md) |
 | 登录、账号、邀请与权限 | 第三阶段验收通过；T4.5.7 单次 D1 往返经开发者验收，尾延迟等性能缺口转为持续观察 | [authentication.md](docs/plan/authentication.md) |
 | 片库、搜索与资料导入 | 本地/staging 功能与设计复验通过，iPhone 实机输入与切季通过 | [catalog.md](docs/plan/catalog.md) |
-| 播放与媒体交付 | 第四阶段验收通过：会话鉴权核心验收、设计复验与 iPhone 实机经开发者确认，媒体桶已迁至 APAC；T4.9 多清晰度片源待实施 | [playback.md](docs/plan/playback.md) |
+| 播放与媒体交付 | 第四阶段验收通过：会话鉴权核心验收、设计复验与 iPhone 实机经开发者确认，媒体桶已迁至 APAC；T4.9 多清晰度片源实现与本地浏览器自检通过，待开发者验收与真实手机补验 | [playback.md](docs/plan/playback.md) |
 | 进度、收藏、片单与讨论 | 第五阶段验收通过；开发者确认全部功能正常，含下一集、片单滑动排序与讨论的手机体验；T5.4 弹幕待实施 | [community.md](docs/plan/community.md) |
 | 备份、恢复与发布 | 第六阶段实施中；外部备份、保留、隔离恢复及调度有本地实现和自检，缺配置态桌面/手机检查通过；真实 staging 备份与恢复待验 | [operations.md](docs/plan/operations.md) |
 

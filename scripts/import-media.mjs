@@ -318,7 +318,7 @@ export function catalogQueries(result) {
       VALUES (?,?,(SELECT id FROM works WHERE kind=? AND tmdb_id=?),${season ? "(SELECT s.id FROM seasons s JOIN works w ON w.id=s.work_id WHERE w.kind='series' AND w.tmdb_id=? AND s.season_number=?)" : "NULL"},?,?,?,?,?,?,?)
       ON CONFLICT(${season ? "season_id,episode_number" : "work_id"}) WHERE kind='${season ? "episode" : "movie"}' DO UPDATE SET
       tmdb_id=excluded.tmdb_id,title_zh=excluded.title_zh,title_en=excluded.title_en,overview_zh=excluded.overview_zh,overview_en=excluded.overview_en,
-      duration_seconds=CASE WHEN EXISTS(SELECT 1 FROM media_files WHERE playable_unit_id=playable_units.id AND format='mp4') THEN playable_units.duration_seconds ELSE excluded.duration_seconds END`,
+      duration_seconds=CASE WHEN EXISTS(SELECT 1 FROM media_files WHERE playable_unit_id=playable_units.id AND format='mp4' AND variant='original') THEN playable_units.duration_seconds ELSE excluded.duration_seconds END`,
       params: [`${work.kind}_${work.tmdbId}_${season ? `s${season.seasonNumber}_e${unit.episodeNumber}` : "unit"}`,season ? "episode" : "movie",work.kind,work.tmdbId,...(season ? [work.tmdbId,season.seasonNumber] : []),unit.episodeNumber,unit.tmdbId,unit.durationSeconds,unit.titleZh,unit.titleEn,unit.overviewZh,unit.overviewEn] });
   }
   return queries;
