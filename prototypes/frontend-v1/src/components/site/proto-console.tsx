@@ -4,7 +4,6 @@ import { useLocation, useNavigate } from "react-router"
 
 import { actions, useStore, type Scenario } from "@/data/store"
 import { cn } from "@/lib/utils"
-import { ARTS, useArt } from "@/components/site/footer-art"
 import { LANDINGS, useLanding } from "@/pages/guest-home/landing"
 import { CHARTS, useChart } from "@/pages/guest-home/star-chart"
 
@@ -62,7 +61,6 @@ export function ProtoConsole() {
   const [open, setOpen] = useState(false)
   const scenario = useStore((s) => s.scenario)
   const maintenance = useStore((s) => s.maintenance)
-  const art = useArt()
   const landing = useLanding()
   const chart = useChart()
   const navigate = useNavigate()
@@ -125,18 +123,6 @@ export function ProtoConsole() {
                 }}
               >
                 {c.label}
-              </button>
-            ))}
-          </div>
-          <div className="mb-1 text-[11px] font-bold uppercase opacity-70">页脚线稿（待选）</div>
-          <div className="mb-3 grid grid-cols-3 gap-1">
-            {ARTS.map((a) => (
-              <button
-                key={a.key}
-                className={cn("rounded px-2 py-1 hover:bg-zinc-950/10", art === a.key && "bg-zinc-950 text-amber-300 hover:bg-zinc-950")}
-                onClick={() => navigate({ search: `?art=${a.key}` })}
-              >
-                {a.label}
               </button>
             ))}
           </div>

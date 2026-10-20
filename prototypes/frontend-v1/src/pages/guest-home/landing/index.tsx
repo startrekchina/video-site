@@ -1,7 +1,6 @@
 import { useVariant } from "@/lib/use-variant"
 
 import { GuestStarChart } from "../star-chart"
-import { DossierLanding } from "./dossier"
 import { LcarsLanding } from "./lcars"
 import { PassLanding } from "./pass"
 import { TerminalLanding } from "./terminal"
@@ -15,13 +14,12 @@ export const LANDINGS = [
   { key: "pass", label: "登舰证" },
   { key: "lcars", label: "LCARS" },
   { key: "warp", label: "曲速" },
-  { key: "dossier", label: "卷宗" },
   { key: "terminal", label: "舰载电脑" },
 ] as const
 
 export const useLanding = () => useVariant("landing", LANDINGS.map((l) => l.key))
 
-const PAGES = { now: GuestStarChart, pass: PassLanding, lcars: LcarsLanding, warp: WarpLanding, dossier: DossierLanding, terminal: TerminalLanding }
+const PAGES = { now: GuestStarChart, pass: PassLanding, lcars: LcarsLanding, warp: WarpLanding, terminal: TerminalLanding }
 
 export function GuestLanding() {
   const Landing = PAGES[useLanding()]
