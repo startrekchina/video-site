@@ -5,8 +5,8 @@ import { Link, useLocation } from "react-router"
 
 import { useStore } from "@/data/store"
 import { useActiveSection } from "@/lib/use-active-section"
-import { cn } from "@/lib/utils"
 import { Page, PageHeading, PageHeadingDescription, PageHeadingTagline, PageHeadingTitle, Panel, PanelHeader, PanelTitle, Separator } from "@/components/site/panel"
+import { ProjectColophon } from "@/components/site/site-footer"
 import { Button } from "@/components/ui/button"
 import { LineNav } from "@/components/ui/line-nav"
 import { Tag } from "@/components/ui/tag"
@@ -45,15 +45,6 @@ function Section({ id, title, children }: { id: string; title: string; children:
 
 function Prose({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-col gap-3 p-4 text-pretty text-muted-foreground [&_strong]:font-medium [&_strong]:text-foreground">{children}</div>
-}
-
-function Spec({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn("flex flex-col gap-1 bg-background px-4 py-3", className)}>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm">{children}</dd>
-    </div>
-  )
 }
 
 export function AboutPage() {
@@ -182,6 +173,7 @@ export function AboutPage() {
       <Section id="copyright" title="版权说明">
         <Prose>
           <p>《星际迷航》（Star Trek）及相关名称、标识和海报的版权归 Paramount 及原权利人所有。本站是粉丝自行维护的非公开站点，与 Paramount 没有任何关联。</p>
+          <p>作品资料与海报来自 TMDB，本站使用 TMDB API，但未获 TMDB 认可或认证。</p>
           <p className="flex flex-wrap items-center gap-2">
             版权方联系方式：<span className="text-muted-foreground/70">站长待填</span>
             <Tag>待定</Tag>
@@ -192,21 +184,7 @@ export function AboutPage() {
       <Separator />
 
       <Section id="colophon" title="技术说明">
-        <dl className="grid grid-cols-2 gap-px bg-line font-mono">
-          <Spec label="运行于">Cloudflare Workers</Spec>
-          <Spec label="播放器">ArtPlayer</Spec>
-          <Spec label="字幕">中文 / 英文 · VTT</Spec>
-          <Spec label="字体">Noto Sans SC · Geist Mono</Spec>
-          <Spec label="作品资料" className="col-span-2">
-            <span className="font-sans text-muted-foreground">
-              来自{" "}
-              <a className="link-underline text-foreground" href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer">
-                TMDB
-              </a>
-              。本站使用 TMDB API，但未获 TMDB 认可或认证。
-            </span>
-          </Spec>
-        </dl>
+        <ProjectColophon />
       </Section>
     </Page>
   )

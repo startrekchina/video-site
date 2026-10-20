@@ -1,6 +1,8 @@
 import type React from "react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
+import type { SimpleIcon } from "simple-icons"
+import { siBaseui, siBetterauth, siCloudflare, siGithubactions, siLucide, siPnpm, siReact, siReactrouter, siTailwindcss, siTypescript, siVite, siVitest } from "simple-icons"
 
 import { cn } from "@/lib/utils"
 import { ThemeSwitcher } from "@/components/ui/theme-switcher"
@@ -12,7 +14,7 @@ import { SiteMark } from "./site-mark"
 const REPO = "https://github.com/startrekchina/video-site"
 const STACK = ["react-router", "react", "@base-ui/react"] as const
 
-function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
+export function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
   return (
     <div className={cn("flex flex-col gap-1 bg-background px-4 py-3", className)}>
       <dt className="font-sans text-xs text-muted-foreground">{label}</dt>
@@ -44,6 +46,79 @@ function EdgeFields() {
     <>
       <Field label="边缘节点">{colo ?? "—"}</Field>
       <Field label="请求 ID">{id ?? "—"}</Field>
+    </>
+  )
+}
+
+// Monochrome marks from Simple Icons (CC0).
+const STACK_LOGOS: [name: string, url: string, icon: SimpleIcon][] = [
+  ["TypeScript", "https://www.typescriptlang.org", siTypescript],
+  ["React", "https://react.dev", siReact],
+  ["React Router", "https://reactrouter.com", siReactrouter],
+  ["Base UI", "https://base-ui.com", siBaseui],
+  ["Tailwind CSS", "https://tailwindcss.com", siTailwindcss],
+  ["Lucide", "https://lucide.dev", siLucide],
+  ["Vite", "https://vite.dev", siVite],
+  ["Vitest", "https://vitest.dev", siVitest],
+  ["pnpm", "https://pnpm.io", siPnpm],
+  ["GitHub Actions", "https://github.com/features/actions", siGithubactions],
+  ["Workers", "https://developers.cloudflare.com/workers/", siCloudflare],
+  ["D1", "https://developers.cloudflare.com/d1/", siCloudflare],
+  ["R2", "https://developers.cloudflare.com/r2/", siCloudflare],
+  ["Turnstile", "https://developers.cloudflare.com/turnstile/", siCloudflare],
+  ["Better Auth", "https://better-auth.com", siBetterauth],
+]
+
+/** The about page's 技术说明: what the project is built with. Per-build facts (commit, edge node, request ID) stay in the title block. */
+export function ProjectColophon() {
+  return (
+    <>
+      <dl className="grid grid-cols-2 gap-px bg-line font-mono md:grid-cols-4">
+        <Field label="维护">
+          <ExternalLink href="https://github.com/narwhrl">@narwhrl</ExternalLink>
+        </Field>
+        <Field label="源代码">
+          <ExternalLink href={REPO}>GitHub</ExternalLink>
+        </Field>
+        <Field label="许可证">
+          <ExternalLink href={`${REPO}/blob/main/LICENSE`}>MIT License</ExternalLink>
+        </Field>
+        <Field label="播放器">
+          <ExternalLink href="https://artplayer.org">ArtPlayer</ExternalLink>
+        </Field>
+      </dl>
+      {/* The cells cover a rule drawn inside the dl, so the spacer below draws it, as in the footer. */}
+      <div className="screen-line-top h-4" />
+      {/* Logo wall after chanhdai.com/sponsors: guides behind the grid draw unbroken column rules, each row's first cell draws its full-bleed rules.
+          With two columns the 15th cell leaves a blank slot that the guides still frame. */}
+      <div className="relative">
+        <div className="pointer-events-none absolute inset-0 -z-1 grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <div className="border-r border-line" />
+          <div className="border-l border-line sm:border-x" />
+          <div className="border-l border-line max-sm:hidden" />
+        </div>
+        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          {STACK_LOGOS.map(([name, url, icon]) => (
+            <li
+              key={name}
+              className="max-sm:nth-[2n+1]:screen-line-top max-sm:nth-[2n+1]:screen-line-bottom sm:nth-[3n+1]:screen-line-top sm:nth-[3n+1]:screen-line-bottom"
+            >
+              <a
+                className="flex min-h-15 items-center justify-center gap-2 px-3 text-[15px] font-semibold tracking-tight whitespace-nowrap transition-[background-color] ease-out hover:bg-accent-muted sm:text-base"
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <svg className="size-5 shrink-0 fill-current" viewBox="0 0 24 24" aria-hidden>
+                  <path d={icon.path} />
+                </svg>
+                {!name.startsWith(icon.title) && <span className="sr-only">{icon.title} </span>}
+                {name}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
     </>
   )
 }
