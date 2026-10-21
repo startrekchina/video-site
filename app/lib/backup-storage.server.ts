@@ -158,11 +158,11 @@ export async function decryptBackupForRestore(bucket: R2Bucket, scope: BackupSco
   const tail = await bucket.get(`${prefix(scope)}${file}.bin`, { range: { suffix: 16 }, onlyIf: { etagMatches: verified.etag } });
   if (!tail || !("body" in tail)) { await object.body.cancel(); throw new Error("BACKUP_OBJECT_UNAVAILABLE"); }
   const tag = new Uint8Array(await tail.arrayBuffer()), stream = new FixedLengthStream(verified.source.byteLength), writer = stream.writable.getWriter();
-  const md5 = createHash("md5"), stop = new AbortController(), combined = AbortSignal.any([signal, stop.signal]);
+  const stop = new AbortController(), combined = AbortSignal.any([signal, stop.signal]);
   const cancel = () => { void writer.abort().catch(() => {}); }; combined.addEventListener("abort", cancel, { once: true });
   const pumping = (async () => {
     try {
-      await verifyStream(object.body, scope, secret, tag, combined, async chunk => { md5.update(chunk); await writer.write(chunk); });
+      await verifyStream(object.body, scope, secret, tag, combined, chunk => writer.write(chunk));
       await writer.close();
     } catch (error) { stop.abort(); throw error; }
   })();
@@ -176,7 +176,7 @@ export async function decryptBackupForRestore(bucket: R2Bucket, scope: BackupSco
     combined.throwIfAborted();
     const stored = results[1].value, reread = await readObject(bucket, destination, stored.etag);
     same(await backupFingerprint(reread.body, signal, verified.source.byteLength), verified.source);
-    return { ...verified, sqlKey: destination, sqlEtag: stored.etag, md5: md5.digest("hex") };
+    return { ...verified, sqlKey: destination, sqlEtag: stored.etag };
   } catch (error) {
     await bucket.delete(destination); throw error;
   } finally { combined.removeEventListener("abort", cancel); }

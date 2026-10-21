@@ -13,6 +13,7 @@ const signal = () => new AbortController().signal;
 const runtime = { ...env, APP_ENV: "test", BACKUP_ACCOUNT_ID: "a".repeat(32), BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", D1_IMPORT_TOKEN: "fictional-import-token" };
 const target = { db: env.TEST_RESTORE_DB, id: "00000000-0000-4000-8000-000000000001" };
 const newSecret = "fictional-new-auth-secret-0123456789abcdef";
+const importPreamble = "PRAGMA foreign_keys=OFF;\n";
 async function artifact(sql = "CREATE TABLE fictional (value TEXT);") {
   const scope = { environment: "test" as const, id: crypto.randomUUID() };
   const names = await env.DB.prepare("SELECT name FROM d1_migrations ORDER BY name").all<{ name: string }>();
@@ -56,8 +57,8 @@ it("restores an encrypted SQL fixture into the isolated binding with identical b
     if (String(url).startsWith("https://fixture-upload.example.test/")) { uploaded = await new Response(init?.body).text(); return new Response(null); }
     const action = JSON.parse(String(init?.body)).action;
     if (action === "init") return Response.json({ success: true, result: { filename: "fixture.sql", upload_url: "https://fixture-upload.example.test/sql" } });
-    expect(action).toBe("ingest"); expect(uploaded).toBe(fixtureSql);
-    await target.db.batch(uploaded.split(separator).map(statement => target.db.prepare(statement)));
+    expect(action).toBe("ingest"); expect(uploaded).toBe(importPreamble + fixtureSql);
+    await target.db.batch(uploaded.slice(importPreamble.length).split(separator).map(statement => target.db.prepare(statement)));
     return Response.json({ success: true, result: { status: "complete" } });
   }));
   const restored = await restoreBackup(rotated, target, file.source, file.file, { keyId: file.keyId, authKeyId: file.source.authKeyId! }, signal());
@@ -72,11 +73,10 @@ it("restores an encrypted SQL fixture into the isolated binding with identical b
   expect(await verifyRestoredCredentials(target.db, newSecret)).toMatchObject({ credentialsCleared: true, totpPreserved: 1 });
   await expect(verifyRestoredCredentials(target.db, env.BETTER_AUTH_SECRET)).rejects.toThrow();
 });
-it("authenticates ciphertext before private restore staging and verifies SHA-256 plus import MD5", async () => {
+it("authenticates ciphertext before private restore staging and verifies SHA-256", async () => {
   const sql = "CREATE TABLE fictional (value TEXT);", file = await artifact(sql);
   const restored = await decryptBackupForRestore(env.MEDIA_BUCKET, file.source, file.file, env.BACKUP_ENCRYPTION_KEY, signal());
   expect(restored.sqlKey).toMatch(/^backup-restore\/test\//u);
-  expect(restored.md5).toBe(createHash("md5").update(sql).digest("hex"));
   expect(await (await env.MEDIA_BUCKET.get(restored.sqlKey))!.text()).toBe(sql);
   await expect(decryptBackupForRestore(env.MEDIA_BUCKET, file.source, file.file, newSecret, signal())).rejects.toThrow();
   expect((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(1);
@@ -86,7 +86,7 @@ it("runs init/upload/ingest/poll within the recovery service, never forwards tok
     expect(init?.redirect).toBe("manual");
     if (String(url) === signed) {
       expect(new Headers(init?.headers).has("Authorization")).toBe(false);
-      expect(await new Response(init?.body).text()).toBe("CREATE TABLE fictional (value TEXT);"); return new Response(null);
+      expect(await new Response(init?.body).text()).toBe(importPreamble + "CREATE TABLE fictional (value TEXT);"); return new Response(null);
     }
     expect(String(url)).toContain(target.id); expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer fictional-import-token");
     const body = JSON.parse(String(init?.body)); actions.push(body.action);
@@ -102,6 +102,19 @@ it("runs init/upload/ingest/poll within the recovery service, never forwards tok
   expect(actions).toEqual(["init", "ingest", "poll"]); expect(result).toMatchObject({ credentialsCleared: false, validation: { mediaVerified: true } });
   expect((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
   expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM d1_migrations").first<{ n: number }>())!.n).toBe(env.TEST_MIGRATIONS.length);
+});
+it("identifies the import by the MD5 of the exact uploaded bytes, foreign-key preamble included", async () => {
+  const file = await artifact(), etags: string[] = []; let uploaded = "";
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith("https://fixture-upload.example.test/")) { uploaded = await new Response(init?.body).text(); return new Response(null); }
+    const body = JSON.parse(String(init?.body)); etags.push(body.etag);
+    if (body.action === "init") return Response.json({ success: true, result: { filename: "fictional.sql", upload_url: "https://fixture-upload.example.test/sql" } });
+    await applyD1Migrations(target.db, env.TEST_MIGRATIONS);
+    return Response.json({ success: true, result: { status: "complete" } });
+  }));
+  await restoreBackup(runtime, target, file.source, file.file, { keyId: file.keyId, authKeyId: file.source.authKeyId! }, signal());
+  expect(uploaded.startsWith(importPreamble)).toBe(true);
+  expect(etags).toEqual(Array(2).fill(createHash("md5").update(uploaded).digest("hex")));
 });
 it("continues active ingest and poll responses until the isolated import completes", async () => {
   const file = await artifact(), actions: string[] = [];

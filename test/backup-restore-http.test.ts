@@ -3,6 +3,7 @@ import { applyD1Migrations, createExecutionContext, waitOnExecutionContext } fro
 import { afterEach, expect, it, vi } from "vitest";
 import recoveryWorker from "../tools/backup-restore/worker";
 import { backupKeyId } from "@/lib/backup-keys.server";
+import { encryptBackup, stageBackup } from "@/lib/backup-storage.server";
 
 const bindings = { ...env, APP_ENV: "test", BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", RESTORE_TARGET_DATABASE_ID: "00000000-0000-4000-8000-000000000001",
   RESTORE_DB: env.TEST_RESTORE_DB, RESTORE_NEW_AUTH_SECRET: "fictional-new-auth-secret-0123456789abcdef", RESTORE_OPERATOR_TOKEN: "fictional-operator-token-0123456789abcdef", D1_IMPORT_TOKEN: "fictional-import-token" };
@@ -36,6 +37,22 @@ it("keeps internal failures private and cannot report credential cleanup without
   vi.spyOn(env.TEST_RESTORE_DB, "prepare").mockImplementation(() => { throw new Error("private-api-token-and-storage-path"); });
   const failed = await send({ action: "validate", schemaVersion: "fictional" }); expect(failed.status).toBe(500);
   const text = await failed.text(); expect(text).toContain("RESTORE_FAILED"); expect(text).not.toContain("private-api-token-and-storage-path");
+}, 10000);
+it.each([
+  ['{"D1_RESET_DO":true}', "D1_RESET_DO"], ["UNIQUE constraint failed: user.email fictional-private@example.test", undefined],
+])("reports only a bare D1 code when the import rejects %s", async (error, importError) => {
+  const scope = { environment: "staging" as const, id: crypto.randomUUID() }, sql = "CREATE TABLE fictional (value TEXT);", signal = new AbortController().signal;
+  await stageBackup(env.MEDIA_BUCKET, { ...scope, createdAt: Date.now(), schemaVersion: "fictional", bookmark: "fictional-bookmark", authKeyId: backupKeyId(env.BETTER_AUTH_SECRET) },
+    new Response(sql).body!, sql.length, signal);
+  const file = await encryptBackup(env.MEDIA_BUCKET, scope, env.BACKUP_ENCRYPTION_KEY, signal);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, result: { success: false, error } })));
+  try {
+    const response = await send({ action: "restore", id: scope.id, file: file.file, keyId: file.keyId, authKeyId: file.source.authKeyId }, {}, { ...bindings, APP_ENV: "staging" });
+    const body = await response.json<Record<string, unknown>>();
+    expect(response.status).toBe(500); expect(body.error).toBe("RESTORE_FAILED"); expect(body.importError).toBe(importError);
+    expect(JSON.stringify(body)).not.toContain("fictional-private");
+    expect((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
+  } finally { vi.unstubAllGlobals(); }
 }, 10000);
 const history = [
   { backupKey: "fictional-old-backup-key-0123456789abcdef", authSecret: "fictional-old-auth-secret-0123456789abcdef" },
