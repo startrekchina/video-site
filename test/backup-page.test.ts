@@ -41,7 +41,7 @@ it("selects the available S3-only channel initially and explains a saved target 
     const ctx = createExecutionContext(), response = await worker.fetch(request("/admin/backups", undefined, owner), config, ctx);
     await waitOnExecutionContext(ctx); expect(response.status).toBe(200); return response.text();
   }
-  expect(await html(bindings)).toMatch(/<option[^>]*value="s3"[^>]*selected=""/u);
+  expect(await html(bindings)).toMatch(/id="schedule-target"[^>]*>[^]*?data-slot="select-value"[^>]*>S3</u);
   await updateBackupSchedule(bindings, { enabled: true, target: "s3", frequency: "daily", time: "04:00" });
   const unavailable = await html({ ...bindings, S3_BACKUP_SECRET_ACCESS_KEY: "" });
   expect(unavailable).toContain("已保存的渠道当前不可执行");
