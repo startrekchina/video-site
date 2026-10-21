@@ -687,7 +687,6 @@ export function GuestStarChart() {
                   <p className="font-mono text-xs tracking-[0.3em] text-muted-foreground uppercase">Starfleet Archive</p>
                 </hgroup>
                 <p className="text-sm text-pretty text-muted-foreground">
-                  《星际迷航》中文粉丝的邀请制观看站，不开放申请。
                   <Link to="/about" className="link-underline text-foreground">
                     关于本站
                   </Link>

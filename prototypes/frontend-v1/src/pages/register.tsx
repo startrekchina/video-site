@@ -38,7 +38,7 @@ export function RegisterPage() {
     return (
       <AuthFrame
         title="使用邀请码注册"
-        description="本站只对受邀成员开放。请输入朋友发给你的邀请码。"
+        description="请输入朋友发给你的邀请码。"
         aside={
           <span>
             已经有账号？<Link to="/login" className="link-underline text-foreground">登录</Link>

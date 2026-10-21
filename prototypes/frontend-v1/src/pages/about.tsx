@@ -94,7 +94,7 @@ export function AboutPage() {
 
       <PageHeading>
         <PageHeadingTagline>关于</PageHeadingTagline>
-        <PageHeadingTitle>一个邀请制的私人观看站.</PageHeadingTitle>
+        <PageHeadingTitle>认识星际舰队档案馆.</PageHeadingTitle>
         <PageHeadingDescription>本站是什么、怎么加入、保存了你的哪些数据，以及账号出了问题怎么办。</PageHeadingDescription>
       </PageHeading>
       <div className="h-4" />
@@ -102,7 +102,7 @@ export function AboutPage() {
       <Section id="what" title="这是什么">
         <Prose>
           <p>
-            星际舰队档案馆是一小群<strong>《星际迷航》中文粉丝</strong>的私人观看站，由站长利用业余时间维护。不营利，没有广告。
+            本站是旨在为《星际迷航》系列粉丝提供服务的私人观看站，由站长利用业余时间维护。不营利，没有广告。
           </p>
           <p>
             它只对受邀成员开放：<strong>没有公开注册，也不被搜索引擎收录</strong>。登录之前，你能看到的只有这几页说明。

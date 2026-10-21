@@ -25,12 +25,11 @@ export function PassLanding() {
     <Page className="pt-0">
       <section aria-labelledby="pass-title" className="dot-grid screen-line-bottom px-3 py-12 sm:px-6 md:py-16">
         <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
-          <div className="font-mono text-xs tracking-wider text-muted-foreground">邀请制 · 私人观看站</div>
-          <h1 id="pass-title" className="mt-3 text-4xl font-medium tracking-tight sm:text-5xl">
+          <h1 id="pass-title" className="text-4xl font-medium tracking-tight sm:text-5xl">
             欢迎登舰。
           </h1>
           <p className="mt-4 text-base/relaxed text-balance text-muted-foreground">
-            星际舰队档案馆是《星际迷航》中文粉丝的私人观看站，只对受邀成员开放。把邀请码填进登舰证，两分钟完成注册。
+            把邀请码填进登舰证，两分钟完成注册。
           </p>
         </div>
 

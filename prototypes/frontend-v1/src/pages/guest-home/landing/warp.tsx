@@ -102,12 +102,10 @@ export function WarpLanding() {
           className="absolute inset-0 -z-1 bg-[radial-gradient(55%_45%_at_50%_48%,var(--vignette),transparent)] [--vignette:rgb(255_255_255/0.92)] dark:[--vignette:rgb(0_0_0/0.65)]"
         />
         <div className="mx-auto flex w-[calc(100%-1rem)] flex-1 flex-col items-center justify-center border-x px-4 pt-(--header-height) pb-20 text-center md:max-w-(--content-width) dark:border-white/10">
-          <div className="font-mono text-xs tracking-[0.3em] text-muted-foreground uppercase">邀请制 · 私人观看站</div>
-          <h1 id="warp-title" className="mt-4 text-5xl font-medium tracking-tight text-balance sm:text-7xl">
+          <h1 id="warp-title" className="text-5xl font-medium tracking-tight text-balance sm:text-7xl">
             星际舰队档案馆
           </h1>
           <p className="mt-3 font-mono text-xs tracking-[0.5em] text-muted-foreground uppercase">Starfleet Archive</p>
-          <p className="mt-6 max-w-md text-base/relaxed text-balance text-muted-foreground">《星际迷航》中文粉丝的私人观看站，只对受邀成员开放，不开放申请。</p>
 
           <form onSubmit={submit} className="mt-10 flex w-full max-w-md gap-2">
             <InputGroup className="h-11 flex-1 bg-background/60 backdrop-blur-sm dark:bg-black/40">

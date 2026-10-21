@@ -96,12 +96,11 @@ export function GuestGuide() {
     <Page className="pt-0">
       <section aria-labelledby="guide-title" className="screen-line-bottom grid md:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex flex-col justify-center px-4 py-12 sm:py-20">
-          <div className="font-mono text-xs tracking-wider text-muted-foreground">邀请制 · 私人观看站</div>
-          <h1 id="guide-title" className="mt-3 text-4xl font-medium tracking-tight text-balance sm:text-5xl">
+          <h1 id="guide-title" className="text-4xl font-medium tracking-tight text-balance sm:text-5xl">
             欢迎登舰。
           </h1>
           <p className="mt-4 max-w-lg text-base/relaxed text-balance text-muted-foreground">
-            星际舰队档案馆是《星际迷航》中文粉丝的私人观看站，只对受邀成员开放。手里有邀请码的话，两分钟就能完成注册。
+            手里有邀请码的话，两分钟就能完成注册。
           </p>
           <form
             className="mt-8 flex max-w-md gap-2"
