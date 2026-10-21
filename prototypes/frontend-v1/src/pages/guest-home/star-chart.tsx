@@ -5,27 +5,34 @@ import { Link, useNavigate } from "react-router"
 import { actions } from "@/data/store"
 import { useVariant } from "@/lib/use-variant"
 import { cn } from "@/lib/utils"
-import { Separator } from "@/components/site/panel"
+import { Page, Separator } from "@/components/site/panel"
 import { Button } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group"
 
-import { GuestGuide } from "./guide"
+import { GuestGuide, GuideSections } from "./guide"
+import { UfpSeal } from "./ufp-seal"
 
 // The landing page (星图) as one sheet of the site's line drawings. From md, a full-width
 // stellar-cartography plate (sector grid with graduated edges, star field, the Romulan Neutral Zone as
 // a hatched band, Sol held in a targeting bracket on long crosshairs) over a thin title block that
-// holds the name and both ways in: passkey sign-in and an invite code field. Below md the plate is too
-// small to read, so narrow screens get the guide page instead.
+// holds the name and both ways in: passkey sign-in and an invite code field, then the guide's sections
+// as on the other candidates. Below md the plate is too small to read, so narrow screens get the guide
+// page instead.
 // Follows the site theme. LCARS lives inside the plate only (condensed Antonio labels, amber system
 // brackets, the red and cyan target); everything else uses the site's own faces. Says nothing about
 // the catalogue; /about carries the rest.
 // Candidate atlas (?chart=atlas) adds the furniture of a printed atlas plate: range rings round Sol, a
 // legend with a scale bar, a galactic band in the star field and a grey second tier of star names.
+// Candidate quadrant (?chart=quadrant) restyles the plate after the series' Alpha/Beta Quadrant charts, as
+// the region map of mewho.com/titan draws them: a lettered grid of square sectors with each power's space
+// filled cell by cell, names in condensed type and the Federation's emblem, and Sol locked the way the map
+// marks a selected object.
 
 export const CHARTS = [
   { key: "now", label: "现状" },
   { key: "atlas", label: "距离环 + 图例" },
   { key: "territory", label: "+ 疆域" },
+  { key: "quadrant", label: "象限图" },
 ] as const
 export const useChart = () => useVariant("chart", CHARTS.map((c) => c.key))
 
@@ -102,6 +109,10 @@ const SYSTEMS = [
 const NAME =
   "font-display text-sm/none font-semibold tracking-wide whitespace-nowrap text-[#cf6a00] uppercase [text-shadow:0_0_2px_var(--background),0_0_4px_var(--background),0_0_6px_var(--background)] dark:text-[#ffb547]"
 
+// The quadrant candidate names systems in plain light type, as the series' charts do.
+const SYSTEM_NAME =
+  "font-display text-[15px]/none font-medium tracking-wide whitespace-nowrap text-foreground [text-shadow:0_0_2px_var(--background),0_0_4px_var(--background),0_0_6px_var(--background)]"
+
 // The target's palette, after the films' charts; deeper on paper so the cyan holds up against white.
 const RED = "fill-[#d8322b] dark:fill-[#ef4b3f]"
 const CYAN = "fill-[#1f9fa9] dark:fill-[#9ff1e4]"
@@ -173,7 +184,7 @@ const RING_TEXT = "text-[#1f9fa9] dark:text-[#9ff1e4]"
 /**
  * The atlas candidate's furniture. Scale: one major column is 10 ly, so a ring of n ly is n * 5% of the
  * plate wide and the rings cross the horizontal crosshair on grid lines. Ring labels sit west of Sol,
- * clear of the sector codes. Only the width carries the scale: the plate's height follows the screen.
+ * clear of the sector codes.
  */
 function Atlas() {
   return (
@@ -320,6 +331,120 @@ function Territory() {
   )
 }
 
+// Quadrant candidate's sectors, after the Alpha/Beta region map of mewho.com/titan (the Star Trek: Star
+// Charts layout): galactic core up, the meridian through Sol the Alpha/Beta border, Alpha west. Columns
+// are the unlettered margin that carries the row codes, then AA to AQ, so Sol, where AH, AI, 04 and 05
+// meet, is on the plate's centre line. Each cell is a power and a brightness from 1 to 3: Federation (F),
+// Romulan (R), Klingon (K), Cardassian (C).
+const SECTORS = [
+  ". . . . . . . . . F1 F1 F1 F1 R1 R1 R2 . .",
+  ". . . . . . . . F2 F3 F1 F1 R1 R3 R1 R1 . .",
+  ". . . . . . . F3 F3 F3 F3 F1 R1 R3 R3 R3 R2 .",
+  ". . F1 F1 F3 F3 F3 F2 F2 F1 F1 F1 R1 R2 R3 R2 R3 .",
+  ". C2 C2 F1 F3 F3 F2 F1 F1 F1 F1 . R2 R1 R2 R2 R2 R2",
+  "C1 C1 C1 . F1 F1 F1 F1 F1 F1 F1 . . . . . R1 .",
+  "C1 C2 C2 C2 C1 F1 F1 F1 F1 F2 F1 F1 F1 F1 . . . F1",
+  "C2 C3 C2 C2 F1 F1 F1 F1 F1 F1 F1 F2 F1 F1 . . . .",
+  ". . . . . F1 F1 F1 F1 F1 F1 F1 . K1 K2 K2 K2 K2",
+  ". . . . . . F1 F1 F1 F1 F1 K2 K1 K3 K3 K3 K2 K2",
+].map((row) => row.split(" "))
+const TINT: Record<string, string> = {
+  F: "bg-[#7f8fbf]/45 dark:bg-[#8794bd]/60",
+  R: "bg-[#5c9f63]/40 dark:bg-[#3e9d78]/50",
+  K: "bg-[#d8322b]/30 dark:bg-[#c0281f]/50",
+  C: "bg-[#c08f2a]/40 dark:bg-[#a88128]/50",
+}
+const LEVEL = [0, 0.35, 0.65, 1]
+// A point on that grid, counting columns from AA's left edge and rows from 01's top.
+const cell = (c: number, r: number) => ({ left: `${((c + 1) * 100) / 18}%`, top: `${r * 10}%` })
+// The named systems and stations (the mark centred on the point): Vulcan by 40 Eridani just across the
+// meridian, Nimbus III in the gap where the three powers meet, Bajor off the Cardassian border with Deep
+// Space 9 beside it; the starbases where the region map has them.
+const at = (name: string, c: number, r: number, station = false) => ({ name, x: `calc(${cell(c, r).left} - 12px)`, y: cell(c, r).top, station })
+const QUADRANT_SYSTEMS = [
+  at("Romulus", 12.8, 4.5),
+  at("Nimbus III", 10.3, 5),
+  at("Qo'noS", 13.8, 8.8),
+  at("Vulcan", 8.3, 5.2),
+  at("Bajor", 3.3, 7),
+  at("Deep Space 9", 3.82, 6.44, true),
+  at("Starbase 375", 5.79, 6.14, true),
+  at("Starbase 11", 6.34, 9.36, true),
+  at("Deep Space K-7", 9.5, 9.1, true),
+  at("Starbase 10", 8.75, 1.85, true),
+  at("Starbase 24", 13.16, 7.68, true),
+]
+const SOL_SECTORS = { cols: [7, 8], rows: [3, 4] }
+
+const CODE = "absolute font-display text-[11px] leading-none tracking-wider text-muted-foreground"
+// The lock on Sol, as the region map marks a selected object: a hairline across the whole plate through it
+// with a tracing curve swept past, and the object's dot and name in orange. Sol is on the meridian, so the
+// meridian stands in for the lock's vertical. Its sector codes are lit to match.
+const LOCK = "stroke-[#d97a45] dark:stroke-[#f6b993]"
+const LOCKED = "bg-[#e0531f] dark:bg-[#ff7d4f]"
+const SOL_CODE = cn(LOCKED, "rounded-full px-1.5 py-0.5 text-black")
+const POWER = "absolute font-display text-[clamp(13px,1.8cqw,22px)] leading-none font-medium tracking-wide whitespace-nowrap text-foreground/85 uppercase"
+const PILL = "absolute top-7 flex h-6 items-center rounded-full bg-[#4d5a85] px-3 font-display text-sm tracking-wider text-white uppercase dark:bg-[#36406a]"
+const ELBOW = "absolute top-10 h-[calc(var(--meridian)-2.5rem)] border-t-[3px] border-[#4d5a85]"
+
+/**
+ * The quadrant chart: filled sectors on a hairline grid, lettered columns and numbered rows, the powers
+ * named in their own space with the Federation's emblem under its name, and an LCARS header naming the
+ * quadrant on each side, both elbows running into the meridian (--meridian, set by the plate), and the
+ * lock on Sol.
+ */
+function Quadrant() {
+  return (
+    <>
+      <div className="absolute inset-0 grid grid-cols-18 grid-rows-10">
+        {SECTORS.flatMap((row, r) => row.map((s, c) => <span key={`${r}-${c}`} className={TINT[s[0]]} style={{ opacity: LEVEL[Number(s[1])] }} />))}
+      </div>
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,var(--color-border)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-border)_1px,transparent_1px)] bg-size-[calc(100%/18)_10%]" />
+      {/* The meridian carries on from the header elbows in their colour. */}
+      <div className="absolute top-(--meridian) bottom-0 left-1/2 w-[3px] -translate-x-1/2 bg-[#4d5a85]" />
+      {/* In plate columns and rows, Sol at 9, 4. */}
+      <svg viewBox="0 0 18 10" fill="none" className="absolute inset-0 size-full">
+        <path d="M0 4H18" vectorEffect="non-scaling-stroke" className={LOCK} />
+        <path d="M9.7 0C9.6 1.5 8.85 2.8 8.9 3.8C8.94 4.6 12.5 7.2 15.4 10" vectorEffect="non-scaling-stroke" className={cn(LOCK, "opacity-70")} />
+      </svg>
+
+      {Array.from({ length: 17 }, (_, c) => (
+        <span key={c} className={cn(CODE, "top-1.5 -translate-x-1/2", SOL_SECTORS.cols.includes(c) && SOL_CODE)} style={{ left: cell(c + 0.5, 0).left }}>
+          A{String.fromCharCode(65 + c)}
+        </span>
+      ))}
+      {Array.from({ length: 10 }, (_, r) => (
+        <span key={r} className={cn(CODE, "left-1.5 -translate-y-1/2", SOL_SECTORS.rows.includes(r) && SOL_CODE)} style={{ top: cell(0, r + 0.5).top }}>
+          {String(r + 1).padStart(2, "0")}
+        </span>
+      ))}
+
+      {/* As on the region map: Alpha's pill from AA, Beta's running off the plate. */}
+      <div className={cn(PILL, "left-[6.5%] w-[30.3%]")}>Alpha Quadrant</div>
+      <div className={cn(ELBOW, "right-[calc(50%-1.5px)] left-[36.8%] rounded-tr-xl border-r-[3px]")} />
+      <div className={cn(PILL, "-right-6 left-[83.3%]")}>Beta Quadrant</div>
+      <div className={cn(ELBOW, "right-[16.7%] left-[calc(50%-1.5px)] rounded-tl-xl border-l-[3px]")} />
+
+      <span className={cn(POWER, "-translate-y-1/2")} style={cell(2.4, 3.55)}>
+        United Federation of Planets
+      </span>
+      <UfpSeal className="absolute w-[7.8%] -translate-1/2 text-[#253381] opacity-90 dark:text-white" style={cell(4.26, 4.75)} />
+      <span className={cn(POWER, "-translate-1/2")} style={cell(13.7, 2.8)}>
+        Romulan Star Empire
+      </span>
+      <span className={cn(POWER, "-translate-y-1/2")} style={cell(0.25, 6.5)}>
+        Cardassian Union
+      </span>
+      <span className={cn(POWER, "-translate-1/2")} style={cell(12.7, 9.6)}>
+        Klingon Empire
+      </span>
+
+      <span className={cn(LOCKED, "absolute top-[40%] left-1/2 size-2 -translate-1/2 rounded-full")} />
+      <span className={cn(SYSTEM_NAME, "absolute top-[calc(40%+6px)] left-[calc(50%+8px)] text-[#e0531f] dark:text-[#ff7d4f]")}>Sol</span>
+    </>
+  )
+}
+
 // Minor grid: dotted hairlines, --sub per major cell each way, cut from a dotted fill by a mask of
 // 1px stripes.
 const minorLines = (axis: "x" | "y"): React.CSSProperties => ({
@@ -343,29 +468,65 @@ const ruler = (edge: "top" | "bottom" | "left" | "right"): React.CSSProperties =
 
 /**
  * The chart: four major columns by two rows, so Sol sits on the centre intersection and the title
- * block's dividers below continue the plate's vertical lines (the centre one as the crosshair). From
- * lg its height follows the screen (--row, set by the section) so the title block stays on the first
- * screen.
+ * block's dividers below continue the plate's vertical lines (the centre one as the crosshair). Always
+ * 2:1 (the quadrant 9:5, for its 18 by 10 sectors), so the cells stay square; on short screens the title
+ * block drops below the first screen.
  */
 function Plate() {
   const chart = useChart()
-  const atlas = chart !== "now"
   const territory = chart === "territory"
+  const atlas = chart === "atlas" || territory
+  const quadrant = chart === "quadrant"
   return (
     <div
       aria-hidden
-      className="@container relative isolate aspect-[2/1] overflow-hidden select-none [--gx:4] [--gy:2] [--sub:4] [--tg:3rem] lg:aspect-auto lg:h-[calc(2*var(--row))] lg:[--tg:4.5rem]"
+      className={cn(
+        "@container relative isolate overflow-hidden select-none [--gx:4] [--gy:2] [--sub:4] [--tg:3rem] lg:[--tg:4.5rem]",
+        // The series' charts are black; on paper the quadrant stays a printed sheet. Its header elbows
+        // meet the meridian at the foot of row 01, or lower where the rows are shorter than the header.
+        quadrant ? "aspect-[9/5] [--meridian:max(10%,4rem)] dark:bg-black" : "aspect-[2/1]",
+      )}
     >
       <div className="absolute inset-0 [--star:0.7] dark:[--star:0.85]">
-        {(atlas ? ATLAS_STARS : STARS).map((s, i) => (
+        {/* The quadrant takes the atlas's denser field; its brightest stars glow rather than ring. */}
+        {(atlas || quadrant ? ATLAS_STARS : STARS).map((s, i) => (
           <span
             key={i}
-            className={cn("absolute -translate-1/2 rounded-full bg-foreground", s.size > 4 && "shadow-[0_0_0_2px_var(--background),0_0_0_3px_var(--foreground)]")}
+            className={cn(
+              "absolute -translate-1/2 rounded-full bg-foreground",
+              s.size > 4 && (quadrant ? "shadow-[0_0_6px_1px_var(--foreground)]" : "shadow-[0_0_0_2px_var(--background),0_0_0_3px_var(--foreground)]"),
+            )}
             style={{ left: `${s.x}%`, top: `${s.y}%`, width: s.size, height: s.size, opacity: `calc(var(--star) * ${s.opacity})` }}
           />
         ))}
       </div>
 
+      {quadrant ? <Quadrant /> : <Sheet atlas={atlas} territory={territory} />}
+
+      {(quadrant ? QUADRANT_SYSTEMS : SYSTEMS).map((s) => (
+        <div key={s.name} className="absolute flex -translate-y-1/2 items-center gap-1" style={{ left: s.x, top: s.y }}>
+          {/* The series' charts mark systems with a plain dot and stations with a triangle, at the bracket's
+              width so the names stay put. */}
+          {quadrant ? (
+            <span className="flex size-6 shrink-0 items-center justify-center">
+              <span className={"station" in s && s.station ? "size-2 bg-foreground [clip-path:polygon(50%_0,100%_100%,0_100%)]" : "size-1.5 rounded-full bg-foreground"} />
+            </span>
+          ) : (
+            <Bracket />
+          )}
+          <span className={quadrant ? SYSTEM_NAME : NAME}>{s.name}</span>
+        </div>
+      ))}
+
+      {!quadrant && <Target />}
+    </div>
+  )
+}
+
+/** The line-drawing plates' grid, graduated edges, sector codes, Neutral Zone and nebula, with the atlas layers. */
+function Sheet({ atlas, territory }: { atlas: boolean; territory: boolean }) {
+  return (
+    <>
       <div className="absolute inset-0 opacity-80" style={minorLines("x")} />
       <div className="absolute inset-0 opacity-80" style={minorLines("y")} />
       {/* The centre lines are the target's crosshairs. */}
@@ -416,16 +577,7 @@ function Plate() {
       {atlas && <Atlas />}
       {territory && <Territory />}
       {atlas && <Legend borders={territory} />}
-
-      {SYSTEMS.map(({ name, x, y }) => (
-        <div key={name} className="absolute flex -translate-y-1/2 items-center gap-1" style={{ left: x, top: y }}>
-          <Bracket />
-          <span className={NAME}>{name}</span>
-        </div>
-      ))}
-
-      <Target />
-    </div>
+    </>
   )
 }
 
@@ -514,10 +666,9 @@ export function GuestStarChart() {
       </div>
       <div className="mx-auto max-md:hidden md:max-w-(--content-width)">
         <Separator />
-        {/* --row leaves room for the header, the stripe, both strips and the bottom fade. */}
-        <section aria-labelledby="chart-title" className="screen-line-top screen-line-bottom border-x [--row:clamp(9rem,calc((100svh-21rem)/2),18rem)]">
+        <section aria-labelledby="chart-title" className="screen-line-top screen-line-bottom border-x">
           <div className="screen-line-bottom flex h-9 items-center justify-between gap-4 px-4 font-mono text-[11px] tracking-wider text-muted-foreground uppercase">
-            <span>Sector 001 · Stellar cartography</span>
+            <span>Stellar cartography</span>
             <span>Fig. 01</span>
           </div>
 
@@ -548,6 +699,9 @@ export function GuestStarChart() {
           </div>
         </section>
       </div>
+      <Page className="pt-0 max-md:hidden">
+        <GuideSections />
+      </Page>
     </>
   )
 }
