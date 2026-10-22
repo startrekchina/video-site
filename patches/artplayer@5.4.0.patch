@@ -1,0 +1,18 @@
+diff --git a/dist/artplayer.mjs b/dist/artplayer.mjs
+index 24305d13a99657c908df49b5d1ade096083e2502..09ceb3f91a53d5530c17dd459492a6dd93687fc3 100644
+--- a/dist/artplayer.mjs
++++ b/dist/artplayer.mjs
+@@ -3324,7 +3324,12 @@ function switchMix(art) {
+         art.playbackRate = playbackRate2;
+         art.aspectRatio = aspectRatio2;
+         if (playing) {
+-          await art.play();
++          try {
++            await art.play();
++          } catch (error2) {
++            reject(error2);
++            return;
++          }
+         }
+         art.notice.show = "";
+         resolve();

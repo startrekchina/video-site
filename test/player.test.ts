@@ -284,6 +284,27 @@ it("reconnects on a newly chosen quality when the current one has failed", async
   await emit("video:canplay"); expect(state.art.currentTime).toBe(1234);
 });
 
+it.each(["AbortError", "NotAllowedError"])("keeps reporting after a quality resume rejects with %s", async name => {
+  remember(null); await mount({ source: tiers }); state.message.mockClear();
+  state.art.switchQuality.mockRejectedValueOnce(new DOMException("Fictional interrupted resume", name));
+  expect(await control().onSelect({ html: "720p" })).toBe("720p");
+  if (name === "NotAllowedError") expect(state.message).toHaveBeenLastCalledWith({ text: "浏览器阻止自动播放，请点击播放。", reconnect: false });
+  else expect(state.message).not.toHaveBeenCalled();
+  respond({ data: { positionSeconds: 1260, completed: false, updatedAt: 1, revision: 1 } });
+  await emit("video:play"); state.art.currentTime = 1260; await emit("video:timeupdate"); await emit("video:pause"); await settle();
+  expect(reports()).toEqual([{ url: "/me/progress/episode-unit", keepalive: false, positionSeconds: 1260, expectedRevision: 0 }]);
+});
+
+it("keeps a quality failure's recovery notice when its resume also rejects", async () => {
+  remember(null); await mount({ source: tiers }); state.message.mockClear();
+  state.art.switchQuality.mockImplementationOnce(async () => {
+    fetch.mockResolvedValueOnce(new Response(null, { status: 404 })); await emit("video:error");
+    throw new DOMException("Fictional blocked resume after failure", "NotAllowedError");
+  });
+  expect(await control().onSelect({ html: "720p" })).toBe("720p");
+  expect(state.message).toHaveBeenCalledExactlyOnceWith({ text: expect.stringContaining("片源暂时无法播放"), reconnect: true });
+});
+
 it("keeps watch page subtitle choices in step with a removed track without restarting the player", async () => {
   const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "测试片", titleEn: "Test",
     overviewZh: null, overviewEn: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true,

@@ -137,7 +137,11 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
       quality = next; rememberQuality(label);
       if (failed) { retry.current(); return; }
       switching = true;
-      try { await art.switchQuality(absolute(next.url)); } catch { /* Reported by video:error. */ } finally { switching = false; }
+      try { await art.switchQuality(absolute(next.url)); }
+      catch (error) {
+        // Media failures use video:error; a blocked resume has no media error event.
+        if (!disposed && error instanceof DOMException && error.name === "NotAllowedError") say("浏览器阻止自动播放，请点击播放。");
+      } finally { switching = false; }
     };
     const danmakuPath = `/units/${unitId}/danmaku`;
     void Promise.all([import("artplayer"), import("artplayer-plugin-danmuku")]).then(([{ default: Artplayer }, { default: danmakuPlugin }]) => {
