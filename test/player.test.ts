@@ -363,3 +363,29 @@ it("offers the next unit when playback ends and autoplays only after a fresh ste
   state.navigation = "PUSH"; state.pageState.length = 0; expect(view(second, first.id).autoplay).toBe(true);
   state.location = { state: null }; state.pageState.length = 0; expect(view(second, first.id).autoplay).toBe(false);
 });
+
+it("lets a playlist queue decide what follows and end on the way back to the playlist", () => {
+  const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "虚构第 1 集", titleEn: null, overviewZh: null, overviewEn: null,
+    runtimeMin: null, durationSeconds: 4, still: null, playable: true, positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 };
+  const work: Work = { slug: "series", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
+    poster: "", code: "", seasonCount: 1, episodeCount: 1, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [unit] }], units: [unit] };
+  const movie = { id: "movie-unit", completed: false, poster: "", label: "电影", title: "测试信号" };
+  const view = (queue: { id: string; title: string; next: typeof movie | null }) => {
+    const loaderData = { work, unit, source, previous: undefined, next: undefined, reportInterval: 15 as const, queue };
+    const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
+    state.pageIndex = 0;
+    const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
+    state.pageIndex = null;
+    return elements(tree, Player)[0].props as Parameters<typeof Player>[0];
+  };
+  // The queue's next unit is offered even where the series has no natural next, and the step keeps the queue.
+  let player = view({ id: "list", title: "虚构片单", next: movie });
+  player.onEnded!();
+  const prompt = view({ id: "list", title: "虚构片单", next: movie }).children as ReactElement<{ unit: unknown; label: string; search: string }>;
+  expect(prompt.props).toMatchObject({ unit: movie, label: "片单 · 电影", search: "?playlist=list" });
+  // At the queue's end the page offers the way back instead of a natural next unit or a loop.
+  state.pageState.length = 0; player = view({ id: "list", title: "虚构片单", next: null });
+  player.onEnded!();
+  const end = view({ id: "list", title: "虚构片单", next: null }).children as ReactElement<{ playlist: { id: string } }>;
+  expect(end.props.playlist).toMatchObject({ id: "list" });
+});
