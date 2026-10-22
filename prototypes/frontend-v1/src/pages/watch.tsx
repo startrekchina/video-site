@@ -10,7 +10,7 @@ import { Poster, ProgressBar } from "@/components/site/media"
 import { Page, Panel, PanelFooterLink, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { DetailTop } from "./title"
-import { Player, qualitySources, type SubtitleLang } from "@/components/site/player"
+import { Player, qualitySources, SUBS, type SubtitleLang } from "@/components/site/player"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/toast"
 import { ShimmeringText } from "@/components/ui/shimmering-text"
@@ -201,7 +201,8 @@ function WatchUnit({ unitId }: { unitId: string }) {
   const playlistId = useSearchParams()[0].get("playlist")
   const playlist = useStore((s) => s.playlists.find((p) => p.id === playlistId))
   const [ended, setEnded] = useState(false)
-  const [sub, setSub] = useState<SubtitleLang>(() => (localStorage.getItem("proto-sub") as SubtitleLang) || "zh")
+  // A saved value that names no current track (an older key, say) falls back to the first track.
+  const [sub, setSub] = useState<SubtitleLang>(() => SUBS.find((s) => s.lang === localStorage.getItem("proto-sub"))?.lang ?? SUBS[0].lang)
   const [startFraction] = useState(() => (pr && !pr.watched ? pr.positionSec / pr.durationSec : 0))
   const [quality, setQuality] = useState(() => localStorage.getItem("proto-quality"))
   const emitterSlot = useRef<HTMLDivElement>(null)

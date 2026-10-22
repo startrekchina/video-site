@@ -12,7 +12,7 @@ import { Stat } from "@/pages/status/shared"
 // Owner-only, read-only view of what the last import left incomplete. Gaps are named by episode code only;
 // storage object keys never reach this page. Fixes go through the offline import tool.
 
-type Report = { work: Work; units: string[]; noVideo: string[]; noZh: string[]; noEn: string[]; multi: number }
+type Report = { work: Work; units: string[]; noVideo: string[]; noZh: string[]; noBilingual: string[]; multi: number }
 
 // Fictional gaps, seeded so every visit shows the same report.
 let seed = 7
@@ -29,7 +29,7 @@ const REPORT: Report[] = WORKS.map((work) => {
     units,
     noVideo,
     noZh: playable.filter(() => work.code === "TAS" || rand() < 0.03),
-    noEn: playable.filter(() => rand() < 0.01),
+    noBilingual: playable.filter(() => rand() < 0.01),
     multi: playable.filter(() => rand() < (NEW_SERIES.has(work.code) ? 0.9 : 0.3)).length,
   }
 })
@@ -61,7 +61,7 @@ export function LibraryReportPage() {
   const [filter, setFilter] = useState<"gaps" | "all">("gaps")
   if (!isBackupOwner(me)) return <Navigate to="/admin" replace />
 
-  const rows = filter === "all" ? REPORT : REPORT.filter((r) => r.noVideo.length + r.noZh.length + r.noEn.length > 0)
+  const rows = filter === "all" ? REPORT : REPORT.filter((r) => r.noVideo.length + r.noZh.length + r.noBilingual.length > 0)
 
   return (
     <Page narrow>
@@ -79,7 +79,7 @@ export function LibraryReportPage() {
         <Stat label="可播放单元" value={sum((r) => r.units.length - r.noVideo.length)} />
         <Stat label="缺视频" value={sum((r) => r.noVideo.length)} />
         <Stat label="缺中文字幕" value={sum((r) => r.noZh.length)} />
-        <Stat label="缺英文字幕" value={sum((r) => r.noEn.length)} />
+        <Stat label="缺双语字幕" value={sum((r) => r.noBilingual.length)} />
       </dl>
       <p className="screen-line-top px-4 py-3 font-mono text-xs text-muted-foreground">
         最近导入 {LAST_IMPORT.at}（北京时间）· {LAST_IMPORT.rejected} 个文件未通过格式检查，详见导入工具日志
@@ -95,7 +95,7 @@ export function LibraryReportPage() {
           </ToggleGroup>
         </PanelHeader>
         <ul className="divide-y divide-line">
-          {rows.map(({ work, units, noVideo, noZh, noEn, multi }) => {
+          {rows.map(({ work, units, noVideo, noZh, noBilingual, multi }) => {
             const playable = units.length - noVideo.length
             return (
               <li key={work.slug} className="flex flex-col gap-1.5 p-4">
@@ -109,13 +109,13 @@ export function LibraryReportPage() {
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 pl-11 font-mono text-xs text-muted-foreground">
                   <Count label="视频" have={playable} of={units.length} />
                   <Count label="中字" have={playable - noZh.length} of={playable} />
-                  <Count label="英字" have={playable - noEn.length} of={playable} />
+                  <Count label="双语" have={playable - noBilingual.length} of={playable} />
                   <span>多档清晰度 {multi}/{playable}</span>
                 </div>
                 <div className="pl-11">
                   <GapLine label="缺视频" units={noVideo} total={units.length} />
                   <GapLine label="缺中文字幕" units={noZh} total={playable} />
-                  <GapLine label="缺英文字幕" units={noEn} total={playable} />
+                  <GapLine label="缺双语字幕" units={noBilingual} total={playable} />
                 </div>
               </li>
             )
