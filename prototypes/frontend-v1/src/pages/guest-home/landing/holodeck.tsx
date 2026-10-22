@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group"
 
 import { GuideSections } from "../guide"
+import { ChannelKeys } from "./channels"
 import { useDeparture } from "./entry"
 
 // Candidate 全息甲板: the holodeck's bare grid room as a full-bleed stage. Amber lines run along the
@@ -226,7 +227,7 @@ export function HolodeckLanding() {
       <section
         ref={stage}
         aria-labelledby="holodeck-title"
-        className="relative isolate -mx-2 -mt-(--header-height) min-h-[min(100svh,54rem)] overflow-hidden bg-(--stage) text-foreground [--halo:rgb(255_240_216)] [--stage:var(--background)] [--vy:36%] xl:[--vy:47%] dark:[--halo:black] dark:[--stage:black]"
+        className="screen-line-bottom relative isolate -mx-2 -mt-(--header-height) min-h-[min(100svh,54rem)] overflow-hidden bg-(--stage) text-foreground [--halo:rgb(255_240_216)] [--stage:var(--background)] [--vy:36%] xl:[--vy:47%] dark:[--halo:black] dark:[--stage:black]"
       >
         {/* --vy is the vanishing point, as ROOMS places it, for what the page lays over the room. */}
         <Grid run={run} ink={dark ? INK.dark : INK.light} />
@@ -256,6 +257,10 @@ export function HolodeckLanding() {
           </div>
         </div>
       </section>
+      {/* Outside the stage, whose isolation would hold the keys under the page's bottom fade. */}
+      <div className="relative mx-auto md:max-w-(--content-width)">
+        <ChannelKeys className={cn("absolute right-4 bottom-3 transition-opacity duration-700", run && "opacity-0")} />
+      </div>
       <Page className="pt-0">
         <GuideSections />
       </Page>

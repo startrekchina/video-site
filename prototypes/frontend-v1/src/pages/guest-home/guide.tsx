@@ -1,17 +1,10 @@
-import { useState } from "react"
-import { ArrowRightIcon, ChevronDownIcon, ListVideoIcon, MonitorSmartphoneIcon, ShieldCheckIcon, SubtitlesIcon, TicketIcon } from "lucide-react"
-import { Link, useNavigate } from "react-router"
+import { ChevronDownIcon, ListVideoIcon, MonitorSmartphoneIcon, ShieldCheckIcon, SubtitlesIcon } from "lucide-react"
 
-import { cn } from "@/lib/utils"
-import { Page, Panel, PanelFooterLink, PanelHeader, PanelTitle, Separator } from "@/components/site/panel"
-import { SiteMark } from "@/components/site/site-mark"
-import { Button } from "@/components/ui/button"
+import { Panel, PanelFooterLink, PanelHeader, PanelTitle, Separator } from "@/components/site/panel"
 import { IconTile } from "@/components/ui/icon-tile"
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 
-// The landing page's narrow-screen layout: a long panel page aimed at someone holding an invite
-// code. The primary affordance is the code field; below it, how joining works, what members get,
-// rules and FAQ. Features are described, the catalogue is not.
+// The landing page's shared sections, aimed at someone holding an invite code: how joining works, what
+// members get, rules and FAQ. Features are described, the catalogue is not.
 
 const STEPS = [
   { title: "拿到邀请码", body: "向已加入的朋友索要。每位成员的邀请额度有限，邀请码只能用一次，过期作废。" },
@@ -45,106 +38,6 @@ export function bars(seed: string) {
   return Array.from({ length: 42 }, (_, i) => ((src.charCodeAt(i % src.length) * (i + 7)) % 3) + 1)
 }
 
-function BoardingPass({ code }: { code: string }) {
-  return (
-    <div className="w-full max-w-xs rounded-xl border bg-card shadow-sm ring-1 ring-border/50 ring-offset-2 ring-offset-background dark:ring-line">
-      <div className="flex items-center justify-between px-4 py-3">
-        <SiteMark />
-        <span className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">Boarding pass</span>
-      </div>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-dashed px-4 py-4 font-mono text-sm">
-        <div className="col-span-2 flex flex-col gap-0.5">
-          <dt className="font-sans text-xs text-muted-foreground">邀请码</dt>
-          <dd className={cn("truncate text-base tracking-wider", !code && "text-muted-foreground/50")}>{code || "———— ———— ——"}</dd>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <dt className="font-sans text-xs text-muted-foreground">身份</dt>
-          <dd>成员</dd>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <dt className="font-sans text-xs text-muted-foreground">邮箱</dt>
-          <dd>需验证</dd>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <dt className="font-sans text-xs text-muted-foreground">二步验证</dt>
-          <dd>可开启</dd>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <dt className="font-sans text-xs text-muted-foreground">邀请人</dt>
-          <dd className="text-muted-foreground">核验后显示</dd>
-        </div>
-      </dl>
-      <div className="relative border-t border-dashed">
-        <span className="absolute top-0 -left-px size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-r bg-background" />
-        <span className="absolute top-0 -right-px size-3 translate-x-1/2 -translate-y-1/2 rounded-full border-l bg-background" />
-      </div>
-      <div aria-hidden className={cn("flex h-12 items-stretch gap-0.5 px-4 py-3 transition-opacity", !code && "opacity-30")}>
-        {bars(code).map((w, i) => (
-          <span key={i} className="bg-foreground" style={{ flexGrow: w }} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-export function GuestGuide() {
-  const navigate = useNavigate()
-  const [code, setCode] = useState("")
-  const normalized = code.trim().toUpperCase()
-
-  return (
-    <Page className="pt-0">
-      <section aria-labelledby="guide-title" className="screen-line-bottom grid md:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="flex flex-col justify-center px-4 py-12 sm:py-20">
-          <h1 id="guide-title" className="text-4xl font-medium tracking-tight text-balance sm:text-5xl">
-            欢迎登舰。
-          </h1>
-          <p className="mt-4 max-w-lg text-base/relaxed text-balance text-muted-foreground">
-            手里有邀请码的话，两分钟就能完成注册。
-          </p>
-          <form
-            className="mt-8 flex max-w-md gap-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              navigate(normalized ? `/register?code=${encodeURIComponent(normalized)}` : "/register")
-            }}
-          >
-            <InputGroup className="h-10 flex-1">
-              <InputGroupAddon>
-                <TicketIcon />
-              </InputGroupAddon>
-              <InputGroupInput
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="输入邀请码"
-                aria-label="邀请码"
-                autoComplete="off"
-                spellCheck={false}
-                className="font-mono uppercase placeholder:font-sans placeholder:normal-case"
-              />
-            </InputGroup>
-            <Button type="submit" size="lg">
-              继续
-              <ArrowRightIcon data-icon="inline-end" />
-            </Button>
-          </form>
-          <p className="mt-3 text-sm text-muted-foreground">
-            已经是成员？
-            <Link to="/login" className="link-underline text-foreground">
-              登录
-            </Link>
-          </p>
-        </div>
-        <div className="dot-grid flex items-center justify-center border-line p-8 max-md:hidden md:border-l">
-          <BoardingPass code={normalized} />
-        </div>
-      </section>
-
-      <GuideSections />
-    </Page>
-  )
-}
-
 /** How joining works, what members get, rules and FAQ; shared by the landing page candidates. */
 export function GuideSections() {
   return (
@@ -155,7 +48,8 @@ export function GuideSections() {
         <PanelHeader>
           <PanelTitle>加入只需三步</PanelTitle>
         </PanelHeader>
-        <ol className="grid gap-px bg-line sm:grid-cols-3">
+        {/* pb-px: the cells would cover the panel's bottom rule, so the grid's own line colour draws it. */}
+        <ol className="grid gap-px bg-line pb-px sm:grid-cols-3">
           {STEPS.map((s, i) => (
             <li key={s.title} className="flex flex-col gap-2 bg-background p-4">
               <span className="font-mono text-sm text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
@@ -172,7 +66,7 @@ export function GuideSections() {
         <PanelHeader>
           <PanelTitle>成员可以</PanelTitle>
         </PanelHeader>
-        <ul className="grid gap-px bg-line sm:grid-cols-2">
+        <ul className="grid gap-px bg-line pb-px sm:grid-cols-2">
           {FEATURES.map((f) => (
             <li key={f.title} className="flex items-start gap-4 bg-background p-4">
               <IconTile className="mt-0.5">{f.icon}</IconTile>

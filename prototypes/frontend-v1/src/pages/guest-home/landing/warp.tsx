@@ -10,6 +10,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { hash, mulberry32 } from "@/pages/watch-comments/data"
 
 import { GuideSections } from "../guide"
+import { ChannelKeys } from "./channels"
 import { useEntry } from "./entry"
 
 // Candidate 曲速: a cinematic first screen like the member home's theatre, a full-bleed stage with stars
@@ -94,7 +95,7 @@ export function WarpLanding() {
       <section
         ref={stage}
         aria-labelledby="warp-title"
-        className="relative isolate -mx-2 -mt-(--header-height) flex min-h-[min(100svh,54rem)] flex-col overflow-hidden bg-background text-foreground dark:bg-black"
+        className="screen-line-bottom relative isolate -mx-2 -mt-(--header-height) flex min-h-[min(100svh,54rem)] flex-col overflow-hidden bg-background text-foreground dark:bg-black"
       >
         <Starfield color={dark ? "#dce6ff" : "#18181b"} className="absolute inset-0 -z-1 size-full" />
         <div
@@ -144,6 +145,10 @@ export function WarpLanding() {
           <ArrowDownIcon className="size-3.5" />
         </a>
       </section>
+      {/* Outside the stage, whose isolation would hold the keys under the page's bottom fade. */}
+      <div className="relative mx-auto md:max-w-(--content-width)">
+        <ChannelKeys className="absolute right-4 bottom-3" />
+      </div>
       <Page id="join" className="scroll-mt-(--header-height) pt-0">
         <GuideSections />
       </Page>

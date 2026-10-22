@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button"
 import { bars, GuideSections } from "../guide"
 import { useEntry } from "./entry"
 
-// Candidate 登舰证: the invite code is the whole first screen. A boarding pass laid out like a real one
-// (main part, perforation, stub) is the form itself; members get one quiet line beneath it.
+// Candidate 登舰证, and every candidate's layout below md: the invite code is the whole first screen. A
+// boarding pass laid out like a real one (main part, perforation, stub) is the form itself; members get
+// one quiet line beneath it.
 
 const FIELDS = [
   ["目的地", "星际舰队档案馆"],
