@@ -134,7 +134,7 @@ export function LoginPage() {
           <Field>
             <div className="flex items-center justify-between">
               <FieldLabel htmlFor="password">密码</FieldLabel>
-              <Link to="/about#recovery" className="text-sm text-muted-foreground hover:text-foreground">
+              <Link to="/forgot-password" className="text-sm text-muted-foreground hover:text-foreground">
                 忘记密码？
               </Link>
             </div>

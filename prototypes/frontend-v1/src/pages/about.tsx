@@ -161,6 +161,9 @@ export function AboutPage() {
             <span className="font-medium">忘记密码，通过注册邮箱找回</span>
             <span className="text-pretty text-muted-foreground">
               向注册邮箱申请重设链接，1 小时内有效。重设后所有设备都会退出登录；通行密钥、验证器和未使用的备用码不受影响，开启了二步验证的，登录时仍需输入动态验证码或备用码。
+              <Link to="/forgot-password" className="link-underline ml-1 text-foreground">
+                邮箱找回密码
+              </Link>
             </span>
           </li>
           <li className="flex flex-col gap-1 p-4">

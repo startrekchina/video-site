@@ -11,7 +11,9 @@ import { AppLayout, AuthLayout, HomeGate, RequireGuest, RequireMember, RequireAd
 import { AboutPage } from "@/pages/about"
 import { AccountPage } from "@/pages/account"
 import { AdminPage } from "@/pages/admin"
+import { BackupsPage } from "@/pages/backups"
 import { BrowsePage } from "@/pages/browse"
+import { ForgotPasswordPage, ResetCompletePage, ResetPasswordPage, VerifyEmailPage, VerifyPendingPage } from "@/pages/email-auth"
 import { GuestStarChart } from "@/pages/guest-home/star-chart"
 import { HomePage } from "@/pages/home"
 import { InvitesPage } from "@/pages/invites"
@@ -34,6 +36,12 @@ const router = createBrowserRouter([
           { path: "/register", element: <RegisterPage /> },
         ],
       },
+      // Email links can be opened while signed in, so these skip RequireGuest.
+      { path: "/forgot-password", element: <ForgotPasswordPage /> },
+      { path: "/reset-password", element: <ResetPasswordPage /> },
+      { path: "/reset-password/complete", element: <ResetCompletePage /> },
+      { path: "/verify-email", element: <VerifyEmailPage /> },
+      { path: "/verify-pending", element: <VerifyPendingPage /> },
     ],
   },
   {
@@ -47,6 +55,7 @@ const router = createBrowserRouter([
         children: [
           { path: "/series", element: <BrowsePage kind="series" /> },
           { path: "/movies", element: <BrowsePage kind="movie" /> },
+          { path: "/search", element: <BrowsePage kind="search" /> },
           { path: "/title/:slug", element: <TitlePage /> },
           { path: "/watch/:unitId", element: <WatchPage /> },
           { path: "/library", element: <LibraryPage /> },
@@ -54,7 +63,13 @@ const router = createBrowserRouter([
           { path: "/playlists/:id", element: <PlaylistPage /> },
           { path: "/invites", element: <InvitesPage /> },
           { path: "/account", element: <AccountPage /> },
-          { element: <RequireAdmin />, children: [{ path: "/admin", element: <AdminPage /> }] },
+          {
+            element: <RequireAdmin />,
+            children: [
+              { path: "/admin", element: <AdminPage /> },
+              { path: "/admin/backups", element: <BackupsPage /> },
+            ],
+          },
         ],
       },
       { path: "*", element: <NotFoundPage /> },

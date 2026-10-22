@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { TicketCheckIcon } from "lucide-react"
-import { Link, useSearchParams } from "react-router"
+import { Link, useNavigate, useSearchParams } from "react-router"
 
 import { getState } from "@/data/store"
 import { AuthFrame } from "@/components/site/auth-frame"
@@ -25,6 +25,7 @@ function checkCode(code: string): CodeState | null {
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/
 
 export function RegisterPage() {
+  const navigate = useNavigate()
   const [params] = useSearchParams()
   const [code, setCode] = useState(params.get("code") ?? "")
   const [checked, setChecked] = useState<CodeState | null>(() => checkCode(params.get("code") ?? ""))
@@ -32,17 +33,6 @@ export function RegisterPage() {
   const [email, setEmail] = useState("")
   const [pw, setPw] = useState("")
   const [pw2, setPw2] = useState("")
-  const [done, setDone] = useState(false)
-
-  if (done) {
-    return (
-      <AuthFrame title="等待邮箱验证" description="账号注册已成功。请查收邮件并点击链接完成验证；若未收到，请检查垃圾邮件或稍后重试。">
-        <Button render={<Link to="/login" />} nativeButton={false}>
-          前往登录
-        </Button>
-      </AuthFrame>
-    )
-  }
 
   if (!checked?.ok) {
     return (
@@ -96,7 +86,7 @@ export function RegisterPage() {
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          if (valid) setDone(true)
+          if (valid) navigate("/verify-pending?delivery=accepted")
         }}
       >
         <FieldGroup>
