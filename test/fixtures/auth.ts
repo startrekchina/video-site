@@ -4,6 +4,8 @@ import { createAuth } from "@/lib/auth.server";
 import { authHttp } from "@/lib/auth-http.server";
 
 export const password = "Fictional 1701 password";
+// Drops the signed session cache (possibly chunked), as after it expires: the next request reads the session from D1.
+export const uncached = (cookie: string) => cookie.split("; ").filter(part => !part.startsWith("session-data")).join("; ");
 let ip = 0;
 export function cookies(response: Response, original = "") {
   const entries = new Map(original.split("; ").filter(Boolean).map(part => part.split("=") as [string, string]));

@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { data, useRevalidator } from "react-router";
 import { FingerprintIcon, KeyRoundIcon, LaptopIcon, MailIcon, ShieldCheckIcon, SmartphoneIcon, Trash2Icon, DownloadIcon } from "lucide-react";
 import type { Route } from "./+types/account";
-import { pageMember } from "@/lib/member.server";
+import { pageRead } from "@/lib/member.server";
 import { createAuth } from "@/lib/auth.server";
 import { settings } from "@/lib/settings.server";
 import { authClient, authError, call } from "@/lib/auth-client";
@@ -22,13 +22,14 @@ import { LineNav } from "@/components/ui/line-nav";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
-  const current = await pageMember(request, env, context.identity);
-  const sessions = await env.DB.prepare("SELECT id, createdAt, updatedAt, userAgent FROM session WHERE userId = ? AND expiresAt > ? ORDER BY createdAt DESC")
-    .bind(current.member.user_id, new Date().toISOString()).all<{ id: string; createdAt: string; updatedAt: string; userAgent: string | null }>();
-  const passkeys = await env.DB.prepare("SELECT id, name, createdAt FROM passkey WHERE userId = ? ORDER BY createdAt DESC")
-    .bind(current.member.user_id).all<{ id: string; name: string | null; createdAt: string }>();
-  const passwordUpdatedAt = await env.DB.prepare("SELECT updatedAt FROM account WHERE userId = ? AND providerId = 'credential'")
-    .bind(current.member.user_id).first<string>("updatedAt");
+  const current = await pageRead(request, env, context.identity, (db, userId) => db.batch([
+    db.prepare("SELECT id, createdAt, updatedAt, userAgent FROM session WHERE userId = ? AND expiresAt > ? ORDER BY createdAt DESC").bind(userId, new Date().toISOString()),
+    db.prepare("SELECT id, name, createdAt FROM passkey WHERE userId = ? ORDER BY createdAt DESC").bind(userId),
+    db.prepare("SELECT updatedAt FROM account WHERE userId = ? AND providerId = 'credential'").bind(userId),
+  ]));
+  const [sessions, passkeys, password] = current.value as [D1Result<{ id: string; createdAt: string; updatedAt: string; userAgent: string | null }>,
+    D1Result<{ id: string; name: string | null; createdAt: string }>, D1Result<{ updatedAt: string }>];
+  const passwordUpdatedAt = password.results[0]?.updatedAt ?? null;
   const backupCodesLeft = current.member.twoFactorEnabled ? (await createAuth(env).api.viewBackupCodes({ body: { userId: current.member.user_id } })).backupCodes.length : 0;
   return data({ username: current.member.displayUsername ?? current.member.username, role: current.member.role, joinedAt: current.member.created_at,
     email: current.member.email, totp: !!current.member.twoFactorEnabled, passwordUpdatedAt, backupCodesLeft, backupCodeTotal: settings.backupCodeCount,

@@ -5,7 +5,7 @@ import worker from "../workers/app";
 import { createRequestIdentity, currentMember, requireMember } from "@/lib/member.server";
 import { accountHttp } from "@/lib/account.server";
 import { adminHttp } from "@/lib/admin.server";
-import { login, member, request } from "./fixtures/auth";
+import { login, member, request, uncached } from "./fixtures/auth";
 import { seedCatalog } from "./fixtures/catalog";
 import { probeD1 } from "./fixtures/d1-probe";
 
@@ -42,14 +42,15 @@ it("shares a pending identity across parallel callers and clones without sharing
   const [a, b] = await Promise.all([requireMember(input, bindings, identity), requireMember(new Request(input), bindings, identity)]);
   expect(a.member.user_id).toBe(userId); expect(b.member.user_id).toBe(userId);
   a.headers.append("Set-Cookie", "unrelated=one"); expect(b.headers.has("Set-Cookie")).toBe(false);
-  expect(probe.calls).toHaveLength(3); expect(probe.calls.flatMap(call => call.statements).filter(kind => kind === "session")).toHaveLength(1);
+  // The signed cookie cache identifies the session; only the live-member query reaches D1.
+  expect(probe.calls.map(call => call.statements)).toEqual([["member"]]);
 });
 
 it("shares anonymous and failed resolutions and never turns a database failure into a guest page", async () => {
   const anonymous = createRequestIdentity(request("/"), runtime);
   const spy = vi.spyOn(anonymous.auth().api, "getSession");
   expect(await Promise.all([anonymous.current(), anonymous.current()])).toEqual([null, null]); expect(spy).toHaveBeenCalledOnce();
-  const probe = probeD1(env.DB, async call => { if (call.statements.includes("session")) throw new Error("Fictional database outage"); });
+  const probe = probeD1(env.DB, async call => { if (call.statements.includes("member")) throw new Error("Fictional database outage"); });
   const bindings = { ...runtime, DB: probe.db }, input = request("/", undefined, cookie), identity = createRequestIdentity(input, bindings);
   const failed = identity.current(); expect(identity.current()).toBe(failed);
   const outcomes = await Promise.allSettled([failed, currentMember(input, bindings, identity)]);
@@ -73,7 +74,24 @@ it("isolates members and independent requests, including the same Request object
 
 it("rejects a session revoked between native lookup and the unified member query", async () => {
   const probe = probeD1(env.DB, async call => { if (call.statements.includes("session")) await env.DB.prepare("DELETE FROM session WHERE userId = ?").bind(userId).run(); });
-  expect(await currentMember(request("/series", undefined, cookie), { ...runtime, DB: probe.db })).toBeNull();
+  expect(await currentMember(request("/series", undefined, uncached(cookie)), { ...runtime, DB: probe.db })).toBeNull();
+});
+
+it.each([
+  ["revoked", "DELETE FROM session WHERE userId = ?"],
+  ["expired", "UPDATE session SET expiresAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 second') WHERE userId = ?"],
+  ["banned", "UPDATE member_profiles SET status = 'banned' WHERE user_id = ?"],
+  ["unverified", "UPDATE \"user\" SET emailVerified = 0 WHERE id = ?"],
+])("refuses a %s session on pages and media while its signed cookie cache is still valid", async (_, sql) => {
+  await media(); await env.DB.prepare(sql).bind(userId).run();
+  const probe = probeD1(env.DB), bindings = { ...runtime, DB: probe.db };
+  expect(await currentMember(request("/series", undefined, cookie), bindings)).toBeNull();
+  expect(probe.calls.flatMap(call => call.statements)).toEqual(["member"]);
+  expect((await send(request("/watch/episode-unit", undefined, cookie))).status).toBe(302);
+  for (const path of ["/media/source", "/subtitles/zh"]) {
+    const response = await send(request(path, undefined, cookie, { Range: "bytes=2-5" }));
+    expect(response.status).toBe(401); expect(response.headers.has("Content-Range")).toBe(false); expect(response.headers.has("ETag")).toBe(false);
+  }
 });
 
 it.each(["video", "subtitle"])("rejects a session revoked between native lookup and the %s authorization query without metadata", async target => {
@@ -81,7 +99,7 @@ it.each(["video", "subtitle"])("rejects a session revoked between native lookup 
   const probe = probeD1(env.DB, async call => {
     if (!changed && call.statements.includes("session")) { changed = true; await env.DB.prepare("DELETE FROM session WHERE userId = ?").bind(userId).run(); }
   });
-  const input = request(target === "video" ? "/media/source" : "/subtitles/zh", undefined, cookie, { Range: "bytes=2-5" });
+  const input = request(target === "video" ? "/media/source" : "/subtitles/zh", undefined, uncached(cookie), { Range: "bytes=2-5" });
   const response = await send(input, { ...runtime, DB: probe.db });
   expect(changed).toBe(true); expect(response.status).toBe(401);
   expect(response.headers.has("Content-Length")).toBe(false); expect(response.headers.has("Content-Range")).toBe(false);
@@ -92,7 +110,8 @@ it("keeps rolling cookies on HTML, data and errors and keeps unrelated cookies s
   for (const [path, status] of [["/account", 200], ["/account.data", 200], ["/admin", 403], ["/missing", 404]] as const) {
     await env.DB.prepare("UPDATE session SET updatedAt = ?, expiresAt = ? WHERE userId = ?")
       .bind(new Date(Date.now() - 2 * 86400000).toISOString(), new Date(Date.now() + 28 * 86400000).toISOString(), userId).run();
-    const response = await send(request(path, undefined, cookie)); expect(response.status).toBe(status);
+    // Rolling renewal happens on the authoritative read once the cookie cache has expired.
+    const response = await send(request(path, undefined, uncached(cookie))); expect(response.status).toBe(status);
     const cookies = response.headers.getSetCookie(); expect(cookies.filter(value => value.startsWith("session="))).toHaveLength(1);
     expect(cookies.find(value => value.startsWith("session="))).not.toContain("Max-Age=0");
     expect(cookies.some(value => value.startsWith("csrf="))).toBe(false);
@@ -100,7 +119,7 @@ it("keeps rolling cookies on HTML, data and errors and keeps unrelated cookies s
     expect(await response.text()).not.toContain(token!);
   }
   await env.DB.prepare("UPDATE session SET expiresAt = ? WHERE userId = ?").bind(new Date(Date.now() - 1000).toISOString(), userId).run();
-  const denied = await send(request("/account", undefined, cookie)); expect(denied.status).toBe(302);
+  const denied = await send(request("/account", undefined, uncached(cookie))); expect(denied.status).toBe(302);
   expect(denied.headers.getSetCookie().filter(value => value.startsWith("session="))).toHaveLength(1);
   expect(denied.headers.get("Set-Cookie")).toContain("Max-Age=0");
 }, 60000);

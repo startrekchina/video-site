@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownWideNarrowIcon, ArrowUpNarrowWideIcon, ChartNoAxesGanttIcon, LayoutGridIcon, SearchIcon } from "lucide-react";
 import { data, Form, NavLink, useSearchParams, useSubmit, type ShouldRevalidateFunctionArgs } from "react-router";
-import { pageMember } from "@/lib/member.server";
+import { pageRead } from "@/lib/member.server";
 import { catalogCards, singleParameter } from "@/lib/catalog.server";
 import { presentationNavigation } from "@/lib/catalog";
 import { pageTitle } from "@/lib/site";
@@ -14,10 +14,12 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Route } from "./+types/catalog";
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const current = await pageMember(request, context.cloudflare.env, context.identity), url = new URL(request.url);
-  const query = singleParameter(url, "q") ?? "";
-  const kind = url.pathname === "/search" ? "search" : url.pathname === "/movies" ? "movie" : "series";
-  const { works, totals } = await catalogCards(context.cloudflare.env.DB, current.member.user_id, query, kind === "search" ? null : kind);
+  const url = new URL(request.url), kind = url.pathname === "/search" ? "search" : url.pathname === "/movies" ? "movie" : "series";
+  const current = await pageRead(request, context.cloudflare.env, context.identity, async (db, userId) => {
+    const query = singleParameter(url, "q") ?? "";
+    return { query, ...await catalogCards(db, userId, query, kind === "search" ? null : kind) };
+  });
+  const { works, totals, query } = current.value;
   return data({ works, kind, query, totals }, { headers: current.headers });
 }
 export function shouldRevalidate(args: ShouldRevalidateFunctionArgs) {

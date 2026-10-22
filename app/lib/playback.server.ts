@@ -1,5 +1,5 @@
 import { APIError } from "better-auth/api";
-import { createRequestIdentity, liveMemberSql } from "./member.server";
+import { createRequestIdentity, liveMemberSql, type D1Reader } from "./member.server";
 
 export type PlaybackSource = { url: string; tracks: { id: string; language: string; displayName: string; url: string }[] };
 type Resource = { id: string | null; object_key: string; byte_length: number; r2_etag: string | null };
@@ -13,11 +13,10 @@ async function storage<T>(read: () => Promise<T>) {
 }
 
 // Verified sources come from D1 only; every media request checks the current R2 version itself.
-export async function playbackSource(db: D1Database, unitId: string): Promise<PlaybackSource | null> {
-  const database = db.withSession("first-primary");
-  const [files, tracks] = await database.batch<{ id: string; language: string; display_name: string }>([
-    database.prepare("SELECT id FROM media_files WHERE playable_unit_id = ? AND format = 'mp4' AND r2_etag IS NOT NULL AND r2_etag <> ''").bind(unitId),
-    database.prepare(`SELECT id, language, display_name FROM subtitle_tracks WHERE playable_unit_id = ? AND format = 'vtt'
+export async function playbackSource(db: D1Reader, unitId: string): Promise<PlaybackSource | null> {
+  const [files, tracks] = await db.batch<{ id: string; language: string; display_name: string }>([
+    db.prepare("SELECT id FROM media_files WHERE playable_unit_id = ? AND format = 'mp4' AND r2_etag IS NOT NULL AND r2_etag <> ''").bind(unitId),
+    db.prepare(`SELECT id, language, display_name FROM subtitle_tracks WHERE playable_unit_id = ? AND format = 'vtt'
       AND r2_etag IS NOT NULL AND r2_etag <> '' ORDER BY language, track_key`).bind(unitId),
   ]);
   if (files.results.length !== 1) return null;
