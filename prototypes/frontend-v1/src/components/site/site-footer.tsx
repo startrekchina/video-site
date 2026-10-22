@@ -5,7 +5,6 @@ import type { SimpleIcon } from "simple-icons"
 import { siBaseui, siBetterauth, siCloudflare, siGithubactions, siLucide, siPnpm, siReact, siReactrouter, siTailwindcss, siTypescript, siVite, siVitest } from "simple-icons"
 
 import { cn } from "@/lib/utils"
-import { ThemeSwitcher } from "@/components/ui/theme-switcher"
 
 import { dependencies } from "../../../package.json"
 import { FooterArt } from "./footer-art"
@@ -195,7 +194,6 @@ export function SiteFooter({ minimal }: { minimal?: boolean }) {
               关于
             </Link>
           )}
-          <ThemeSwitcher />
         </div>
       </div>
       <FooterArt />

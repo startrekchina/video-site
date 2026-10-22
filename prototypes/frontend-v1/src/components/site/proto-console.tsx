@@ -5,7 +5,6 @@ import { useLocation, useNavigate } from "react-router"
 import { actions, useStore, type Scenario } from "@/data/store"
 import { cn } from "@/lib/utils"
 import { LANDINGS, useLanding } from "@/pages/guest-home/landing"
-import { CHARTS, useChart } from "@/pages/guest-home/star-chart"
 
 const SCENARIOS: { key: Scenario; label: string; home: string }[] = [
   { key: "guest", label: "访客（未登录）", home: "/" },
@@ -62,7 +61,6 @@ export function ProtoConsole() {
   const scenario = useStore((s) => s.scenario)
   const maintenance = useStore((s) => s.maintenance)
   const landing = useLanding()
-  const chart = useChart()
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
@@ -108,21 +106,6 @@ export function ProtoConsole() {
                 }}
               >
                 {l.label}
-              </button>
-            ))}
-          </div>
-          <div className="mb-1 text-[11px] font-bold uppercase opacity-70">星图（待选，宽屏）</div>
-          <div className="mb-3 grid grid-cols-3 gap-1">
-            {CHARTS.map((c) => (
-              <button
-                key={c.key}
-                className={cn("truncate rounded px-2 py-1 hover:bg-zinc-950/10", chart === c.key && "bg-zinc-950 text-amber-300 hover:bg-zinc-950")}
-                onClick={() => {
-                  actions.setScenario("guest")
-                  navigate(`/?landing=now&chart=${c.key}`)
-                }}
-              >
-                {c.label}
               </button>
             ))}
           </div>

@@ -9,14 +9,19 @@ import clipUrl from "@/media/test-clip.mp4"
 import clip1080 from "@/media/test-clip.1080p.mp4"
 import clip480 from "@/media/test-clip.480p.mp4"
 import clip720 from "@/media/test-clip.720p.mp4"
-import enVtt from "@/media/test-clip.en.vtt?url"
-import zhVtt from "@/media/test-clip.zh.vtt?url"
+import zhCnBilingualVtt from "@/media/test-clip.zh-CN.bilingual.vtt?url"
+import zhCnVtt from "@/media/test-clip.zh-CN.main.vtt?url"
+import zhTwBilingualVtt from "@/media/test-clip.zh-TW.bilingual.vtt?url"
+import zhTwVtt from "@/media/test-clip.zh-TW.main.vtt?url"
 
-export type SubtitleLang = "zh" | "en" | "off"
+/** A track's `language.trackKey`, as the import names it, or off. */
+export type SubtitleLang = "zh-CN.main" | "zh-CN.bilingual" | "zh-TW.main" | "zh-TW.bilingual" | "off"
 
 const SUBS: { lang: SubtitleLang; label: string; url: string }[] = [
-  { lang: "zh", label: "中文", url: zhVtt },
-  { lang: "en", label: "英文", url: enVtt },
+  { lang: "zh-CN.main", label: "简中", url: zhCnVtt },
+  { lang: "zh-CN.bilingual", label: "简英", url: zhCnBilingualVtt },
+  { lang: "zh-TW.main", label: "繁中", url: zhTwVtt },
+  { lang: "zh-TW.bilingual", label: "繁英", url: zhTwBilingualVtt },
   { lang: "off", label: "关闭", url: "" },
 ]
 

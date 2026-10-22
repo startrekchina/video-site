@@ -1,27 +1,23 @@
-import { useVariant } from "@/lib/use-variant"
+import { useMediaQuery } from "@/lib/use-media-query"
 
 import { GuestStarChart } from "../star-chart"
-import { LcarsLanding } from "./lcars"
+import { useLanding } from "./channels"
+import { HolodeckLanding } from "./holodeck"
 import { PassLanding } from "./pass"
-import { TerminalLanding } from "./terminal"
+import { TransmissionLanding } from "./transmission"
 import { WarpLanding } from "./warp"
 
-// Landing page candidates, switched with `?landing=` or the prototype console until one is chosen.
-// Each replaces the first screen; the guide's sections follow on every width.
+export { LANDINGS, useLanding } from "./channels"
 
-export const LANDINGS = [
-  { key: "now", label: "现状：星图" },
-  { key: "pass", label: "登舰证" },
-  { key: "lcars", label: "LCARS" },
-  { key: "warp", label: "曲速" },
-  { key: "terminal", label: "舰载电脑" },
-] as const
+// Landing page candidates, switched with the channel keys on the first screen, `?landing=` or the prototype
+// console until one is chosen. Each replaces the first screen from md; below md every candidate is too
+// cramped, so narrow screens all get the boarding pass. The guide's sections follow on every width.
 
-export const useLanding = () => useVariant("landing", LANDINGS.map((l) => l.key))
-
-const PAGES = { now: GuestStarChart, pass: PassLanding, lcars: LcarsLanding, warp: WarpLanding, terminal: TerminalLanding }
+const PAGES = { now: GuestStarChart, pass: PassLanding, warp: WarpLanding, transmission: TransmissionLanding, holodeck: HolodeckLanding }
 
 export function GuestLanding() {
-  const Landing = PAGES[useLanding()]
+  const landing = useLanding()
+  const wide = useMediaQuery("(min-width: 48rem)")
+  const Landing = wide ? PAGES[landing] : PassLanding
   return <Landing />
 }

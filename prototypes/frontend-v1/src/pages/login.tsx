@@ -104,7 +104,6 @@ export function LoginPage() {
   return (
     <AuthFrame
       title="登录"
-      description="星际舰队档案馆是邀请制的私人观看站，仅对受邀成员开放。"
       aside={
         <div className="flex flex-col gap-1">
           <span>
