@@ -44,6 +44,9 @@ export type SessionInfo = { id: string; device: string; location: string; lastAc
 
 export type Scenario = "guest" | "member" | "admin" | "new-member"
 
+/** Owner-set maintenance window; times are ISO strings, `until` is empty when unknown. */
+export type Maintenance = { since: string; until: string; note: string }
+
 type State = {
   scenario: Scenario
   me: Member | null
@@ -57,6 +60,7 @@ type State = {
   totpEnabled: boolean
   backupCodesLeft: number
   loginFailures: number
+  maintenance: Maintenance | null
 }
 
 const WATCH_THRESHOLD = 0.9
@@ -150,6 +154,9 @@ const INVITES: InviteCode[] = [
   { code: "Q-CONT-INUM-01", issuer: "station_keeper", status: "unused", usedBy: null, createdAt: "2026-09-29", expiresAt: "2026-10-13" },
 ]
 
+// Like the scenario, maintenance survives scenario switches and reloads, so the owner can switch it on and then look as a member.
+const readMaintenance = (): Maintenance | null => JSON.parse(sessionStorage.getItem("proto-maintenance") ?? "null")
+
 function initial(scenario: Scenario): State {
   const base: State = {
     scenario,
@@ -164,6 +171,7 @@ function initial(scenario: Scenario): State {
     totpEnabled: false,
     backupCodesLeft: 10,
     loginFailures: 0,
+    maintenance: readMaintenance(),
   }
   if (scenario === "guest") return base
   const me = scenario === "admin" ? MEMBERS[0] : scenario === "new-member" ? MEMBERS[8] : MEMBERS[1]
@@ -341,6 +349,14 @@ export const actions = {
   },
   setQuota(memberId: string, quota: number) {
     set((s) => ({ members: s.members.map((m) => (m.id === memberId ? { ...m, inviteQuota: quota } : m)) }))
+  },
+  startMaintenance(m: Maintenance) {
+    sessionStorage.setItem("proto-maintenance", JSON.stringify(m))
+    set({ maintenance: m })
+  },
+  endMaintenance() {
+    sessionStorage.removeItem("proto-maintenance")
+    set({ maintenance: null })
   },
 }
 

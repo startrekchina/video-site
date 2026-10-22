@@ -35,10 +35,10 @@ export function BrowsePage({ kind }: { kind: WorkKind | "search" }) {
         <PageHeadingTagline>{kind === "search" ? "全站搜索" : kind === "series" ? "剧集" : "电影"}</PageHeadingTagline>
         <PageHeadingTitle>
           {kind === "search"
-            ? "按中文或英文作品名查找剧集和电影。"
+            ? "按中文或英文作品名查找剧集和电影."
             : kind === "series"
-              ? "从 1966 年的原初系列，到 2026 年的星际舰队学院。"
-              : "从 1979 年的《无限太空》，到 2025 年的《31 区》。"}
+              ? "从 1966 年的原初系列，到 2026 年的星际舰队学院."
+              : "从 1979 年的《无限太空》，到 2025 年的《31 区》."}
         </PageHeadingTitle>
       </PageHeading>
 

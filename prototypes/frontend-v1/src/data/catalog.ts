@@ -195,9 +195,6 @@ for (const work of WORKS) {
     for (const ep of s.episodes) UNITS.set(ep.id, { kind: "episode", id: ep.id, work, episode: ep, runtimeMin: ep.runtimeMin })
 }
 
-export const EPISODE_TOTAL = SERIES.reduce((n, w) => n + w.seasons.reduce((m, s) => m + s.episodes.length, 0), 0)
-export const SEASON_TOTAL = SERIES.reduce((n, w) => n + w.seasons.length, 0)
-
 export function getWork(slug: string) {
   return WORKS.find((w) => w.slug === slug)
 }
