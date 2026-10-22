@@ -56,7 +56,10 @@ export default {
         return json({ members: page.results, devices: devices.results, after: page.results.length === 100 ? page.results.at(-1)!.id : null, readyToOpen: false });
       }
       return json({ error: "RESTORE_INVALID_INPUT" }, 400);
-    } catch { return json({ error: "RESTORE_FAILED", message: "恢复操作未完成，保持目标隔离并检查阶段结果；不要切换数据库或开放服务。" }, 500); }
+    } catch (error) {
+      const importError = error instanceof Error ? /^RESTORE_IMPORT_REJECTED (D1_[A-Z0-9_]{1,60})$/u.exec(error.message)?.[1] : undefined;
+      return json({ error: "RESTORE_FAILED", ...(importError ? { importError } : {}), message: "恢复操作未完成，保持目标隔离并检查阶段结果；不要切换数据库或开放服务。" }, 500);
+    }
     finally {
       clearTimeout(timer);
       if (locked) {

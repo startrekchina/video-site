@@ -183,7 +183,7 @@ it("lists only verified sources for a unit from D1 without touching R2", async (
   await env.DB.prepare("UPDATE subtitle_tracks SET playable_unit_id = 'episode-unit', r2_etag = ? WHERE id = 'foreign'").bind(english!.etag).run();
   const head = vi.spyOn(env.MEDIA_BUCKET, "head"), get = vi.spyOn(env.MEDIA_BUCKET, "get");
   try {
-    expect(await playbackSource(env.DB, "episode-unit")).toEqual({ url: video, tracks: [
+    expect(await playbackSource(env.DB, "episode-unit")).toEqual({ url: video, qualities: [{ label: "原画", url: video }], tracks: [
       { id: "foreign", language: "en", displayName: "English", url: "/subtitles/foreign" },
       { id: "zh", language: "zh", displayName: "中文", url: subtitle },
     ] });
@@ -194,6 +194,20 @@ it("lists only verified sources for a unit from D1 without touching R2", async (
     expect(await playbackSource(env.DB, "episode-unit")).toBeNull();
     expect(head).not.toHaveBeenCalled(); expect(get).not.toHaveBeenCalled();
   } finally { head.mockRestore(); get.mockRestore(); }
+});
+
+it("lists linked quality tiers after the original, never without it, and authorizes each tier per request", async () => {
+  const tier = await env.MEDIA_BUCKET.put("fictional-private-tier", "tier-bytes");
+  await env.DB.batch([["p480", "480p", tier!.etag], ["p2160", "2160p", tier!.etag], ["p720", "720p", null]].map(([id, variant, etag]) => env.DB.prepare(
+    "INSERT INTO media_files VALUES (?,'episode-unit','mp4',?,?,10,'hash',4,'h264','aac',20,?)").bind(id, variant, id === "p480" ? "fictional-private-tier" : `fictional-private-${id}`, etag)));
+  expect((await playbackSource(env.DB, "episode-unit"))?.qualities).toEqual([{ label: "原画", url: video }, { label: "2160p", url: "/media/p2160" }, { label: "480p", url: "/media/p480" }]);
+  const response = await http("/media/p480", { headers: { Range: "bytes=0-3" } });
+  expect(response.status).toBe(206); expect(await bytesText(response)).toBe("tier");
+  await expectHidden(await http("/media/p480", {}, ""), 401);
+  await expectHidden(await http("/media/p480", { method: "HEAD" }, ""), 401);
+  // A tier never stands in for a missing original.
+  await env.DB.prepare("UPDATE media_files SET r2_etag = NULL WHERE id = 'source'").run();
+  expect(await playbackSource(env.DB, "episode-unit")).toBeNull();
 });
 
 it("renders the watch page from D1 and leaves missing objects to the media request", async () => {

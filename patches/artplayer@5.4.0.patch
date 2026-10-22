@@ -1,0 +1,46 @@
+diff --git a/dist/artplayer.mjs b/dist/artplayer.mjs
+index 24305d13a99657c908df49b5d1ade096083e2502..d37eafbc7f0c84d2cb1b1e72aea7f3bba97c445b 100644
+--- a/dist/artplayer.mjs
++++ b/dist/artplayer.mjs
+@@ -1164,17 +1164,17 @@ function playAndPause(option) {
+         setStyle($play, "display", "none");
+         setStyle($pause, "display", "flex");
+       }
+-      if (art.playing) {
+-        showPause();
+-      } else {
+-        showPlay();
++      function update() {
++        if (art.video.paused) {
++          showPlay();
++        } else {
++          showPause();
++        }
+       }
+-      art.on("video:playing", () => {
+-        showPause();
+-      });
+-      art.on("video:pause", () => {
+-        showPlay();
+-      });
++      update();
++      art.on("video:canplay", update);
++      art.on("video:playing", update);
++      art.on("video:pause", update);
+     }
+   });
+ }
+@@ -3324,7 +3324,12 @@ function switchMix(art) {
+         art.playbackRate = playbackRate2;
+         art.aspectRatio = aspectRatio2;
+         if (playing) {
+-          await art.play();
++          try {
++            await art.play();
++          } catch (error2) {
++            reject(error2);
++            return;
++          }
+         }
+         art.notice.show = "";
+         resolve();

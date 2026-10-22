@@ -105,7 +105,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
   const needsPassword = dialog === "totp-enable" || dialog === "totp-disable" || dialog === "backup";
   return <Page narrow className="relative">
     <aside className="absolute inset-y-0 left-full hidden pl-8 xl:block" aria-label="本页导航"><div className="sticky top-24"><LineNav items={SECTIONS} activeHref={"#" + active} /></div></aside>
-    <PageHeading><PageHeadingTagline>账号与安全</PageHeadingTagline><PageHeadingTitle>管理登录方式、二步验证和登录设备。</PageHeadingTitle>
+    <PageHeading><PageHeadingTagline>账号与安全</PageHeadingTagline><PageHeadingTitle>管理登录方式、二步验证和登录设备.</PageHeadingTitle>
       <PageHeadingDescription className="font-mono text-sm"><dl className="flex flex-wrap gap-x-6 gap-y-1">
         {[["用户名", account.username], ["身份", account.role === "admin" ? "管理员" : "成员"], ["加入于", new Date(account.joinedAt).toLocaleDateString("zh-CN")]].map(([title, value]) =>
           <div key={title}><dt className="inline">{title} </dt><dd className="inline text-foreground">{value}</dd></div>)}</dl></PageHeadingDescription></PageHeading>

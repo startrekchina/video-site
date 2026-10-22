@@ -89,12 +89,21 @@
   font-family: var(--font-sans);
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.9), 0 0 8px rgb(0 0 0 / 0.5);
 }
+/* The danmaku plugin writes a SimHei font stack into each item's inline style; only !important beats it. */
+.art-video-player .art-danmuku > div { font-family: var(--font-sans) !important; }
+/* Swap the plugin's blue accents for the player's zinc/white; it injects its stylesheet at runtime, so :root adds the specificity to win. */
+:root .artplayer-plugin-danmuku .apd-send { background-color: var(--color-zinc-50); color: var(--color-zinc-950); }
+:root .artplayer-plugin-danmuku .apd-send.apd-lock { background-color: var(--color-zinc-700); color: var(--color-zinc-400); }
+:root .artplayer-plugin-danmuku .apd-slider .apd-slider-progress, :root .artplayer-plugin-danmuku .apd-slider .apd-slider-dot { background-color: var(--color-zinc-50); }
+:root .artplayer-plugin-danmuku .apd-modes .apd-mode:hover, :root .artplayer-plugin-danmuku .apd-config-other .apd-other:hover { color: var(--color-zinc-300); }
+:root [data-danmuku-mode="0"] .apd-style-mode [data-mode="0"], :root [data-danmuku-mode="1"] .apd-style-mode [data-mode="1"],
+:root [data-danmuku-mode="2"] .apd-style-mode [data-mode="2"] { color: var(--color-zinc-50); font-weight: 500; }
+:root [data-danmuku-mode="0"] .apd-style-mode [data-mode="0"] path, :root [data-danmuku-mode="1"] .apd-style-mode [data-mode="1"] path,
+:root [data-danmuku-mode="2"] .apd-style-mode [data-mode="2"] path { fill: var(--color-zinc-50); }
 .player-surface { container-type: inline-size; }
+/* Narrow players drop secondary controls so the bar never overflows; phones keep hardware volume, which leaves room for quality. */
 @container (max-width: 480px) {
-  .art-control-pip, .art-control-fullscreenWeb { display: none !important; }
-}
-@container (max-width: 360px) {
-  .art-control-volume { display: none !important; }
+  .art-control-pip, .art-control-fullscreenWeb, .art-control-volume { display: none !important; }
 }
 @media (max-height: 600px) {
   [data-watch-page] { padding-top: 12px; }

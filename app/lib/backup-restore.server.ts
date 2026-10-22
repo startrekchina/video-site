@@ -6,9 +6,19 @@ import { backupKeyId, backupKeys } from "./backup-keys.server";
 import { backupFingerprint, decryptBackupForRestore, type BackupScope } from "./backup-storage.server";
 
 const requireValid = (value: unknown) => { if (!value) throw new Error("RESTORE_VALIDATION_FAILED"); };
+// D1 import fails with D1_RESET_DO when an export inserts child rows before a rebuilt parent table, despite its
+// defer_foreign_keys line. Validation re-runs PRAGMA foreign_key_check after the import.
+const importPreamble = Buffer.from("PRAGMA foreign_keys=OFF;\n");
+// Some import failures arrive only as a JSON flag such as {"D1_RESET_DO":true}; keep the bare code, never free text that may echo SQL.
+function importRejection(error: unknown) {
+  try {
+    const value: unknown = typeof error === "string" ? JSON.parse(error) : null, code = value && typeof value === "object" ? Object.keys(value)[0] : undefined;
+    return code && /^D1_[A-Z0-9_]{1,60}$/u.test(code) ? new Error("RESTORE_IMPORT_REJECTED " + code) : null;
+  } catch { return null; }
+}
 type RecoveryEnv = Pick<Env, "APP_ENV" | "BACKUP_DATABASE_ID" | "BACKUP_ACCOUNT_ID" | "MEDIA_BUCKET" | "BACKUP_KEYRING" | "BACKUP_ENCRYPTION_KEY" | "BETTER_AUTH_SECRET"> & { D1_IMPORT_TOKEN: string };
 const businessTables = ["works", "seasons", "playable_units", "media_files", "subtitle_tracks", "user", "account", "member_profiles", "invitations",
-  "passkey", "watch_progress", "favorites", "playlists", "playlist_items", "comments", "comment_replies", "discussion_votes"] as const;
+  "passkey", "watch_progress", "favorites", "playlists", "playlist_items", "comments", "comment_replies", "discussion_votes", "danmaku"] as const;
 async function metadata(response: Response) {
   requireValid(response.ok && response.body);
   const reader = response.body!.getReader(), parts: Uint8Array[] = []; let length = 0;
@@ -20,7 +30,8 @@ async function metadata(response: Response) {
     const data = JSON.parse(Buffer.concat(parts).toString("utf8")) as { success?: boolean; result?: {
       status?: string; success?: boolean; error?: string; upload_url?: string; filename?: string; at_bookmark?: string;
     } };
-    requireValid(data.success === true && data.result && data.result.success !== false && !data.result.error && data.result.status !== "error");
+    requireValid(data.success === true && data.result);
+    if (data.result!.success === false || data.result!.error || data.result!.status === "error") throw importRejection(data.result!.error) ?? new Error("RESTORE_VALIDATION_FAILED");
     return data.result!;
   } finally { await reader.cancel().catch(() => {}); }
 }
@@ -45,16 +56,24 @@ export async function restoreBackup(env: RecoveryEnv, target: { db: D1Database; 
     const endpoint = `https://api.cloudflare.com/client/v4/accounts/${env.BACKUP_ACCOUNT_ID}/d1/database/${target.id}/import`;
     const call = async (body: object) => metadata(await fetch(endpoint, { method: "POST", redirect: "manual", signal,
       headers: { Authorization: `Bearer ${env.D1_IMPORT_TOKEN}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }));
-    const init = await call({ action: "init", etag: decrypted.md5 });
+    const staged = async () => {
+      const object = await env.MEDIA_BUCKET.get(decrypted.sqlKey, { onlyIf: { etagMatches: decrypted.sqlEtag } });
+      requireValid(object && "body" in object && object.size === decrypted.source.byteLength); return (object as R2ObjectBody).body;
+    };
+    // D1 identifies the upload by the MD5 of the exact bytes it receives, preamble included.
+    const md5 = createHash("md5").update(importPreamble), reader = (await staged()).getReader();
+    for (let part = await reader.read(); !part.done; part = await reader.read()) md5.update(part.value);
+    const etag = md5.digest("hex"), length = importPreamble.byteLength + decrypted.source.byteLength;
+    const init = await call({ action: "init", etag });
     requireValid(typeof init.filename === "string" && init.filename.length > 0 && init.filename.length <= 1024);
     if (init.upload_url) {
-      const object = await env.MEDIA_BUCKET.get(decrypted.sqlKey, { onlyIf: { etagMatches: decrypted.sqlEtag } });
-      requireValid(object && "body" in object && object.size === decrypted.source.byteLength);
+      const body = await staged(), stream = new FixedLengthStream(length), writer = stream.writable.getWriter();
+      const piping = writer.write(importPreamble).then(() => { writer.releaseLock(); return body.pipeTo(stream.writable, { signal }); });
       const uploaded = await fetch(uploadUrl(init.upload_url), { method: "PUT", signal, redirect: "manual",
-        headers: { "Content-Length": String(decrypted.source.byteLength) }, body: (object as R2ObjectBody).body });
-      await uploaded.body?.cancel(); requireValid(uploaded.ok);
+        headers: { "Content-Length": String(length) }, body: stream.readable });
+      await uploaded.body?.cancel(); await piping; requireValid(uploaded.ok);
     }
-    let state = await call({ action: "ingest", etag: decrypted.md5, filename: init.filename }), bookmark: string | undefined;
+    let state = await call({ action: "ingest", etag, filename: init.filename }), bookmark: string | undefined;
     while (state.status !== "complete") {
       requireValid((state.status === undefined || state.status === "active") && typeof state.at_bookmark === "string" && state.at_bookmark.length > 0 && state.at_bookmark.length <= 256
         && (!bookmark || bookmark === state.at_bookmark));

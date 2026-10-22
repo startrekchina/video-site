@@ -27,6 +27,7 @@ node scripts/import-media.mjs catalog --environment staging --execute
 
 ```text
 library/series/800002/S02/E03.mp4
+library/series/800002/S02/E03.720p.mp4
 library/series/800002/S02/E03.zh-CN.main.vtt
 library/series/800002/S02/E03.en.main.vtt
 library/movie/800001/movie.mp4
@@ -39,9 +40,11 @@ Worker 的 staging / production 配置声明 `*/5 * * * *` Cron，通过当前�
 
 MP4 须为 faststart、单 H.264 视频轨与 AAC 音轨。服务器有界读取元数据（最多 32 MiB），核对 box 边界、时长和码率，再流式计算整个文件长度及 SHA-256；不把大视频整体读入内存。VTT 最大 5 MiB，验证 UTF-8、头、cue 时间、设置、安全标签和实体，拒绝 STYLE/REGION。验证前后复核对象版本；期间变化不发布。
 
+清晰度档位与原画同目录同主文件名，后缀只能是 `.2160p`、`.1080p`、`.720p`、`.480p`（如 `E03.720p.mp4`），校验与原画相同。档位只挂到已有原画记录的单元，且时长与原画相差不超过 1 秒；不满足时不读取或不挂接，记 `media_sync_variant_unattached`，`reason` 为 `ORIGINAL_MISSING` 或 `DURATION_MISMATCH`。对象按键名排序时档位排在原画之前，因此新上传一集时档位在下一轮扫描挂接。单元的可播状态与 `duration_seconds` 只由原画决定；某个档位失败或冲突不影响原画和其他档位。
+
 关联 MP4 时，实际时长和媒体记录在同一 D1 批次提交。失败保留完整 R2 对象供重试；相同单元/轨道却不同校验和报冲突，不覆盖旧引用。缺失或已验证版本被替换时，播放入口返回脱敏 404；不会把新字节当成已验证片源。扫描没有删除或自动替换能力。
 
-扫描日志以 `media_sync_completed` 汇总数量，每个冲突另记 `media_sync_conflict`：包含 `unitId`、资源类型 `resourceType`（video/subtitle）、作品类型 `kind`、作品 `tmdbId`、季号 `season`、集号 `episode`、字幕 `language` 和复合轨道标识 `trackKey`。电影的季集号、视频的字幕字段为 null；中英文同名轨道可分别定位。记录不含存储对象键、路径、校验和或凭证；重复扫描仍报告未处理的冲突，需人工核对文件，不自动覆盖。
+扫描日志以 `media_sync_completed` 汇总数量，每个冲突另记 `media_sync_conflict`：包含 `unitId`、资源类型 `resourceType`（video/subtitle）、作品类型 `kind`、作品 `tmdbId`、季号 `season`、集号 `episode`、字幕 `language` 和复合轨道标识 `trackKey`，档位另带 `variant`。电影的季集号、视频的字幕字段为 null；中英文同名轨道可分别定位。记录不含存储对象键、路径、校验和或凭证；重复扫描仍报告未处理的冲突，需人工核对文件，不自动覆盖。
 
 ## 可选本机媒体预检
 

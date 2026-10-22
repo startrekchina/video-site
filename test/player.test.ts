@@ -5,14 +5,19 @@ import { TabsTrigger } from "@/components/ui/tabs";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import type { PlaybackSource } from "@/lib/playback.server";
 import type { Episode, Work } from "@/lib/catalog";
+import { settings } from "@/lib/settings.server";
+import { forgetDanmaku, setBlockedWords } from "@/lib/danmaku-client";
+import type { Option as DanmakuOption } from "artplayer-plugin-danmuku";
 
 type Handler = (...args: unknown[]) => unknown;
 const state = vi.hoisted(() => ({
   effects: [] as (() => void | (() => void))[], refs: [] as { current: unknown }[], message: vi.fn(), options: null as unknown,
   pageState: [] as unknown[], pageIndex: null as number | null, refIndex: 0, handlers: new Map<string, Handler[]>(),
-  location: { state: null as unknown }, navigation: "POP",
+  location: { state: null as unknown }, navigation: "POP", danmaku: null as unknown,
   art: { currentTime: 1234, duration: 4000, seek: 0, url: "", destroy: vi.fn(), hotkey: { add: vi.fn() },
-    on: vi.fn(), once: vi.fn(), play: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() } },
+    on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() },
+    width: 1200, fullscreen: false, fullscreenWeb: false, template: { $controlsCenter: { name: "controls-center" } },
+    plugins: { artplayerPluginDanmuku: { reset: vi.fn(), mount: vi.fn(), option: {} as Record<string, unknown>, isHide: false } } },
 }));
 // Run the real effects and player wiring with only the browser/ArtPlayer boundary replaced.
 vi.mock("react", async original => ({
@@ -27,11 +32,14 @@ vi.mock("react", async original => ({
   },
 }));
 vi.mock("artplayer", () => ({ default: class { constructor(options: unknown) { state.options = options; return state.art; } } }));
+vi.mock("artplayer-plugin-danmuku", () => ({ default: (option: unknown) => { state.danmaku = option; return () => state.art.plugins.artplayerPluginDanmuku; } }));
 vi.mock("react-router", async original => ({ ...await original<typeof import("react-router")>(), UNSAFE_withComponentProps: (component: unknown) => component,
   useLocation: () => state.location, useNavigationType: () => state.navigation }));
 vi.mock("@/components/ui/button", () => ({ Button: () => null }));
 
-const source: PlaybackSource = { url: "/media/source", tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
+const source: PlaybackSource = { url: "/media/source", qualities: [{ label: "原画", url: "/media/source" }], tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
+const danmaku = { maxLength: settings.danmaku.maxLength, lockTime: settings.rateLimits.danmaku.minInterval, colors: [...settings.danmaku.colors],
+  blockWordLimit: settings.danmaku.blockWordLimit, blockWordMaxLength: settings.danmaku.blockWordMaxLength };
 const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>();
 let cleanups: (void | (() => void))[] = [], blobs = 0;
 const page = { visibilityState: "visible", listeners: new Map<string, () => void>() };
@@ -44,6 +52,9 @@ beforeEach(() => {
   state.art.on.mockImplementation(listen); state.art.once.mockImplementation(listen);
   state.art.subtitle.switch.mockReset().mockResolvedValue(undefined);
   state.art.play.mockReset().mockResolvedValue(undefined);
+  state.art.switchQuality.mockReset().mockResolvedValue(undefined);
+  state.art.width = 1200; state.art.fullscreen = false; state.art.fullscreenWeb = false; state.danmaku = null;
+  Object.assign(state.art.plugins.artplayerPluginDanmuku, { option: {}, isHide: false });
   fetch.mockReset().mockImplementation(async () => new Response("WEBVTT\n\n"));
   blobs = 0;
   vi.stubGlobal("fetch", fetch);
@@ -58,7 +69,7 @@ afterEach(() => { cleanups.forEach(cleanup => cleanup?.()); cleanups = []; vi.un
 
 async function mount(props: Partial<Parameters<typeof Player>[0]> = {}) {
   const callbacks = { onSubtitleChange: vi.fn(), onTracksChange: vi.fn() };
-  Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() }, subtitle: "en", ...callbacks, ...props });
+  Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() }, danmaku, subtitle: "en", ...callbacks, ...props });
   state.refs[0].current = {};
   cleanups = state.effects.map(effect => effect());
   await vi.dynamicImportSettled(); await new Promise(resolve => setTimeout(resolve, 0));
@@ -221,6 +232,79 @@ it("keeps a member's pause across a reconnect and reports a blocked automatic re
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请点击播放"), reconnect: false });
 });
 
+const tiers: PlaybackSource = { ...source, qualities: [{ label: "原画", url: "/media/source" }, { label: "1080p", url: "/media/p1080" }, { label: "720p", url: "/media/p720" }] };
+type Control = { name: string; html: string; selector: { html: string; default: boolean }[]; onSelect: (item: { html: string }) => Promise<string> };
+const control = () => (state.options as { controls: Control[] }).controls[0];
+function remember(label: string | null) {
+  const storage = { getItem: vi.fn(() => label), setItem: vi.fn() };
+  vi.stubGlobal("localStorage", storage); return storage;
+}
+
+it("shows no quality control when a unit has only its original", async () => {
+  await mount();
+  expect((state.options as { controls: unknown[] }).controls).toEqual([]);
+});
+
+it("starts on the remembered quality when the unit has it and on the original otherwise", async () => {
+  remember("720p"); await mount({ source: tiers });
+  expect(state.options).toMatchObject({ url: "http://localhost:6120/media/p720" });
+  expect(control()).toMatchObject({ name: "quality", html: "720p", selector: [{ html: "原画", default: false }, { html: "1080p", default: false }, { html: "720p", default: true }] });
+  cleanups.forEach(cleanup => cleanup?.()); state.effects.length = 0; state.refs.length = 0; state.refIndex = 0;
+  remember("2160p"); await mount({ source: tiers });
+  expect(state.options).toMatchObject({ url: "http://localhost:6120/media/source" }); expect(control().html).toBe("原画");
+});
+
+it("switches quality in place, remembers it, keeps the position through the switch and recovers on the chosen quality", async () => {
+  const storage = remember(null); await mount({ source: tiers }); state.message.mockClear();
+  await emit("video:play"); await emit("video:timeupdate");
+  // While switching, the element pauses and briefly reports 0; neither is the member's position or choice.
+  state.art.switchQuality.mockImplementationOnce(async () => { state.art.currentTime = 0; await emit("video:pause"); await emit("video:timeupdate"); state.art.currentTime = 1234; });
+  expect(await control().onSelect({ html: "720p" })).toBe("720p");
+  expect(state.art.switchQuality).toHaveBeenCalledExactlyOnceWith("http://localhost:6120/media/p720");
+  expect(storage.setItem).toHaveBeenCalledExactlyOnceWith("player-quality", "720p");
+  expect(reports()).toEqual([]);
+  // A failure checks and reconnects the current quality, back at the last position and play state.
+  fetch.mockResolvedValueOnce(new Response(null, { status: 503 })); await emit("video:error");
+  expect(fetch).toHaveBeenLastCalledWith("http://localhost:6120/media/p720", { method: "HEAD", credentials: "same-origin", cache: "no-store" });
+  state.art.currentTime = 0; (state.refs[1].current as () => void)();
+  expect(state.art.url).toBe("http://localhost:6120/media/p720");
+  await emit("video:canplay");
+  expect(state.art.currentTime).toBe(1234); expect(state.art.play).toHaveBeenCalledOnce();
+});
+
+it("reconnects on a newly chosen quality when the current one has failed", async () => {
+  remember(null); await mount({ source: tiers }); state.message.mockClear();
+  await emit("video:timeupdate");
+  fetch.mockResolvedValueOnce(new Response(null, { status: 404 })); await emit("video:error");
+  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("片源暂时无法播放"), reconnect: true });
+  state.art.currentTime = 0;
+  expect(await control().onSelect({ html: "1080p" })).toBe("1080p");
+  expect(state.art.switchQuality).not.toHaveBeenCalled();
+  expect(state.art.url).toBe("http://localhost:6120/media/p1080"); expect(state.message).toHaveBeenLastCalledWith(null);
+  await emit("video:canplay"); expect(state.art.currentTime).toBe(1234);
+});
+
+it.each(["AbortError", "NotAllowedError"])("keeps reporting after a quality resume rejects with %s", async name => {
+  remember(null); await mount({ source: tiers }); state.message.mockClear();
+  state.art.switchQuality.mockRejectedValueOnce(new DOMException("Fictional interrupted resume", name));
+  expect(await control().onSelect({ html: "720p" })).toBe("720p");
+  if (name === "NotAllowedError") expect(state.message).toHaveBeenLastCalledWith({ text: "浏览器阻止自动播放，请点击播放。", reconnect: false });
+  else expect(state.message).not.toHaveBeenCalled();
+  respond({ data: { positionSeconds: 1260, completed: false, updatedAt: 1, revision: 1 } });
+  await emit("video:play"); state.art.currentTime = 1260; await emit("video:timeupdate"); await emit("video:pause"); await settle();
+  expect(reports()).toEqual([{ url: "/me/progress/episode-unit", keepalive: false, positionSeconds: 1260, expectedRevision: 0 }]);
+});
+
+it("keeps a quality failure's recovery notice when its resume also rejects", async () => {
+  remember(null); await mount({ source: tiers }); state.message.mockClear();
+  state.art.switchQuality.mockImplementationOnce(async () => {
+    fetch.mockResolvedValueOnce(new Response(null, { status: 404 })); await emit("video:error");
+    throw new DOMException("Fictional blocked resume after failure", "NotAllowedError");
+  });
+  expect(await control().onSelect({ html: "720p" })).toBe("720p");
+  expect(state.message).toHaveBeenCalledExactlyOnceWith({ text: expect.stringContaining("片源暂时无法播放"), reconnect: true });
+});
+
 it("keeps watch page subtitle choices in step with a removed track without restarting the player", async () => {
   const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "测试片", titleEn: "Test",
     overviewZh: null, overviewEn: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true,
@@ -228,7 +312,7 @@ it("keeps watch page subtitle choices in step with a removed track without resta
   const work: Work = { slug: "test", kind: "movie", tmdbId: 1, titleZh: "测试片", titleEn: "Test", overviewZh: null,
     overviewEn: null, year: 2026, poster: "", code: "", seasonCount: 0, episodeCount: 1, watchedCount: 0,
     favorite: false, seasons: [], units: [unit] };
-  const loaderData = { work, unit, source, previous: "", next: "", reportInterval: 15 as const };
+  const loaderData = { work, unit, source, previous: "", next: "", reportInterval: 15 as const, danmaku, admin: false };
   const page = Watch({ loaderData, params: { id: unit.id }, matches: [
     { id: "root", params: {}, pathname: "/", data: { member: null, catalog: null }, loaderData: { member: null, catalog: null }, handle: undefined },
     { id: "routes/watch", params: { id: unit.id }, pathname: `/watch/${unit.id}`, data: loaderData, loaderData, handle: undefined },
@@ -341,7 +425,7 @@ it("offers the next unit when playback ends and autoplays only after a fresh ste
   const work: Work = { slug: "series", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
     poster: "", code: "", seasonCount: 1, episodeCount: 2, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [first, second] }], units: [first, second] };
   const view = (unit: Episode, previous?: string, next?: string) => {
-    const loaderData = { work, unit, source, previous, next, reportInterval: 15 as const };
+    const loaderData = { work, unit, source, previous, next, reportInterval: 15 as const, danmaku, admin: false };
     const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
     state.pageIndex = 0;
     const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
@@ -371,7 +455,7 @@ it("lets a playlist queue decide what follows and end on the way back to the pla
     poster: "", code: "", seasonCount: 1, episodeCount: 1, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [unit] }], units: [unit] };
   const movie = { id: "movie-unit", completed: false, poster: "", label: "电影", title: "测试信号" };
   const view = (queue: { id: string; title: string; next: typeof movie | null }) => {
-    const loaderData = { work, unit, source, previous: undefined, next: undefined, reportInterval: 15 as const, queue };
+    const loaderData = { work, unit, source, previous: undefined, next: undefined, reportInterval: 15 as const, danmaku, admin: false, queue };
     const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
     state.pageIndex = 0;
     const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
@@ -388,4 +472,78 @@ it("lets a playlist queue decide what follows and end on the way back to the pla
   player.onEnded!();
   const end = view({ id: "list", title: "虚构片单", next: null }).children as ReactElement<{ playlist: { id: string } }>;
   expect(end.props.playlist).toMatchObject({ id: "list" });
+});
+
+const plugin = () => state.art.plugins.artplayerPluginDanmuku;
+const danmakuOption = () => state.danmaku as DanmakuOption & Required<Pick<DanmakuOption, "beforeEmit" | "beforeVisible">> & { danmuku: () => Promise<unknown[]> };
+
+it("reads danmaku once and keeps playing without them when the read fails", async () => {
+  const items = [{ id: "d1", time: 1.5, text: "虚构", mode: 0, color: "#FFFFFF" }];
+  await mount();
+  expect(danmakuOption()).toMatchObject({ COLOR: [...danmaku.colors], maxLength: danmaku.maxLength, lockTime: danmaku.lockTime });
+  fetch.mockResolvedValueOnce(Response.json({ data: { items } }));
+  expect(await danmakuOption().danmuku()).toEqual(items);
+  expect(fetch).toHaveBeenLastCalledWith("/units/episode-unit/danmaku", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
+  expect(state.message).not.toHaveBeenCalled();
+  fetch.mockResolvedValueOnce(Response.json({ error: { code: "INTERNAL_ERROR" } }, { status: 500 }));
+  expect(await danmakuOption().danmuku()).toEqual([]);
+  expect(state.message).toHaveBeenLastCalledWith({ text: "弹幕加载失败，刷新页面可重试。", reconnect: false });
+});
+
+it("shows a sent danmaku only after the server accepts it and says why one was refused", async () => {
+  await mount(); state.art.currentTime = 12.34;
+  fetch.mockResolvedValueOnce(Response.json({ error: { code: "DANMAKU_RATE_LIMITED", message: "发送太快，请 5 秒后再试。" } }, { status: 429 }));
+  const draft = { text: " 虚构 ", mode: 1 as const, color: "#F2C14E" };
+  expect(await danmakuOption().beforeEmit(draft)).toBe(false);
+  expect(fetch).toHaveBeenLastCalledWith("/units/episode-unit/danmaku", expect.objectContaining({ method: "POST",
+    body: JSON.stringify({ text: " 虚构 ", time: 12.34, mode: 1, color: "#F2C14E" }) }));
+  expect(state.message).toHaveBeenLastCalledWith({ text: "发送太快，请 5 秒后再试。", reconnect: false });
+  fetch.mockRejectedValueOnce(new TypeError("offline"));
+  expect(await danmakuOption().beforeEmit({ ...draft })).toBe(false);
+  expect(state.message).toHaveBeenLastCalledWith({ text: "弹幕未发送，请稍后重试。", reconnect: false });
+  fetch.mockResolvedValueOnce(Response.json({ data: { item: { id: "d1", time: 12.3, text: "虚构", mode: 1, color: "#F2C14E" } } }));
+  expect(await danmakuOption().beforeEmit(draft)).toBe(true);
+  expect(draft).toMatchObject({ id: "d1", text: "虚构" });
+});
+
+it("hides blocked words and deleted danmaku, clearing the screen when either changes", async () => {
+  await mount();
+  const visible = (item: { id?: string; text: string }) => danmakuOption().beforeVisible(item);
+  expect(visible({ id: "a", text: "Engage!" })).toBe(true);
+  setBlockedWords(["engage"]);
+  expect(plugin().reset).toHaveBeenCalledOnce();
+  expect(visible({ id: "a", text: "ENGAGE!" })).toBe(false); expect(visible({ id: "b", text: "曲速" })).toBe(true);
+  forgetDanmaku("b");
+  expect(plugin().reset).toHaveBeenCalledTimes(2); expect(visible({ id: "b", text: "曲速" })).toBe(false);
+  // A destroyed player hears nothing more.
+  cleanups.forEach(cleanup => cleanup?.()); cleanups = [];
+  setBlockedWords([]);
+  expect(plugin().reset).toHaveBeenCalledTimes(2);
+});
+
+it("restores valid danmaku settings saved in this browser and saves them on every change", async () => {
+  const store = new Map([["player-danmaku", JSON.stringify({ opacity: 0.5, speed: 99, mode: 2, color: "#123456", fontSize: "4%", margin: [10, "bad"], visible: false, modes: [0, 3] })]]);
+  vi.stubGlobal("localStorage", { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value) });
+  await mount();
+  expect(danmakuOption()).toMatchObject({ opacity: 0.5, speed: 7, mode: 2, fontSize: "4%", margin: [10, "25%"], visible: false });
+  expect(danmakuOption()).not.toHaveProperty("color"); expect(danmakuOption()).not.toHaveProperty("modes");
+  const option = { visible: true, opacity: 0.8, speed: 5, fontSize: 25, margin: [10, "50%"], modes: [0, 1], antiOverlap: false, synchronousPlayback: true, mode: 1, color: "#5BA4E6", maxLength: 50 };
+  Object.assign(plugin(), { option, isHide: true });
+  for (const event of ["artplayerPluginDanmuku:config", "artplayerPluginDanmuku:show", "artplayerPluginDanmuku:hide"]) {
+    store.delete("player-danmaku"); await emit(event);
+    expect(JSON.parse(store.get("player-danmaku")!), event).toEqual({ ...option, visible: false, maxLength: undefined });
+  }
+});
+
+it("moves the danmaku emitter below the video when the control bar is too narrow, but not in fullscreen", async () => {
+  await mount();
+  const slot = { name: "slot" };
+  state.refs[4].current = slot;
+  await emit("resize"); await emit("resize");
+  expect(plugin().mount).toHaveBeenCalledExactlyOnceWith(state.art.template.$controlsCenter);
+  state.art.width = 819; await emit("resize");
+  expect(plugin().mount).toHaveBeenLastCalledWith(slot);
+  // The plugin itself moves the emitter into the bar in fullscreen and back afterwards.
+  state.art.fullscreen = true; state.art.width = 1920; await emit("resize");
+  expect(plugin().mount).toHaveBeenCalledTimes(2);
 });

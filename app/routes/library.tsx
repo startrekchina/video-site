@@ -42,7 +42,7 @@ function NewPlaylistDialog({ open, onOpenChange }: { open: boolean; onOpenChange
 }
 export default function Library({ loaderData: { favorites, mine } }: Route.ComponentProps) {
   const [creating, setCreating] = useState(false);
-  return <Page><PageHeading><PageHeadingTagline>我的片库</PageHeadingTagline><PageHeadingTitle>收藏的作品和自己整理的片单。</PageHeadingTitle></PageHeading><div className="h-4" />
+  return <Page><PageHeading><PageHeadingTagline>我的片库</PageHeadingTagline><PageHeadingTitle>收藏的作品和自己整理的片单.</PageHeadingTitle></PageHeading><div className="h-4" />
     <Panel><PanelHeader><PanelTitle>我的收藏<PanelTitleSup>({favorites.length})</PanelTitleSup></PanelTitle></PanelHeader>
       {favorites.length === 0 ? <Empty className="rounded-none py-12"><EmptyHeader><EmptyMedia variant="icon"><HeartIcon /></EmptyMedia><EmptyTitle>还没有收藏</EmptyTitle><EmptyDescription>在作品页点“收藏”，就能在这里快速找到它。</EmptyDescription></EmptyHeader><EmptyContent><Button variant="outline" nativeButton={false} render={<Link to="/series" />}>浏览剧集</Button></EmptyContent></Empty> : <WorkGrid works={favorites} />}
     </Panel><Separator />

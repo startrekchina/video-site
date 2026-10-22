@@ -9,10 +9,12 @@ import { call } from "@/lib/auth-client";
 import { pageTitle } from "@/lib/site";
 import { Page, PageHeading, PageHeadingDescription, PageHeadingTagline, PageHeadingTitle, Panel, PanelHeader, PanelTitle, Separator } from "@/components/site/panel";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusButton } from "@/components/ui/status-button";
 import { Tag } from "@/components/ui/tag";
 import { toast } from "@/components/ui/toast";
@@ -23,9 +25,7 @@ const environments: Record<string, string> = { development: "本地开发", test
 type Status = Awaited<ReturnType<typeof backupStatus>>;
 type Job = Status["items"][number];
 const frequencyLabels: Record<BackupFrequency, string> = { daily: "每天", weekly: "每周", interval: "每隔几天" };
-const weekdayLabels = [[1, "周一"], [2, "周二"], [3, "周三"], [4, "周四"], [5, "周五"], [6, "周六"], [0, "周日"]] as const;
-// Native selects keep the Input look so the form reads as one control set.
-const select = "h-9 w-full rounded-lg border border-input bg-transparent px-2.5 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
+const weekdayItems = ([[1, "周一"], [2, "周二"], [3, "周三"], [4, "周四"], [5, "周五"], [6, "周六"], [0, "周日"]] as const).map(([value, label]) => ({ value: value as number, label }));
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env, current = await pageMember(request, env, context.identity);
   if (!isBackupOwner(current.member, env)) throw data({ message: "仅本站站长可访问备份。" }, { status: 403, headers: current.headers });
@@ -54,6 +54,7 @@ export default function BackupsPage({ loaderData: state }: Route.ComponentProps)
   const [weekday, setWeekday] = useState(state.schedule.weekday ?? 1), [scheduleTime, setScheduleTime] = useState(state.schedule.time);
   const running = state.schedule.lastStatus === "running" || state.items.some(job => job.status === "running");
   const scheduleReady = state.targets.webdav || state.targets.s3;
+  const targetItems = (["webdav", "s3"] as ExternalBackupTarget[]).map(value => ({ value, label: labels[value] + (state.targets[value] ? "" : "（未配置）") }));
   useEffect(() => {
     setScheduleEnabled(saved.enabled); setScheduleTarget(savedTarget); setFrequency(saved.frequency);
     setIntervalDays(saved.intervalDays ?? 7); setWeekday(saved.weekday ?? 1); setScheduleTime(saved.time);
@@ -95,7 +96,7 @@ export default function BackupsPage({ loaderData: state }: Route.ComponentProps)
   }
   const after = params.get("after");
   return <Page narrow>
-    <PageHeading><PageHeadingTagline>站长运维 · {environments[state.environment] ?? state.environment}</PageHeadingTagline><PageHeadingTitle>数据备份。</PageHeadingTitle>
+    <PageHeading><PageHeadingTagline>站长运维 · {environments[state.environment] ?? state.environment}</PageHeadingTagline><PageHeadingTitle>数据备份.</PageHeadingTitle>
       <PageHeadingDescription>备份不含媒体文件，时间均为北京时间。恢复需要备份当时的认证密钥和备份密钥。</PageHeadingDescription></PageHeading>
     <div className="px-4 py-3 text-sm"><Link to="/admin" className="link-underline">返回管理后台</Link></div>
     <Separator /><Panel><PanelHeader><PanelTitle>手动备份</PanelTitle></PanelHeader>
@@ -115,17 +116,24 @@ export default function BackupsPage({ loaderData: state }: Route.ComponentProps)
         <p className="text-sm text-muted-foreground">导出期间成员查询可能暂时不可用，建议选在访问较少的时段。</p>
         {!scheduleReady && !saved.enabled ? <p role="status" className="text-sm">尚未配置 WebDAV 或 S3，不能开启自动备份。</p> : <>
           {saved.enabled && !saved.targetReady && <p role="status" className="text-sm text-destructive">已保存的渠道当前不可执行，请改选可用渠道或关闭自动备份。</p>}
-          <label className="flex items-center gap-2 text-sm font-medium"><input className="size-4 accent-foreground" type="checkbox" checked={scheduleEnabled} disabled={saving || !scheduleReady && !scheduleEnabled} onChange={event => setScheduleEnabled(event.target.checked)} />启用自动备份</label>
+          <Field orientation="horizontal"><Checkbox id="schedule-enabled" checked={scheduleEnabled} disabled={saving || !scheduleReady && !scheduleEnabled} onCheckedChange={setScheduleEnabled} />
+            <FieldLabel htmlFor="schedule-enabled">启用自动备份</FieldLabel></Field>
           <fieldset className="grid gap-4 sm:grid-cols-2" disabled={!scheduleReady || saving}>
-            <Field><FieldLabel htmlFor="schedule-target">保存渠道</FieldLabel><select id="schedule-target" className={select} value={scheduleTarget} onChange={event => setScheduleTarget(event.target.value as ExternalBackupTarget)}>
-              {(["webdav", "s3"] as ExternalBackupTarget[]).map(value => <option key={value} value={value} disabled={!state.targets[value]}>{labels[value]}{!state.targets[value] ? "（未配置）" : ""}</option>)}</select></Field>
+            <Field><FieldLabel htmlFor="schedule-target">保存渠道</FieldLabel>
+              <Select items={targetItems} value={scheduleTarget} onValueChange={value => value && setScheduleTarget(value)} disabled={!scheduleReady || saving}>
+                <SelectTrigger id="schedule-target" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{targetItems.map(item => <SelectItem key={item.value} value={item.value} disabled={!state.targets[item.value]}>{item.label}</SelectItem>)}</SelectContent>
+              </Select></Field>
             <Field><FieldLabel htmlFor="schedule-time">时间（北京时间）</FieldLabel><Input id="schedule-time" type="time" required step={60} value={scheduleTime} onChange={event => setScheduleTime(event.target.value)} /></Field>
             <Field className="sm:col-span-2"><FieldLabel>频率</FieldLabel>
               <ToggleGroup aria-label="频率" value={[frequency]} onValueChange={value => value[0] && setFrequency(value[0] as BackupFrequency)} variant="outline" className="w-full">
                 {(Object.keys(frequencyLabels) as BackupFrequency[]).map(value => <ToggleGroupItem key={value} value={value} className="flex-1">{frequencyLabels[value]}</ToggleGroupItem>)}
               </ToggleGroup></Field>
-            {frequency === "weekly" && <Field><FieldLabel htmlFor="schedule-weekday">星期</FieldLabel><select id="schedule-weekday" className={select} value={weekday} onChange={event => setWeekday(Number(event.target.value))}>
-              {weekdayLabels.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>}
+            {frequency === "weekly" && <Field><FieldLabel htmlFor="schedule-weekday">星期</FieldLabel>
+              <Select items={weekdayItems} value={weekday} onValueChange={value => value !== null && setWeekday(value)} disabled={!scheduleReady || saving}>
+                <SelectTrigger id="schedule-weekday" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{weekdayItems.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
+              </Select></Field>}
             {frequency === "interval" && <Field><FieldLabel htmlFor="schedule-interval">间隔天数（1–30）</FieldLabel><Input id="schedule-interval" type="number" required min={1} max={30} value={intervalDays} onChange={event => setIntervalDays(Number(event.target.value))} /></Field>}
           </fieldset>
           {(saved.enabled && saved.nextRunAt || saved.lastRunAt) && <dl className="grid gap-1 text-sm">
