@@ -17,7 +17,9 @@ function apply(t: Theme) {
 }
 
 function setTheme(p: ThemePreference) {
-  localStorage.setItem(STORAGE_KEY, p)
+  // Following the system stores nothing, so only a theme opposite to it is ever kept.
+  if (p === "system") localStorage.removeItem(STORAGE_KEY)
+  else localStorage.setItem(STORAGE_KEY, p)
   apply(p === "system" ? (darkQuery.matches ? "dark" : "light") : p)
   listeners.forEach((l) => l())
 }
