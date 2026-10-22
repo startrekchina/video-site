@@ -6,6 +6,10 @@ import { toast } from "@/components/ui/toast";
 import { saveProgress, type SavedProgress } from "@/lib/progress-client";
 
 type Notice = { text: string; reconnect: boolean; login?: true };
+// The chosen quality is a per-browser preference (B 6.6); storage may be unavailable.
+const qualityKey = "player-quality";
+function rememberedQuality() { try { return localStorage.getItem(qualityKey); } catch { return null; } }
+function rememberQuality(label: string) { try { localStorage.setItem(qualityKey, label); } catch { /* Keep the choice for this page only. */ } }
 // revision is shared with the page so manual marks and reports use the same expectedRevision.
 export type ProgressReporting = { revision: { current: number }; interval: number; duration: number | null; onSaved: (saved: SavedProgress) => void };
 // A video failure's button is the only way back, so its toast stays until the player recovers or unmounts.
@@ -39,9 +43,11 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
   }, [unitId]);
   useEffect(() => {
     let art: Artplayer | undefined, tracks = source.tracks, selected = subtitle;
+    // Failure checks and reconnects stay on the current quality; a remembered quality this unit lacks falls back to the original.
+    let quality = source.qualities.find(item => item.label === rememberedQuality()) ?? source.qualities[0];
     // failed latches one HEAD per failure; restoreTo holds the position a reconnect returns to once.
-    // ready gates position tracking: the element reports 0 before the saved start is applied.
-    let disposed = false, ready = false, failed = false, playing = false, position = startSeconds, restoreTo: number | null = null;
+    // ready gates position tracking: the element reports 0 before the saved start is applied, and again while switching quality.
+    let disposed = false, ready = false, failed = false, playing = false, switching = false, position = startSeconds, restoreTo: number | null = null;
     // shown mirrors the notice kind so a subtitle success clears only its own notice.
     type Kind = "video" | "login" | "subtitle" | "other";
     let shown: Kind | null = null;
@@ -115,14 +121,31 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
     const hidden = () => { if (document.visibilityState === "hidden") report(true); }, leave = () => report(true);
     document.addEventListener("visibilitychange", hidden); window.addEventListener("pagehide", leave);
     // The recovery canplay handler below restores the position and the play state.
-    retry.current = () => { if (art && !disposed) { failed = false; restoreTo = position; show(null); art.url = absolute(source.url); } };
+    retry.current = () => { if (art && !disposed) { failed = false; restoreTo = position; show(null); art.url = absolute(quality.url); } };
+    // switchQuality keeps the position, play state and rate; a failed switch is classified by the error handler like any other.
+    const switchQuality = async (label: string) => {
+      const next = source.qualities.find(item => item.label === label);
+      if (!art || !next || next === quality) return;
+      quality = next; rememberQuality(label);
+      if (failed) { retry.current(); return; }
+      switching = true;
+      try { await art.switchQuality(absolute(next.url)); }
+      catch (error) {
+        // Media failures use video:error; a blocked resume has no media error event.
+        if (!disposed && error instanceof DOMException && error.name === "NotAllowedError") say("浏览器阻止自动播放，请点击播放。");
+      } finally { switching = false; }
+    };
     void import("artplayer").then(({ default: Artplayer }) => {
       if (disposed || !container.current) return;
       // ArtPlayer's own reconnects restart at 0 and, with cached leading bytes, can loop forever; the reconnect button is the only recovery path.
       Artplayer.RECONNECT_TIME_MAX = 0;
-      art = new Artplayer({ container: container.current, url: absolute(source.url), lang: "zh-cn", theme: "#fafafa", volume: 0.6, autoplay: false, setting: true, playbackRate: true, fullscreen: true, fullscreenWeb: true, pip: true, hotkey: true, mutex: false, backdrop: true, playsInline: true, lock: true, fastForward: true, miniProgressBar: true,
+      art = new Artplayer({ container: container.current, url: absolute(quality.url), lang: "zh-cn", theme: "#fafafa", volume: 0.6, autoplay: false, setting: true, playbackRate: true, fullscreen: true, fullscreenWeb: true, pip: true, hotkey: true, mutex: false, backdrop: true, playsInline: true, lock: true, fastForward: true, miniProgressBar: true,
         moreVideoAttr: { preload: "metadata" }, subtitle: { url: "", type: "vtt", encoding: "utf-8", escape: true, style: { fontSize: "clamp(14px,3.2cqw,28px)" } },
         settings: [{ name: "subtitle-lang", html: "字幕", selector: subtitles(), onSelect(item) { select(String(item.id)); return String(item.html); } }],
+        // A unit with only its original gets no quality control.
+        controls: source.qualities.length > 1 ? [{ name: "quality", position: "right", index: 10, style: { marginRight: "10px" }, html: quality.label,
+          selector: source.qualities.map(item => ({ html: item.label, default: item === quality })),
+          async onSelect(item) { await switchQuality(String(item.html)); return quality.label; } }] : [],
       });
       const player = art;
       player.once("ready", () => {
@@ -139,15 +162,15 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
         restoreTo = null;
         if (failed || disposed) return;
         failed = true;
-        const status = await fetch(absolute(source.url), { method: "HEAD", credentials: "same-origin", cache: "no-store" }).then(response => response.status, () => 0);
+        const status = await fetch(absolute(quality.url), { method: "HEAD", credentials: "same-origin", cache: "no-store" }).then(response => response.status, () => 0);
         if (!disposed && failed) say(mediaErrorMessage(status), status === 401 || status === 403 ? "login" : "video");
       });
-      // Pauses caused by a failure or a reconnect reload are not the member's choice.
+      // Pauses caused by a failure, a reconnect reload or a quality switch are not the member's choice.
       player.on("video:play", () => { playing = true; });
-      player.on("video:pause", () => { if (!failed && restoreTo === null) { playing = false; report(); } });
+      player.on("video:pause", () => { if (!failed && !switching && restoreTo === null) { playing = false; report(); } });
       // The next-up prompt lives in the page, outside the fullscreen element; the next unit would leave fullscreen anyway.
       player.on("video:ended", () => { report(); if (onEnded) { windowed(); onEnded(); } });
-      player.on("video:timeupdate", () => { if (ready && !failed && restoreTo === null) position = player.currentTime; });
+      player.on("video:timeupdate", () => { if (ready && !failed && !switching && restoreTo === null) position = player.currentTime; });
       // Restore once per reconnect; if the restored range fails again, the error is classified and offered again.
       player.on("video:canplay", () => {
         if (restoreTo === null) return;
