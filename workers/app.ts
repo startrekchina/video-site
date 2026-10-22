@@ -6,6 +6,7 @@ import { accountHttp } from "../app/lib/account.server";
 import { invitationsHttp } from "../app/lib/invitations.server";
 import { adminHttp } from "../app/lib/admin.server";
 import { playbackHttp } from "../app/lib/playback.server";
+import { progressHttp } from "../app/lib/progress.server";
 import { mediaSyncCron, syncMedia } from "../app/lib/media-sync.server";
 
 declare module "react-router" {
@@ -37,10 +38,11 @@ export default {
     const invites = path.startsWith("/invites/");
     const admin = path.startsWith("/admin/members/");
     const playback = path.startsWith("/media/") || path.startsWith("/subtitles/");
+    const progress = path.startsWith("/me/progress/");
     const requestId = crypto.randomUUID();
     const identity = createRequestIdentity(request, env);
     let input: Request = request;
-    if (account || invites || admin) {
+    if (account || invites || admin || progress) {
       const inputHeaders = new Headers(request.headers); inputHeaders.set("X-Site-Request-Id", requestId);
       input = new Request(request, { headers: inputHeaders });
     }
@@ -49,6 +51,7 @@ export default {
     try {
       response = auth ? await authHttp(input, env, identity) : account ? await accountHttp(input, env, identity)
         : invites ? await invitationsHttp(input, env, identity) : admin ? await adminHttp(input, env, identity) : playback ? await playbackHttp(input, env, identity)
+        : progress ? await progressHttp(input, env, identity)
         : await requestHandler(request, { cloudflare: { env, ctx }, identity });
     } catch (error) {
       const native = error instanceof APIError;
@@ -63,7 +66,7 @@ export default {
     headers.set("X-Request-Id", requestId);
     // Route families only: never log paths, queries, cookies or library errors; colo is the serving data center code.
     // Cloudflare attaches the original request path to each application log, even with invocation logs disabled.
-    if (!path.startsWith("/api/auth/reset-password/")) console.info(JSON.stringify({ requestId, route: auth ? "auth" : account ? "account/sessions" : invites ? "invites" : admin ? "admin/members" : playback ? "playback" : "page", status: response.status, code, colo: request.cf?.colo }));
+    if (!path.startsWith("/api/auth/reset-password/")) console.info(JSON.stringify({ requestId, route: auth ? "auth" : account ? "account/sessions" : invites ? "invites" : admin ? "admin/members" : playback ? "playback" : progress ? "me/progress" : "page", status: response.status, code, colo: request.cf?.colo }));
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers, ...(playback ? { encodeBody: "manual" as const } : {}) });
   },
 } satisfies ExportedHandler<Env>;
