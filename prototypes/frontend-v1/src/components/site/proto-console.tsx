@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router"
 
 import { actions, useStore, type Scenario } from "@/data/store"
 import { cn } from "@/lib/utils"
+import { LANDINGS, useLanding } from "@/pages/guest-home/landing"
 
 const SCENARIOS: { key: Scenario; label: string; home: string }[] = [
   { key: "guest", label: "访客（未登录）", home: "/" },
@@ -59,6 +60,7 @@ export function ProtoConsole() {
   const [open, setOpen] = useState(false)
   const scenario = useStore((s) => s.scenario)
   const maintenance = useStore((s) => s.maintenance)
+  const landing = useLanding()
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
@@ -89,6 +91,21 @@ export function ProtoConsole() {
                 }}
               >
                 {s.label}
+              </button>
+            ))}
+          </div>
+          <div className="mb-1 text-[11px] font-bold uppercase opacity-70">访客首页（待选，切到访客场景）</div>
+          <div className="mb-3 grid grid-cols-3 gap-1">
+            {LANDINGS.map((l) => (
+              <button
+                key={l.key}
+                className={cn("truncate rounded px-2 py-1 hover:bg-zinc-950/10", landing === l.key && "bg-zinc-950 text-amber-300 hover:bg-zinc-950")}
+                onClick={() => {
+                  actions.setScenario("guest")
+                  navigate(`/?landing=${l.key}`)
+                }}
+              >
+                {l.label}
               </button>
             ))}
           </div>
