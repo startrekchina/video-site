@@ -108,7 +108,7 @@ GET 与 Range 只做一次 R2 读取：`get()` 带 `onlyIf: { etagMatches: r2_et
 - 扫描把 `E03.720p.mp4`、`movie.720p.mp4` 识别为同一单元的档位，校验与原画相同（[片库 6.8.1](catalog.md#681-资料占位固定命名与幂等扫描)），与原画时长差超过 1 秒时不挂接并在报告中列出。单元可播状态与 `duration_seconds` 只由原画决定。
 - loader 的 `source` 增加 `qualities: [{ label, url }]`，原画在前、档位按后缀从高到低；每个档位仍走 `/media/:mediaFileId` 逐请求鉴权，不新增路由，打开页面时仍不访问 R2。
 - 播放器用 ArtPlayer 自定义控件的 `selector` 与 `switchQuality`（保留位置、播放状态与倍速），只有一档时不挂控件；选择存 `localStorage`，单元没有该档位时回到原画。播放器宽度 480px 以下隐藏画中画、网页全屏与音量（手机保留系统音量），给清晰度控件留位置（开发者确认，2026-10-20）。出错时对当前档位地址发 HEAD，重新连接留在当前档位。
-- ArtPlayer 5.4.0 的 ESM 入口使用 pnpm 补丁 `patches/artplayer@5.4.0.patch`：换源自动续播拒绝时，外层 Promise 必须拒绝，确保页面在 `finally` 解除切换状态；否则后续进度停滞。浏览器拒绝续播时提示手动播放，主动暂停造成的 `AbortError` 不提示故障；媒体错误仍由 `video:error` 分类。补丁只覆盖当前浏览器动态导入使用的 ESM 入口，不引入未使用的 CommonJS/legacy 补丁。
+- ArtPlayer 5.4.0 的 ESM 入口使用 pnpm 补丁 `patches/artplayer@5.4.0.patch`：换源自动续播拒绝时，外层 Promise 必须拒绝，确保页面在 `finally` 解除切换状态；否则后续进度停滞。播放/暂停按钮按原生 `video.paused` 同步，延迟到达的媒体事件不能反转当前状态。浏览器拒绝续播时提示手动播放，主动暂停造成的 `AbortError` 不提示故障；媒体错误仍由 `video:error` 分类。补丁只覆盖当前浏览器动态导入使用的 ESM 入口，不引入未使用的 CommonJS/legacy 补丁。
 
 - [x] 扫描与挂接档位文件，同步[导入说明](../import-media.md)；用例覆盖白名单后缀、时长容差、缺原画、单档失败隔离、冲突与替换。
   - 实现与本地自检（2026-10-20，基于 `daf6677` 的未提交改动）：`media-sync.server.ts` 按 `settings.qualityTiers` 识别后缀；档位只在单元已有原画记录时读取，时长差超过 `settings.qualityDurationTolerance` 秒不挂接，两种情况均记 `media_sync_variant_unattached` 及原因；档位写入不改单元时长。`catalog`、`progress` 与导入工具只以 `variant = 'original'` 判定可播与时长。`test/media-sync.test.ts` 新增 4 项：白名单外后缀跳过、档位先于原画列出时下一轮挂接、1 秒边界挂接与超出不挂接、缺原画不挂接、截断档位失败不影响其他档位、日志不含对象键、档位冲突带 `variant` 且不覆盖旧记录。
