@@ -232,3 +232,62 @@ it("protects all catalog pages and their loader requests independently and keeps
     expect(content).toContain("Signal Test"); expect(content).not.toMatch(/fictional-private-object|object_key/);
   } finally { vi.unstubAllGlobals(); }
 }, 60000);
+
+// Five episodes; the third has no source. Progress rows are [unit, position, completed, updatedAt].
+async function seedSeason(userId: string, progress: [string, number, number, number][]) {
+  await seedCatalog(env.DB);
+  const units = ["episode-unit", "episode-two", "episode-three", "episode-four", "episode-five"];
+  await env.DB.batch([
+    ...units.slice(1).map((id, index) => env.DB.prepare(`INSERT INTO playable_units (id,kind,work_id,season_id,episode_number,tmdb_id,duration_seconds,title_en)
+      VALUES (?,'episode','series','season',?,?,4,?)`).bind(id, index + 2, 930102 + index, `Fictional ${id}`)),
+    ...[...units.filter(id => id !== "episode-three"), "movie-unit"].map(id => env.DB.prepare("INSERT INTO media_files VALUES (?,?,'mp4','original',?,4,'hash',4,'h264','aac',100,'fictional-verified-version')")
+      .bind(`media-${id}`, id, `fictional-private-${id}`)),
+  ]);
+  await setProgress(userId, progress);
+}
+const setProgress = (userId: string, rows: [string, number, number, number][]) => env.DB.batch(rows.map(([unit, position, completed, updated]) =>
+  env.DB.prepare("INSERT OR REPLACE INTO watch_progress VALUES (?,?,?,?,?,1)").bind(userId, unit, position, completed, updated)));
+async function continued(userId = "nova") {
+  const items = homeStages(await catalog(env.DB, userId, "", { home: true })).items as { work: { slug: string }; unit: { id: string }; next?: boolean }[];
+  // The home page reads only the units it needs; the title page reads them all and must agree.
+  for (const item of items) expect(resumeTarget((await catalog(env.DB, userId, "", { workId: item.work.slug }))[0])?.id).toBe(item.unit.id);
+  return items.map(item => [item.unit.id, Boolean(item.next)]);
+}
+
+it("continues with the first unfinished episode after the latest finished one, never past a missing source", async () => {
+  await seedSeason("nova", [["episode-unit", 4, 1, 100], ["movie-unit", 2, 0, 50]]);
+  expect(await continued()).toEqual([["episode-two", true], ["movie-unit", false]]);
+  // The next episode has no source: nothing to offer rather than skipping it, on the home and title pages alike.
+  await setProgress("nova", [["episode-two", 4, 1, 300]]);
+  expect(await continued()).toEqual([["movie-unit", false]]);
+  expect(resumeTarget((await catalog(env.DB, "nova", "", { workId: "series" }))[0])).toMatchObject({ id: "episode-three", playable: false });
+  // A manual mark on the sourceless episode counts; episodes already finished are passed over.
+  await setProgress("nova", [["episode-three", 4, 1, 400], ["episode-four", 4, 1, 200]]);
+  expect(await continued()).toEqual([["episode-five", true], ["movie-unit", false]]);
+  // Unfinished viewing outranks a newer finished episode, and a finished movie leaves the list.
+  await setProgress("nova", [["episode-unit", 2, 0, 10], ["movie-unit", 4, 1, 500]]);
+  expect(await continued()).toEqual([["episode-unit", false]]);
+  expect(await continued("quinn")).toEqual([]);
+});
+
+it("links a watch page to the playable neighbours in episode order and labels the home next episode", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+  try {
+    const user = await member("Kepler"), cookie = await login("Kepler");
+    await seedSeason(user.id, [["episode-unit", 4, 1, 100]]);
+    const page = async (path: string) => {
+      const response = await exports.default.fetch(`http://localhost:6120${path}`, { headers: { Cookie: cookie } });
+      expect(response.status).toBe(200); return (await response.text()).replace(/<!--[sS]*?-->/gu, "");
+    };
+    const missing = await page("/watch/episode-three");
+    expect(missing).toContain("这一集片源暂缺"); expect(missing).toContain('aria-label="上一集 · S01E02"'); expect(missing).toContain('aria-label="下一集 · S01E04"');
+    const second = await page("/watch/episode-two");
+    expect(second).toContain('aria-label="上一集 · S01E01"'); expect(second).toContain('aria-label="下一集 · S01E04"');
+    expect(await page("/watch/episode-unit")).not.toContain('aria-label="上一集');
+    const home = await page("/");
+    expect(home).toContain("播放下一集"); expect(home).toContain('href="/watch/episode-two"');
+    await env.DB.prepare("INSERT INTO watch_progress VALUES (?, 'episode-two', 4, 1, 300, 1)").bind(user.id).run();
+    const blocked = await page("/title/series");
+    expect(blocked).toContain("S01E03 片源暂缺。"); expect(blocked).not.toContain("开始播放");
+  } finally { vi.unstubAllGlobals(); }
+}, 60000);
