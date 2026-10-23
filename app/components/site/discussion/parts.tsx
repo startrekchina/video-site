@@ -31,7 +31,7 @@ export function Handle({ name, className }: { name: string; className?: string }
   return <span className={cn("font-mono text-[13px] font-medium text-foreground", className)}>@{name}</span>
 }
 
-/** 管理员, 作者 (wrote the comment a conversation hangs off) and 我. */
+/** Administrator, original commenter, and current viewer badges. */
 export function Badges({ admin, author, mine }: { admin: boolean; author?: boolean; mine: boolean }) {
   return (
     <>
@@ -138,7 +138,7 @@ export function CommentBody({ body, className }: { body: string; className?: str
   )
 }
 
-/** Caps long bodies at `max` and offers 展开全文. */
+/** Caps long bodies at `max` and offers an expand control. */
 export function Clamp({ children, max = "8.5em", className }: { children: React.ReactNode; max?: string; className?: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const [over, setOver] = useState(false)

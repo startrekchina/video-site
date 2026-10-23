@@ -89,7 +89,7 @@ function Meta({ item, now, author }: { item: Comment | Reply; now: number; autho
   )
 }
 
-/** 赞踩 | 回复, then 删除 for admins only (B 6.12.4). */
+/** Vote and reply actions, followed by delete for admins only (B 6.12.4). */
 function Actions({ root, item, ctx, onReply, className, children }: { root: Comment; item: Comment | Reply; ctx: Ctx; onReply: () => void; className?: string; children?: React.ReactNode }) {
   return (
     <div className={cn("-ml-1.5 flex flex-wrap items-center gap-1", className)}>
@@ -314,6 +314,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   const list = useRef<HTMLOListElement>(null)
   const replyBox = useRef<ComposerHandle>(null)
   const latest = useRef(0)
+  const reading = useRef<string | null>(null)
   // Async steps read the conversation as it is now, not as it was when they started.
   const known = useRef(comments)
   known.current = comments
@@ -388,9 +389,11 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     }
   }, [missing])
 
-  // Wide: a conversation is always open, by default the first on the page that is not your own fresh
-  // post, so posting does not swap out what you were reading. Narrow: an accordion, closed by default.
-  const open = items.find((c) => c.id === picked) ?? (wide ? (items.find((c) => !fresh.includes(c.id)) ?? items[0]) : undefined)
+  // Posting can move the open conversation off the page; keep reading it from the cache.
+  // Narrow layouts retain its row so the inline conversation stays available too.
+  const open = (picked && all.includes(picked) ? comments[picked] : undefined) ?? (wide ? (items.find((c) => !fresh.includes(c.id)) ?? items[0]) : undefined)
+  reading.current = open?.id ?? null
+  const rows = !wide && open && !visible.includes(open.id) ? [...items, open] : items
 
   const bind = (id: string) => ({
     value: drafts[id] ?? "",
@@ -419,7 +422,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     try {
       for (let last = root.replies.at(-1), wanted = all || root.replyCount > root.replies.length, reached = false; wanted; reached = true) {
         const result = await libraryRequest<{ items: Reply[]; rest: number }>(`${base}/comments/${id}/replies?afterAt=${last?.createdAt ?? 0}&afterId=${last?.id ?? "0"}`, "GET")
-        // Taken over by a newer load, which reads to the end: 显示更多 waits while one runs, so only a posted reply starts one.
+        // Taken over by a newer load, which reads to the end: the load-more button waits while one runs, so only a posted reply starts one.
         if (loads.current.get(id) !== mine) return true
         if ("error" in result) {
           failed(result.error.message, "回复未加载，请稍后重试。")
@@ -465,6 +468,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     const c = await send<Comment>(NEW_DRAFT, body, `${base}/comments`)
     if (!c) return false
     cache([c])
+    setPicked(reading.current)
     setFresh((f) => [c.id, ...f])
     setPage(1)
     setAnnouncement("评论已发送")
@@ -477,7 +481,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     if (!r) return false
     setTargets((t) => ((t[root.id] ?? null)?.id === target?.id ? { ...t, [root.id]: null } : t))
     // The new reply ends the conversation: it loads with whatever came before it. If no batch gets through it is
-    // only counted, so 显示更多 still brings the rest in order instead of paging past it.
+    // only counted, so the load-more control still brings the rest in order instead of paging past it.
     if (!(await more(root.id, true))) patch(root.id, (c) => ({ ...c, replyCount: c.replyCount + 1 }))
     setAnnouncement("回复已发送")
     return true
@@ -550,7 +554,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
           {kind === "episode" ? "本集讨论" : "本片讨论"}
           {all.length > 0 && <PanelTitleSup>({all.length})</PanelTitleSup>}
         </PanelTitle>
-        {all.length > 1 && <SortTabs value={sort} onChange={(s) => void load(s)} />}
+        {all.length > 1 && <SortTabs value={sort} onChange={(s) => { setPicked(null); void load(s) }} />}
       </PanelHeader>
 
       {unavailable ? (
@@ -588,7 +592,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
               </Empty>
             ) : (
               <ol ref={list} aria-label="评论" aria-busy={!!missing} className="divide-y divide-line">
-                {items.map((c) => {
+                {rows.map((c) => {
                   const isOpen = c.id === open?.id
                   return (
                     <li key={c.id}>
@@ -618,6 +622,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
             page={current}
             count={pageCount}
             onChange={(p) => {
+              setPicked(null)
               setPage(p)
               setTimeout(() => revealTop(list.current))
             }}
