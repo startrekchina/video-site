@@ -257,9 +257,10 @@ async function continued(userId = "nova") {
 it("continues with the first unfinished episode after the latest finished one, never past a missing source", async () => {
   await seedSeason("nova", [["episode-unit", 4, 1, 100], ["movie-unit", 2, 0, 50]]);
   expect(await continued()).toEqual([["episode-two", true], ["movie-unit", false]]);
-  // The next episode has no source: nothing to offer rather than skipping it.
+  // The next episode has no source: nothing to offer rather than skipping it, on the home and title pages alike.
   await setProgress("nova", [["episode-two", 4, 1, 300]]);
   expect(await continued()).toEqual([["movie-unit", false]]);
+  expect(resumeTarget((await catalog(env.DB, "nova", "", { workId: "series" }))[0])).toMatchObject({ id: "episode-three", playable: false });
   // A manual mark on the sourceless episode counts; episodes already finished are passed over.
   await setProgress("nova", [["episode-three", 4, 1, 400], ["episode-four", 4, 1, 200]]);
   expect(await continued()).toEqual([["episode-five", true], ["movie-unit", false]]);
@@ -285,5 +286,8 @@ it("links a watch page to the playable neighbours in episode order and labels th
     expect(await page("/watch/episode-unit")).not.toContain('aria-label="上一集');
     const home = await page("/");
     expect(home).toContain("播放下一集"); expect(home).toContain('href="/watch/episode-two"');
+    await env.DB.prepare("INSERT INTO watch_progress VALUES (?, 'episode-two', 4, 1, 300, 1)").bind(user.id).run();
+    const blocked = await page("/title/series");
+    expect(blocked).toContain("S01E03 片源暂缺。"); expect(blocked).not.toContain("开始播放");
   } finally { vi.unstubAllGlobals(); }
 }, 60000);
