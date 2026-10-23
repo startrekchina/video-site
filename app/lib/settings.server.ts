@@ -23,6 +23,15 @@ export const settings = {
   // Quality tiers from high to low (B 6.6); a tier links only when its duration is within the tolerance of the original.
   qualityTiers: ["2160p", "1080p", "720p", "480p"],
   qualityDurationTolerance: 1,
+  // Colors must match the CHECK in migrations/0015_danmaku.sql.
+  danmaku: {
+    maxLength: 50,
+    readLimit: 3000,
+    adminPageSize: 50,
+    colors: ["#FFFFFF", "#F2C14E", "#E5534B", "#5BA4E6", "#6CC08B", "#B48EF0"],
+    blockWordLimit: 20,
+    blockWordMaxLength: 20,
+  },
 
   session: {
     expiresIn: 30 * DAY,
@@ -42,5 +51,6 @@ export const settings = {
     auth: { window: 10, max: 100 },
     adminHighImpactPerAdmin: { perMinute: 30 },
     memberEmail: { minInterval: 60, perHour: 5 },
+    danmaku: { minInterval: 5, perHour: 60 },
   },
 } as const;

@@ -18,7 +18,7 @@ function importRejection(error: unknown) {
 }
 type RecoveryEnv = Pick<Env, "APP_ENV" | "BACKUP_DATABASE_ID" | "BACKUP_ACCOUNT_ID" | "MEDIA_BUCKET" | "BACKUP_KEYRING" | "BACKUP_ENCRYPTION_KEY" | "BETTER_AUTH_SECRET"> & { D1_IMPORT_TOKEN: string };
 const businessTables = ["works", "seasons", "playable_units", "media_files", "subtitle_tracks", "user", "account", "member_profiles", "invitations",
-  "passkey", "watch_progress", "favorites", "playlists", "playlist_items", "comments", "comment_replies", "discussion_votes"] as const;
+  "passkey", "watch_progress", "favorites", "playlists", "playlist_items", "comments", "comment_replies", "discussion_votes", "danmaku"] as const;
 async function metadata(response: Response) {
   requireValid(response.ok && response.body);
   const reader = response.body!.getReader(), parts: Uint8Array[] = []; let length = 0;
