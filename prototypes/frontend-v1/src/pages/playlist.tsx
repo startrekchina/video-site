@@ -1,7 +1,7 @@
 import { ArrowDownIcon, ArrowUpIcon, GlobeIcon, LockIcon, PlayIcon, Trash2Icon, XIcon } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router"
 
-import { displayTitle, episodeCode, getUnit, getWork, unitPoster } from "@/data/catalog"
+import { displayTitle, episodeCode, getUnit, getWork, unitPoster, type Unit } from "@/data/catalog"
 import { actions, useStore, type Playlist, type PlaylistItem } from "@/data/store"
 import { Poster, WatchedBadge } from "@/components/site/media"
 import { HeadingGap, Page, PageHeading, PageHeadingDescription, PageHeadingTagline, PageHeadingTitle, Panel, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel"
@@ -9,8 +9,21 @@ import { Button } from "@/components/ui/button"
 import { SwipeAction, SwipeActions, SwipeContent, SwipeItem, SwipeRoot } from "@/components/ui/swipe-actions"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { Tag } from "@/components/ui/tag"
+import { toast } from "@/components/ui/toast"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { NotFoundPage } from "./not-found"
+
+/** Play-in-order queue (requirement 6.7.2): items in order, series by season and episode, each unit kept at its first occurrence. */
+export function expandQueue(items: PlaylistItem[]): Unit[] {
+  const seen = new Set<string>()
+  return items
+    .flatMap((item) => {
+      if (item.type === "unit") return [getUnit(item.id)!]
+      const w = getWork(item.slug)!
+      return w.kind === "movie" ? [getUnit(w.unitId!)!] : w.seasons.flatMap((s) => s.episodes.map((ep) => getUnit(ep.id)!))
+    })
+    .filter((u) => !seen.has(u.id) && Boolean(seen.add(u.id)))
+}
 
 function resolve(item: PlaylistItem) {
   if (item.type === "work") {
@@ -68,7 +81,14 @@ export function PlaylistPage() {
   if (!p) return <NotFoundPage />
   const own = p.owner === me.username
   const items = p.items.map(resolve)
-  const firstPlayable = items.find((i) => i.unitId && !progress[i.unitId]?.watched) ?? items[0]
+  const queue = expandQueue(p.items)
+  const first = queue.find((u) => !progress[u.id]?.watched)
+  const playLabel = (
+    <>
+      <PlayIcon className="fill-current" data-icon="inline-start" />
+      按顺序播放
+    </>
+  )
 
   return (
     <Page>
@@ -82,11 +102,12 @@ export function PlaylistPage() {
       <div className="h-4" />
       <Panel className="screen-line-top">
         <div className="flex flex-wrap items-center gap-2 p-4">
-          {firstPlayable && (
-            <Button render={<Link to={firstPlayable.play} />} nativeButton={false}>
-              <PlayIcon className="fill-current" data-icon="inline-start" />
-              按顺序播放
+          {first ? (
+            <Button render={<Link to={`/watch/${first.id}?playlist=${p.id}`} />} nativeButton={false}>
+              {playLabel}
             </Button>
+          ) : (
+            queue.length > 0 && <Button onClick={() => toast.add({ title: "已全部看完。" })}>{playLabel}</Button>
           )}
           {own ? (
             <>
@@ -199,7 +220,7 @@ export function PublicPlaylistsPage() {
     <Page>
       <PageHeading>
         <PageHeadingTagline>站内公开片单</PageHeadingTagline>
-        <PageHeadingTitle>其他成员整理并公开的片单。</PageHeadingTitle>
+        <PageHeadingTitle>其他成员整理并公开的片单.</PageHeadingTitle>
         <PageHeadingDescription>只有站内成员能看到。想分享自己的片单，在片单页把可见范围改成“站内公开”。</PageHeadingDescription>
       </PageHeading>
       <HeadingGap />

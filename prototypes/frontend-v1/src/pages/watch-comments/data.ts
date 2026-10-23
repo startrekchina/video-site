@@ -36,7 +36,7 @@ export const EMPTY_UNIT = "tng-s03e24"
 
 export const ADMINS = new Set(["station_keeper", "ops_ensign"])
 
-const USERS = [
+export const USERS = [
   "station_keeper",
   "ops_ensign",
   "picard_fan",
@@ -90,7 +90,7 @@ const DEMO: Seed[] = [
       { author: "holo_novel", body: "我更喜欢下一集开头这句的回响。" },
       { author: "sickbay_doc", body: "> 几十年了还是起鸡皮疙瘩\n\n真的，刚刚又起了一次。", likes: 2 },
       { author: "nacelle", body: "看评论才知道这么多人和我一样 🖖" },
-      { author: "lcars_ui", body: "建议开英文字幕再看一遍这一段，原声的停顿更有味道。", likes: 5 },
+      { author: "lcars_ui", body: "建议开双语字幕再看一遍这一段，原声的停顿更有味道。", likes: 5 },
       { author: "spot_the_cat", body: "我妈在旁边问：所以打中了吗？" },
       { author: "warp_nine", body: "哈哈哈哈哈你妈妈好可爱", replyTo: "spot_the_cat" },
       { author: "tenforward", body: "这就是为什么 TNG 第三季是起飞的一季。" },
@@ -248,7 +248,7 @@ const GENERIC_TOP = [
   "认真说几点感受：\n\n- 主线推进得很稳，没有为了反转而反转\n- 配角的弧光比主角还完整\n- 唯一的问题是 B 故事线和主线几乎没有关系\n\n总体 8/10，推荐。",
   "这集要是放在今天，肯定会拆成两集播。",
   "每次重看都能被这群人之间的友情打动。",
-  "建议开英文字幕看一遍，很多双关语中文没法完全翻出来。",
+  "建议开双语字幕看一遍，很多双关语中文没法完全翻出来。",
   "这一集的客串演员后来也演了别的角色，认出来了吗？",
   "*这才是星际迷航*。",
 ]
@@ -287,13 +287,13 @@ const GENERIC_REPLY = [
   "新人表示受教了。",
 ]
 
-function hash(s: string) {
+export function hash(s: string) {
   let h = 2166136261
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619)
   return h >>> 0
 }
 
-function mulberry32(seed: number) {
+export function mulberry32(seed: number) {
   let a = seed
   return () => {
     a = (a + 0x6d2b79f5) | 0

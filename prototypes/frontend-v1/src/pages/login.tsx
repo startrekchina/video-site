@@ -104,7 +104,6 @@ export function LoginPage() {
   return (
     <AuthFrame
       title="登录"
-      description="星际舰队档案馆是邀请制的私人观看站，仅对受邀成员开放。"
       aside={
         <div className="flex flex-col gap-1">
           <span>
@@ -134,7 +133,7 @@ export function LoginPage() {
           <Field>
             <div className="flex items-center justify-between">
               <FieldLabel htmlFor="password">密码</FieldLabel>
-              <Link to="/about#recovery" className="text-sm text-muted-foreground hover:text-foreground">
+              <Link to="/forgot-password" className="text-sm text-muted-foreground hover:text-foreground">
                 忘记密码？
               </Link>
             </div>

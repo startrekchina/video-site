@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react"
+import { Link } from "react-router"
 import { BanIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, ShieldIcon, ShieldOffIcon, UndoIcon } from "lucide-react"
 
 import { actions, useStore, type Member } from "@/data/store"
 import { cn, fakeLatency } from "@/lib/utils"
 import { StatusButton } from "@/components/ui/status-button"
 import { Page, PageHeading, PageHeadingDescription, PageHeadingTagline, PageHeadingTitle, Panel, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel"
+import { isBackupOwner } from "@/pages/backups"
 import { StatusDot } from "@/pages/invites"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -298,16 +300,28 @@ function TreeTab() {
 }
 
 export function AdminPage() {
+  const me = useStore((s) => s.me)
   const members = useStore((s) => s.members)
   const invites = useStore((s) => s.invites)
   return (
     <Page narrow>
       <PageHeading>
         <PageHeadingTagline>管理后台</PageHeadingTagline>
-        <PageHeadingTitle>成员、邀请码和邀请链。</PageHeadingTitle>
+        <PageHeadingTitle>成员、邀请码和邀请链.</PageHeadingTitle>
         <PageHeadingDescription>内容由站长用离线工具导入，这里不提供上传。</PageHeadingDescription>
       </PageHeading>
-      <div className="h-4" />
+      {isBackupOwner(me) ? (
+        <div className="flex gap-4 px-4 pb-4 text-sm">
+          <Link className="link-underline" to="/admin/backups">
+            数据备份与状态
+          </Link>
+          <Link className="link-underline" to="/admin/library">
+            片库完整性
+          </Link>
+        </div>
+      ) : (
+        <div className="h-4" />
+      )}
       <div className="screen-line-top screen-line-bottom grid grid-cols-3">
         {[
           ["成员", members.filter((m) => m.status === "active").length],

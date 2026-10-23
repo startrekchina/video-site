@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Tag } from "@/components/ui/tag"
 import { toast } from "@/components/ui/toast"
 
-function Row({ icon, title, meta, action }: { icon: React.ReactNode; title: React.ReactNode; meta?: React.ReactNode; action?: React.ReactNode }) {
+export function Row({ icon, title, meta, action }: { icon: React.ReactNode; title: React.ReactNode; meta?: React.ReactNode; action?: React.ReactNode }) {
   return (
     <li className="flex items-center gap-4 p-4 pr-2 transition-[background-color] ease-out hover:bg-accent-muted">
       <IconTile>{icon}</IconTile>
@@ -78,7 +78,7 @@ function PasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
   )
 }
 
-function TotpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+export function TotpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [code, setCode] = useState("")
   const [step, setStep] = useState<"scan" | "codes">("scan")
   return (
@@ -180,7 +180,7 @@ export function AccountPage() {
       </aside>
       <PageHeading>
         <PageHeadingTagline>账号与安全</PageHeadingTagline>
-        <PageHeadingTitle>管理登录方式、二步验证和登录设备。</PageHeadingTitle>
+        <PageHeadingTitle>管理登录方式、二步验证和登录设备.</PageHeadingTitle>
         <PageHeadingDescription className="font-mono text-sm">
         <dl className="flex flex-wrap gap-x-6 gap-y-1">
           <div>

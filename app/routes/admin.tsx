@@ -92,7 +92,7 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
   }
   const total = admin.tab === "members" ? admin.stats.filtered : admin.tab === "invites" ? admin.stats.invitationCount : admin.stats.roots;
   return <Page narrow>
-    <PageHeading><PageHeadingTagline>管理后台</PageHeadingTagline><PageHeadingTitle>成员、邀请码和邀请链。</PageHeadingTitle><PageHeadingDescription>管理社区成员、邀请额度与关系链。片库与影视资料由站长离线维护。</PageHeadingDescription></PageHeading><div className="h-4" />
+    <PageHeading><PageHeadingTagline>管理后台</PageHeadingTagline><PageHeadingTitle>成员、邀请码和邀请链.</PageHeadingTitle><PageHeadingDescription>管理社区成员、邀请额度与关系链。片库与影视资料由站长离线维护。</PageHeadingDescription></PageHeading><div className="h-4" />
     {admin.backupOwner && <div className="px-4 pb-4 text-sm"><Link className="link-underline" to="/admin/backups">数据备份与状态</Link></div>}
     <div className="screen-line-top screen-line-bottom grid grid-cols-3">
       {[["成员", admin.stats.active], ["已封禁", admin.stats.banned], ["未使用邀请码", admin.stats.validUnused]].map(([title, value], i) =>

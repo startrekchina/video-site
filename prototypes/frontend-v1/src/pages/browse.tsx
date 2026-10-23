@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { ArrowDownWideNarrowIcon, ArrowUpNarrowWideIcon, ChartNoAxesGanttIcon, LayoutGridIcon, SearchIcon } from "lucide-react"
-import { NavLink } from "react-router"
+import { NavLink, useSearchParams } from "react-router"
 
 import { MOVIES, SERIES, type WorkKind } from "@/data/catalog"
 import { HeadingGap, Page, PageHeading, PageHeadingTagline, PageHeadingTitle } from "@/components/site/panel"
@@ -18,11 +18,12 @@ const NAV = [
   { to: "/movies", label: "电影", n: MOVIES.length },
 ]
 
-export function BrowsePage({ kind }: { kind: WorkKind }) {
-  const [q, setQ] = useState("")
+export function BrowsePage({ kind }: { kind: WorkKind | "search" }) {
+  const [params] = useSearchParams()
+  const [q, setQ] = useState(params.get("q") ?? "")
   const [desc, setDesc] = useState(false)
   const [view, setView] = useState<View>("grid")
-  const all = kind === "series" ? SERIES : MOVIES
+  const all = kind === "search" ? [...SERIES, ...MOVIES] : kind === "series" ? SERIES : MOVIES
   const s = q.trim().toLowerCase()
   const works = all
     .filter((w) => !s || w.titleZh.toLowerCase().includes(s) || w.titleEn.toLowerCase().includes(s) || w.code.toLowerCase() === s)
@@ -31,9 +32,13 @@ export function BrowsePage({ kind }: { kind: WorkKind }) {
   return (
     <Page>
       <PageHeading>
-        <PageHeadingTagline>{kind === "series" ? "剧集" : "电影"}</PageHeadingTagline>
+        <PageHeadingTagline>{kind === "search" ? "全站搜索" : kind === "series" ? "剧集" : "电影"}</PageHeadingTagline>
         <PageHeadingTitle>
-          {kind === "series" ? "从 1966 年的原初系列，到 2026 年的星际舰队学院。" : "从 1979 年的《无限太空》，到 2025 年的《31 区》。"}
+          {kind === "search"
+            ? "按中文或英文作品名查找剧集和电影."
+            : kind === "series"
+              ? "从 1966 年的原初系列，到 2026 年的星际舰队学院."
+              : "从 1979 年的《无限太空》，到 2025 年的《31 区》."}
         </PageHeadingTitle>
       </PageHeading>
 
