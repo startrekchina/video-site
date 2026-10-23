@@ -2,19 +2,10 @@ diff --git a/dist/artplayer-plugin-danmuku.mjs b/dist/artplayer-plugin-danmuku.m
 index fac426cd821bbde03114f0bbc509d68ea403d7a4..7ae660c74b880ba7754f4d27b92fa98ce774800a 100644
 --- a/dist/artplayer-plugin-danmuku.mjs
 +++ b/dist/artplayer-plugin-danmuku.mjs
-@@ -397,7 +397,7 @@ class Danmuku {
-     });
-     if (!danmu.text.trim())
-       return this;
+@@ -400,1 +400,1 @@ class Danmuku {
 -    if (danmu.time) {
 +    if (danmu.time !== void 0) {
-       danmu.time = clamp(danmu.time, 0, Infinity);
-     } else {
-       danmu.time = this.art.currentTime + 0.5;
-@@ -668,8 +668,19 @@ class Danmuku {
-     this.art.emit("artplayerPluginDanmuku:start");
-     return this;
-   }
+@@ -671,2 +671,13 @@ class Danmuku {
 -  reset() {
 -    this.queue.forEach((danmu) => this.makeWait(danmu));
 +  reset(recheck = false) {
@@ -30,19 +21,10 @@ index fac426cd821bbde03114f0bbc509d68ea403d7a4..7ae660c74b880ba7754f4d27b92fa98c
 +    } else {
 +      this.queue.forEach((danmu) => this.makeWait(danmu));
 +    }
-     this.art.emit("artplayerPluginDanmuku:reset");
-     return this;
-   }
 diff --git a/types/artplayer-plugin-danmuku.d.ts b/types/artplayer-plugin-danmuku.d.ts
 index 00373f44447474aa2356fd45c92410f1446a43ed..8c759218207b055e926bd5a59e3812ba98138c98 100644
 --- a/types/artplayer-plugin-danmuku.d.ts
 +++ b/types/artplayer-plugin-danmuku.d.ts
-@@ -235,7 +235,7 @@ export interface Result {
-   /**
-    * 重置弹幕
-    */
+@@ -238,1 +238,1 @@ export interface Result {
 -  reset: () => Result
 +  reset: (recheck?: boolean) => Result
- 
-   /**
-    * 弹幕配置
