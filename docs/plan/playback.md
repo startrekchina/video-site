@@ -4,7 +4,7 @@
 
 ## 范围与状态
 
-承接 A3/A8、B 6.6/6.14/7，依赖认证即时门禁与片库可播资源。T4.3/T4.4 功能、HTTP、121 分钟长时和设计复验通过；iPhone 实机验收通过。请求身份/媒体查询优化与签发 HEAD 并行修复已有本地和 staging 证据，核心安全与日志复验通过，历史尾延迟等性能缺口仍待补齐；并行修复经 PR #26 进入 `dev` 并随 staging 自动发布。性能任务统一维护在 [T4.5](authentication.md#t45-请求级身份与-d1-往返优化)；[T4.6](#t46-播放改用登录会话鉴权) 改为登录会话鉴权，HTTP 与 staging 正常路径已按新契约复验，长播与设计复验仍须重做。下一集/进度/片单队列由 community 负责。
+承接 A3/A8、B 6.6/6.14/7，依赖认证即时门禁与片库可播资源。T4.3/T4.4 功能、HTTP、121 分钟长时和设计复验通过；iPhone 实机验收通过。请求身份/媒体查询优化与签发 HEAD 并行修复已有本地和 staging 证据，核心安全与日志复验通过，历史尾延迟等性能缺口仍待补齐；并行修复经 PR #26 进入 `dev` 并随 staging 自动发布。性能任务统一维护在 [T4.5](authentication.md#t45-请求级身份与-d1-往返优化)；[T4.6](#t46-播放改用登录会话鉴权) 改为登录会话鉴权，HTTP 与 staging 正常路径已按新契约复验，长播与设计复验仍须重做。[T4.9](#t49-多清晰度片源) 多清晰度片源实现与本地浏览器自检通过，待开发者验收与真实手机补验。下一集/进度/片单队列与弹幕由 community 负责。
 
 ## 任务与验证摘要
 
@@ -100,11 +100,29 @@ GET 与 Range 只做一次 R2 读取：`get()` 带 `onlyIf: { etagMatches: r2_et
 - R2 `body` 以流交给响应，不整体 `arrayBuffer()` 或缓存进内存；媒体不压缩、不改写字节，Content-Length 与 Range 语义保持一致。
 - v1 不将授权媒体响应放进共享 CDN/Cache API；200、206、416 和错误均为 `private, no-store`。地址不含凭证；应用日志只记路由族、状态与资源 ID，不记 URL 或 query，平台的 query 脱敏与 invocation log 关闭照常保留。
 
+## T4.9 多清晰度片源
+
+开发者 2026-10-18 确认纳入 v1，规则见 [B 6.6](../detailed-requirements.md#66-播放与媒体分发)与 6.8；原型 `prototypes/frontend-v1` 的播放页提供交互参考。
+
+- 存储复用 `media_files.variant`：原画为 `original`，档位为后缀本身（`2160p`/`1080p`/`720p`/`480p`）；逻辑唯一键 `(playable_unit_id, format, variant)` 已覆盖，不改表结构。
+- 扫描把 `E03.720p.mp4`、`movie.720p.mp4` 识别为同一单元的档位，校验与原画相同（[片库 6.8.1](catalog.md#681-资料占位固定命名与幂等扫描)），与原画时长差超过 1 秒时不挂接并在报告中列出。单元可播状态与 `duration_seconds` 只由原画决定。
+- loader 的 `source` 增加 `qualities: [{ label, url }]`，原画在前、档位按后缀从高到低；每个档位仍走 `/media/:mediaFileId` 逐请求鉴权，不新增路由，打开页面时仍不访问 R2。
+- 播放器用 ArtPlayer 自定义控件的 `selector` 与 `switchQuality`（保留位置、播放状态与倍速），只有一档时不挂控件；选择存 `localStorage`，单元没有该档位时回到原画。播放器宽度 480px 以下隐藏画中画、网页全屏与音量（手机保留系统音量），给清晰度控件留位置（开发者确认，2026-10-20）。出错时对当前档位地址发 HEAD，重新连接留在当前档位。
+
+- [x] 扫描与挂接档位文件，同步[导入说明](../import-media.md)；用例覆盖白名单后缀、时长容差、缺原画、单档失败隔离、冲突与替换。
+  - 实现与本地自检（2026-10-20，基于 `daf6677` 的未提交改动）：`media-sync.server.ts` 按 `settings.qualityTiers` 识别后缀；档位只在单元已有原画记录时读取，时长差超过 `settings.qualityDurationTolerance` 秒不挂接，两种情况均记 `media_sync_variant_unattached` 及原因；档位写入不改单元时长。`catalog`、`progress` 与导入工具只以 `variant = 'original'` 判定可播与时长。`test/media-sync.test.ts` 新增 4 项：白名单外后缀跳过、档位先于原画列出时下一轮挂接、1 秒边界挂接与超出不挂接、缺原画不挂接、截断档位失败不影响其他档位、日志不含对象键、档位冲突带 `variant` 且不覆盖旧记录。
+- [x] loader 与播放器接入清晰度选择；组件用例覆盖排序、单档隐藏、记住选择与回退、切换保留状态、出错重连留在当前档位。
+  - 实现与本地自检（同上；播放接口 `source` 新增 `qualities` 的断言与播放器夹具增补经开发者确认）：`playbackSource` 返回 `qualities`，原画缺失或未验证时整体不可播，档位不替代原画；播放器用 ArtPlayer 控件 `selector` 与 `switchQuality`，切换期间不记录暂停与位置，选择存 `localStorage` 的 `player-quality`。`test/playback.test.ts` 新增 1 项（排序、未验证档位不列出、档位 Range、访客 401、原画未验证返回 null），`test/player.test.ts` 新增 4 项（单档无控件、记住与回退、切换保留位置且不误报进度、出错时选择档位直接在该档重连）。
+- [ ] 桌面与手机浏览器验证控制栏布局、切换与记忆；真实手机按 T4.4-mobile 方式补验切换。
+  - 本地浏览器自检（2026-10-20，同上改动）：6121 开发服务器、虚构成员与自生成 3 分钟原画及 720p/480p 档位，经真实扫描挂接。控制栏显示“原画 / 720p / 480p”；播放中在 31 秒切到 720p，地址换为该档位且从原位置继续播放；刷新后仍为 720p 并从保存位置续播；无档位的单集回到原画且不显示控件，已存选择保留。1707、700 与 390 宽度布局正常，480px 以下隐藏画中画、网页全屏与音量。真实手机、staging 未验证。
+
+- 合并自检（2026-10-23，#43 基线 `278304a`、`main` 基线 `7b0cf0b`）：代码、测试、ArtPlayer 补丁和锁文件与 #43 基线一致；冻结锁文件离线安装、类型检查、播放器/媒体扫描/片库/进度五文件定向测试 75 项、工具测试 21 项及 development 构建通过。未重跑浏览器、staging 或真实手机，不扩大验收范围。
+
 ## 播放器与媒体接口
 
 | 入口与方法 | 权限 | 请求 / 响应 |
 | --- | --- | --- |
-| `/watch/:unitId` loader | 正常成员 | 与片库查询并行读取该单元唯一的已验证 MP4 及已验证 VTT 字幕轨（`playbackSource`），返回 `source: { url, tracks: [{ id, language, displayName, url }] } | null`；不访问 R2，不写入任何计数。 |
+| `/watch/:unitId` loader | 正常成员 | 与片库查询并行读取该单元已验证的原画与档位 MP4 及已验证 VTT 字幕轨（`playbackSource`），返回 `source: { url, qualities: [{ label, url }], tracks: [{ id, language, displayName, url }] } | null`，`url` 为原画，原画未验证时为 `null`；不访问 R2，不写入任何计数。 |
 | `GET/HEAD /media/:mediaFileId`、`/subtitles/:subtitleTrackId` | 当前 Cookie 会话的正常成员 | 按 6.6.1 鉴权、6.6.2 返回字节流或脱敏错误；资源 ID 只在服务端映射 R2，不接受客户端对象路径。 |
 
 ArtPlayer 在浏览器懒加载，同源 MP4/VTT；切单元重建并读取目标起点。地址固定，不续期、不换源。

@@ -4,6 +4,7 @@ import { expect, it, vi } from "vitest";
 import { seedCatalog } from "./fixtures/catalog";
 import { catalog } from "@/lib/catalog.server";
 import { inspectR2Media, mediaIdentity, subtitleLabel, syncMedia } from "@/lib/media-sync.server";
+import { playbackSource } from "@/lib/playback.server";
 import { probeD1 } from "./fixtures/d1-probe";
 
 const key = "library/series/920001/S01/E01.mp4", subtitleKey = "library/series/920001/S01/E01.zh-CN.main.vtt";
@@ -46,6 +47,73 @@ it("validates actual R2 MP4 and VTT, links placeholders, skips a repeat and pres
   expect((await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0]).toMatchObject({ durationSeconds: 4, playable: true, positionSeconds: 2, revision: 1 });
   const row = await env.DB.prepare("SELECT byte_length, checksum_sha256, r2_etag FROM media_files").first<{ byte_length: number; checksum_sha256: string; r2_etag: string }>();
   expect(row?.byte_length).toBe(video().length); expect(row?.checksum_sha256).toMatch(/^[a-f0-9]{64}$/); expect(row?.r2_etag).toBeTruthy();
+});
+
+// The parser reads the duration from mvhd only, so rewriting it yields a valid MP4 of another length.
+const lasting = (seconds: number) => {
+  const bytes = video(), at = bytes.findIndex((_, n) => String.fromCharCode(...bytes.subarray(n, n + 4)) === "mvhd") + 4, view = new DataView(bytes.buffer);
+  const scaleAt = at + (bytes[at] === 1 ? 20 : 12), scale = view.getUint32(scaleAt);
+  if (bytes[at] === 1) view.setBigUint64(scaleAt + 4, BigInt(Math.round(seconds * scale))); else view.setUint32(scaleAt + 4, Math.round(seconds * scale));
+  return bytes;
+};
+const tierKey = (tier: string) => key.replace(".mp4", `.${tier}.mp4`);
+
+it("recognizes only whitelisted quality tier names", () => {
+  expect(mediaIdentity(tierKey("720p"))).toEqual({ kind: "series", tmdbId: 920001, season: 1, episode: 1, language: null, trackKey: null, variant: "720p" });
+  expect(mediaIdentity("library/movie/910001/movie.2160p.mp4")?.variant).toBe("2160p");
+  expect(mediaIdentity(key)).not.toHaveProperty("variant");
+  for (const bad of ["360p", "720P", "1080i", "720p.720p", "original"]) expect(mediaIdentity(tierKey(bad))).toBeNull();
+});
+
+it("links quality tiers after their original without changing the unit's duration, and lists them high to low", async () => {
+  await media();
+  await env.MEDIA_BUCKET.put(tierKey("480p"), video()); await env.MEDIA_BUCKET.put(tierKey("1080p"), lasting(4.5));
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    // Tiers list before their original, so the first pass cannot compare them yet.
+    expect(await syncMedia(env)).toMatchObject({ linked: 1, unattached: 2, failed: 0 });
+    expect(warn.mock.calls.map(([message]) => JSON.parse(String(message)))).toEqual(["1080p", "480p"].map(variant =>
+      expect.objectContaining({ event: "media_sync_variant_unattached", unitId: "episode-unit", reason: "ORIGINAL_MISSING", variant })));
+  } finally { warn.mockRestore(); }
+  expect(await syncMedia(env)).toMatchObject({ linked: 2, unattached: 0 });
+  expect(await syncMedia(env)).toMatchObject({ linked: 0, skipped: 3 });
+  expect((await env.DB.prepare("SELECT variant FROM media_files ORDER BY variant").all()).results.map(row => row.variant)).toEqual(["1080p", "480p", "original"]);
+  expect(await env.DB.prepare("SELECT duration_seconds FROM playable_units WHERE id = 'episode-unit'").first("duration_seconds")).toBe(4);
+  expect((await playbackSource(env.DB, "episode-unit"))?.qualities.map(item => item.label)).toEqual(["原画", "1080p", "480p"]);
+});
+
+it("does not link a tier whose duration differs beyond the tolerance or whose unit has no original, and isolates a failed tier", async () => {
+  await media(); expect(await syncMedia(env)).toMatchObject({ linked: 1 });
+  await env.MEDIA_BUCKET.put(tierKey("1080p"), lasting(5)); await env.MEDIA_BUCKET.put(tierKey("720p"), lasting(6));
+  await env.MEDIA_BUCKET.put(tierKey("480p"), video().slice(0, 32));
+  await env.MEDIA_BUCKET.put("library/movie/910001/movie.720p.mp4", video());
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(await syncMedia(env)).toMatchObject({ linked: 1, unattached: 2, failed: 1 });
+    const events = warn.mock.calls.map(([message]) => JSON.parse(String(message)));
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "media_sync_variant_unattached", unitId: "episode-unit", reason: "DURATION_MISMATCH", variant: "720p" }),
+      expect.objectContaining({ event: "media_sync_variant_unattached", unitId: "movie-unit", reason: "ORIGINAL_MISSING", variant: "720p" }),
+    ]));
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/library\/|object_key|checksum_sha256|r2_etag/u);
+  } finally { warn.mockRestore(); }
+  expect((await env.DB.prepare("SELECT playable_unit_id AS unit, variant FROM media_files ORDER BY variant").all()).results).toEqual([
+    { unit: "episode-unit", variant: "1080p" }, { unit: "episode-unit", variant: "original" }]);
+  expect((await playbackSource(env.DB, "episode-unit"))?.qualities.map(item => item.label)).toEqual(["原画", "1080p"]);
+  expect(await playbackSource(env.DB, "movie-unit")).toBeNull();
+  expect((await catalog(env.DB, "nova")).find(work => work.slug === "movie")?.units[0].playable).toBe(false);
+});
+
+it("reports a changed tier as a conflict and keeps its verified reference", async () => {
+  await media(); await syncMedia(env); await env.MEDIA_BUCKET.put(tierKey("720p"), video()); await syncMedia(env);
+  const before = (await env.DB.prepare("SELECT * FROM media_files WHERE variant = '720p'").first())!;
+  const changed = video(); changed[changed.length - 1] ^= 1; await env.MEDIA_BUCKET.put(tierKey("720p"), changed);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(await syncMedia(env)).toMatchObject({ linked: 0, conflicts: 1 });
+    expect(JSON.parse(String(warn.mock.calls[0][0]))).toMatchObject({ event: "media_sync_conflict", unitId: "episode-unit", resourceType: "video", variant: "720p" });
+  } finally { warn.mockRestore(); }
+  expect(await env.DB.prepare("SELECT * FROM media_files WHERE variant = '720p'").first()).toEqual(before);
 });
 
 it("clears versions of deleted objects only after a complete pass and restores them after revalidation", async () => {

@@ -1,3 +1,5 @@
 allowBuilds:
   esbuild: true
   workerd: true
+patchedDependencies:
+  artplayer@5.4.0: patches/artplayer@5.4.0.patch

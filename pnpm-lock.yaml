@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  artplayer@5.4.0: d6ffd6993c2057f64bdafa7eed2dfc8c851df24b8c951c14812b08b92f8fb2af
+
 importers:
 
   .:
@@ -28,7 +31,7 @@ importers:
         version: 0.3.0(motion@13.4.6(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       artplayer:
         specifier: 5.4.0
-        version: 5.4.0
+        version: 5.4.0(patch_hash=d6ffd6993c2057f64bdafa7eed2dfc8c851df24b8c951c14812b08b92f8fb2af)
       aws4fetch:
         specifier: 1.0.20
         version: 1.0.20
@@ -4257,7 +4260,7 @@ snapshots:
 
   arg@5.0.2: {}
 
-  artplayer@5.4.0:
+  artplayer@5.4.0(patch_hash=d6ffd6993c2057f64bdafa7eed2dfc8c851df24b8c951c14812b08b92f8fb2af):
     dependencies:
       option-validator: 2.0.6
 

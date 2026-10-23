@@ -12,7 +12,7 @@ export const recommendedStarts = [
 export const codes: Record<number, string> = { 253: "TOS", 1992: "TAS", 655: "TNG", 580: "DS9", 1855: "VOY", 314: "ENT", 67198: "DIS", 82491: "ST", 85948: "LD", 85949: "PIC", 106393: "PRO", 103516: "SNW", 223530: "SFA" };
 // Only bundled poster files reach the browser.
 export const posterPath = (asset: string | null) => asset?.startsWith("/assets/posters/star-trek/") && !asset.includes("..") ? asset : "";
-export const playableMedia = "SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''";
+export const playableMedia = "SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.variant = 'original' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''";
 const stills = new Map(stillManifest.episodes.map(item => [`${item.tmdbId}:${item.season}:${item.episode}`, `/assets/stills/star-trek/${item.file}`]));
 
 // Called only after membership validation; no storage identifiers enter the global UI.
