@@ -136,6 +136,78 @@ it("holds the environment lease through cleanup after publishing backup success,
   expect(await (await env.MEDIA_BUCKET.get(leaseKey))!.json()).toEqual(replacement);
 });
 
+it("keeps the verified receipt on retry and refuses a changed external destination", async () => {
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  const uploaded: string[] = [], now = Date.now.bind(Date); let remote = new Uint8Array(), crossed = false;
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith("https://dav.example.test/")) {
+      if (init?.method === "PUT") { uploaded.push(String(url)); remote = new Uint8Array(await new Response(init.body).arrayBuffer()); return new Response(null); }
+      if (!crossed) { crossed = true; vi.spyOn(Date, "now").mockImplementation(() => now() + settings.backupTaskTimeout * 1000 + 2000); }
+      return new Response(remote);
+    }
+    return String(url) === signed ? download() : complete();
+  }));
+  const body = { target: "webdav", maintenanceConfirmed: true }, first = await data(await send("/admin/backups", body, owner, bindings));
+  expect(first).toMatchObject({ status: "failed", failure: { code: "BACKUP_TIMED_OUT" } });
+  const receipt = (await state(first.id)).receipt;
+  expect(receipt).toMatchObject({ target: "webdav", verifiedAt: expect.any(Number) });
+  const changed = { ...bindings, WEBDAV_URL: "https://dav.example.test/elsewhere/" };
+  expect(await data(await send(`/admin/backups/${first.id}/retry`, body, owner, changed)))
+    .toMatchObject({ status: "failed", failure: { code: "BACKUP_TARGET_FAILED" } });
+  expect(uploaded).toHaveLength(1); expect((await state(first.id)).receipt).toEqual(receipt);
+  expect(await data(await send(`/admin/backups/${first.id}/retry`, body, owner, bindings))).toMatchObject({ status: "complete" });
+  expect(uploaded).toEqual([uploaded[0], uploaded[0]]);
+}, 15000);
+
+it.each(["unreadable", "unknown-key"])("never deletes a newer expired external copy when it is %s", async mode => {
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  const remote = new Map<string, ArrayBuffer>(), removed: string[] = []; let unreadable = "";
+  const network = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith(bindings.WEBDAV_URL)) {
+      if (init?.method === "PUT") { remote.set(String(url), await new Response(init.body).arrayBuffer()); return new Response(null); }
+      if (init?.method === "DELETE") { removed.push(String(url)); remote.delete(String(url)); return new Response(null); }
+      return String(url) === unreadable ? new Response(null, { status: 503 }) : new Response(remote.get(String(url)));
+    }
+    return String(url) === signed ? download() : complete();
+  });
+  vi.stubGlobal("fetch", network);
+  const body = { target: "webdav", maintenanceConfirmed: true };
+  await send("/admin/backups", body, owner, bindings);
+  const newer = await data(await send("/admin/backups", body, owner, mode === "unknown-key"
+    ? { ...bindings, BACKUP_ENCRYPTION_KEY: "fictional-rotated-backup-key-0123456789abcdef" } : bindings));
+  const saved = await state(newer.id);
+  if (mode === "unreadable") unreadable = Array.from(remote.keys()).at(-1)!;
+  vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 86400_000);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+  owner = await login("Nova"); vi.stubGlobal("fetch", network);
+  await send("/admin/backups/cleanup", {}, owner, bindings);
+  expect(removed).toEqual([]); expect(remote.size).toBe(2);
+  expect((await state(newer.id)).externalDeleted).not.toBe(true);
+  expect(await env.MEDIA_BUCKET.head(`backups/test/${saved.sourceId}/${saved.result.file}.bin`)).not.toBeNull();
+}, 15000);
+
+it("uses the newly completed backup to retire an expired predecessor at both endpoints", async () => {
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  const remote = new Map<string, ArrayBuffer>();
+  const network = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith(bindings.WEBDAV_URL)) {
+      if (init?.method === "PUT") { remote.set(String(url), await new Response(init.body).arrayBuffer()); return new Response(null); }
+      if (init?.method === "DELETE") { remote.delete(String(url)); return new Response(null); }
+      return new Response(remote.get(String(url)));
+    }
+    return String(url) === signed ? download() : complete();
+  });
+  vi.stubGlobal("fetch", network);
+  const body = { target: "webdav", maintenanceConfirmed: true }, old = await data(await send("/admin/backups", body, owner, bindings));
+  vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 86400_000);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+  owner = await login("Nova"); vi.stubGlobal("fetch", network);
+  const fresh = await data(await send("/admin/backups", body, owner, bindings));
+  expect(fresh).toMatchObject({ status: "complete", cleanup: { status: "complete", deleted: 1 } });
+  expect(await data(await send(`/admin/backups/${old.id}`, undefined, owner, bindings))).toMatchObject({ deleted: true, downloadReady: false });
+  expect(remote.size).toBe(1);
+}, 15000);
+
 it("protects the last known-key R2 copy past retention and cleans only older backups, never media", async () => {
   const first = await create(), second = await create();
   await env.MEDIA_BUCKET.put("library/fictional.mp4", "protected media");

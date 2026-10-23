@@ -58,6 +58,32 @@ const history = [
   { backupKey: "fictional-old-backup-key-0123456789abcdef", authSecret: "fictional-old-auth-secret-0123456789abcdef" },
   { backupKey: "fictional-other-backup-key-0123456789abcdef", authSecret: "fictional-other-auth-secret-0123456789abcdef" },
 ];
+it.each([false, true])("clears restore plaintext without resuming the request and preserves a replacement lease (%s)", async replaced => {
+  const scope = { environment: "staging" as const, id: crypto.randomUUID() }, sql = "CREATE TABLE fictional (value TEXT);", signal = new AbortController().signal;
+  await stageBackup(env.MEDIA_BUCKET, { ...scope, createdAt: Date.now(), schemaVersion: "fictional", bookmark: "fictional-bookmark", authKeyId: backupKeyId(env.BETTER_AUTH_SECRET) },
+    new Response(sql).body!, sql.length, signal);
+  const file = await encryptBackup(env.MEDIA_BUCKET, scope, env.BACKUP_ENCRYPTION_KEY, signal);
+  let entered!: () => void, resume!: () => void;
+  const importing = new Promise<void>(resolve => { entered = resolve; }), blocked = new Promise<void>(resolve => { resume = resolve; });
+  vi.stubGlobal("fetch", vi.fn(async () => { entered(); await blocked; return Response.json({ success: false }); }));
+  const controller = new AbortController(), ctx = createExecutionContext(), config = { ...bindings, APP_ENV: "staging" };
+  const pending = recoveryWorker.fetch(new Request("https://recovery.example.test/operate", { method: "POST", signal: controller.signal,
+    headers: { Authorization: "Bearer " + config.RESTORE_OPERATOR_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "restore", id: scope.id, file: file.file, keyId: file.keyId, authKeyId: file.source.authKeyId }) }), config, ctx);
+  try {
+    await importing;
+    const plaintext = (await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects;
+    expect(plaintext).toHaveLength(1);
+    const leaseKey = key.replace("/test/", "/staging/");
+    expect(await (await env.MEDIA_BUCKET.get(leaseKey))!.json()).toMatchObject({ plaintextKey: plaintext[0].key });
+    const replacement = { updatedAt: Date.now(), deadline: Date.now() + 60000 };
+    if (replaced) await env.MEDIA_BUCKET.put(leaseKey, JSON.stringify(replacement));
+    controller.abort(); await waitOnExecutionContext(ctx);
+    expect.soft((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
+    expect.soft(await (await env.MEDIA_BUCKET.get(leaseKey))!.json()).toMatchObject(replaced ? replacement : { deadline: 0 });
+    expect(await env.MEDIA_BUCKET.head(`backups/staging/${scope.id}/${file.file}.bin`)).not.toBeNull();
+  } finally { resume(); await pending; await waitOnExecutionContext(ctx); vi.unstubAllGlobals(); }
+}, 10000);
 it.each(["sanitize", "credentials"].flatMap(action => [
   [action, "current authentication", bindings.BETTER_AUTH_SECRET], [action, "selected authentication", history[0].authSecret],
   [action, "other historical authentication", history[1].authSecret], [action, "current backup", bindings.BACKUP_ENCRYPTION_KEY],

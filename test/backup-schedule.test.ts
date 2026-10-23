@@ -127,6 +127,22 @@ it("retains the normal media scan when no backup is due", async () => {
   expect(fetcher).not.toHaveBeenCalled();
 });
 
+it.each(["none", "active", "invalid", "unreadable"])("surfaces a malformed schedule and scans only with a confirmed idle lease (%s)", async lease => {
+  await env.MEDIA_BUCKET.put(key, "{invalid schedule");
+  const leaseKey = "backup-control/test/lease.json";
+  if (lease === "active") await env.MEDIA_BUCKET.put(leaseKey, JSON.stringify({ deadline: Date.now() + 60000 }));
+  if (lease === "invalid") await env.MEDIA_BUCKET.put(leaseKey, JSON.stringify({ deadline: "unknown" }));
+  if (lease === "unreadable") {
+    const get = env.MEDIA_BUCKET.get.bind(env.MEDIA_BUCKET);
+    vi.spyOn(env.MEDIA_BUCKET, "get").mockImplementation((key, options) => { if (key === leaseKey) throw new Error("fictional R2 outage"); return get(key, options); });
+  }
+  const list = vi.spyOn(env.MEDIA_BUCKET, "list"), fetcher = network(), ctx = createExecutionContext();
+  await expect(worker.scheduled({ cron: mediaSyncCron } as ScheduledController, runtime, ctx)).rejects.toBeDefined();
+  await waitOnExecutionContext(ctx);
+  expect(list.mock.calls.some(([options]) => options?.prefix === "library/")).toBe(lease === "none");
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
 it("does not overwrite a concurrent settings edit when an already claimed backup finishes", async () => {
   const saved = await updateBackupSchedule(runtime, input, now), fetcher = network(), original = fetcher.getMockImplementation()!;
   let edited = false;

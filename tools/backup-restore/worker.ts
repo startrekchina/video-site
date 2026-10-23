@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import type { InferEnv, UnwrapConfig } from "cf/config";
 import type { recoveryWorker } from "./cloudflare.config";
-import type { BackupScope } from "../../app/lib/backup-storage.server";
+import { restorePlaintextKey, type BackupScope } from "../../app/lib/backup-storage.server";
 import { restoreBackup, sanitizeRestoredCredentials, validateRestoredDatabase, verifyRestoredCredentials } from "../../app/lib/backup-restore.server";
 import { readJson } from "../../app/lib/security.server";
 import { settings } from "../../app/lib/settings.server";
@@ -19,8 +19,22 @@ export default {
     if (!/^application\/json\s*(;|$)/iu.test(request.headers.get("Content-Type") ?? "")) return json({ error: "RESTORE_INVALID_INPUT" }, 400);
     const timeout = new AbortController(), timer = setTimeout(() => timeout.abort(), settings.backupTaskTimeout * 1000);
     const signal = AbortSignal.any([request.signal, timeout.signal]);
-    let locked: { key: string; etag: string; updatedAt: number } | undefined;
+    let locked: { key: string; etag: string; updatedAt: number; plaintextKey?: string } | undefined;
+    let claiming: Promise<R2Object | null> | undefined, releasing: Promise<void> | undefined;
+    const release = () => releasing ??= (async () => {
+      await claiming?.catch(() => {});
+      if (!locked) return;
+      const lock = locked;
+      await delay(Math.max(0, lock.updatedAt + 1100 - Date.now()));
+      await env.MEDIA_BUCKET.put(lock.key, JSON.stringify({ updatedAt: Date.now(), deadline: 0, plaintextKey: lock.plaintextKey }), { onlyIf: { etagMatches: lock.etag } });
+    })();
+    const interrupted = () => {
+      clearTimeout(timer);
+      ctx.waitUntil(release().catch(() => { console.error("restore_lease_release_failed"); }));
+    };
+    signal.addEventListener("abort", interrupted, { once: true });
     try {
+      signal.throwIfAborted();
       if (env.RESTORE_TARGET_DATABASE_ID === env.BACKUP_DATABASE_ID) throw new Error("RESTORE_TARGET_INVALID");
       const body = await readJson(request), target = { db: env.RESTORE_DB, id: env.RESTORE_TARGET_DATABASE_ID };
       const key = `backup-restore-control/${env.APP_ENV}/${target.id}.json`, previous = await env.MEDIA_BUCKET.get(key);
@@ -29,15 +43,23 @@ export default {
       if (state && (!Number.isSafeInteger(state.deadline) || !Number.isSafeInteger(state.updatedAt))) throw new Error("RESTORE_STATE_INVALID");
       if (state && state.deadline > Date.now()) return json({ error: "RESTORE_BUSY" }, 409);
       if (state) await delay(Math.max(0, state.updatedAt + 1100 - Date.now()), undefined, { signal });
-      const updatedAt = Date.now(), lease = await env.MEDIA_BUCKET.put(key, JSON.stringify({ updatedAt, deadline: updatedAt + settings.backupTaskTimeout * 1000 }), {
+      signal.throwIfAborted();
+      const restoreId = crypto.randomUUID(), plaintextKey = body.action === "restore" && ["staging", "production"].includes(env.APP_ENV)
+        ? restorePlaintextKey(env.APP_ENV as BackupScope["environment"], restoreId) : undefined;
+      const updatedAt = Date.now();
+      claiming = env.MEDIA_BUCKET.put(key, JSON.stringify({ updatedAt, deadline: updatedAt + settings.backupTaskTimeout * 1000, plaintextKey }), {
         onlyIf: previous ? { etagMatches: previous.etag } : { etagDoesNotMatch: "*" },
+      }).then(lease => {
+        if (lease) locked = { key, etag: lease.etag, updatedAt, plaintextKey };
+        return lease;
       });
+      const lease = await claiming;
       if (!lease) return json({ error: "RESTORE_BUSY" }, 409);
-      locked = { key, etag: lease.etag, updatedAt };
+      signal.throwIfAborted();
       if (body.action === "restore" && typeof body.id === "string" && typeof body.file === "string" && typeof body.keyId === "string" && typeof body.authKeyId === "string") {
         if (!["staging", "production"].includes(env.APP_ENV)) throw new Error("RESTORE_ENV_INVALID");
         const scope: BackupScope = { environment: env.APP_ENV as "staging" | "production", id: body.id };
-        const restored = await restoreBackup(env, target, scope, body.file, { keyId: body.keyId, authKeyId: body.authKeyId }, signal);
+        const restored = await restoreBackup(env, target, scope, body.file, { keyId: body.keyId, authKeyId: body.authKeyId }, signal, { id: restoreId, ctx });
         return json(restored);
       }
       if ((body.action === "sanitize" && body.maintenanceConfirmed === true || body.action === "credentials") && typeof body.authKeyId === "string") {
@@ -62,13 +84,8 @@ export default {
     }
     finally {
       clearTimeout(timer);
-      if (locked) {
-        const lock = locked, release = (async () => {
-          await delay(Math.max(0, lock.updatedAt + 1100 - Date.now()));
-          await env.MEDIA_BUCKET.put(lock.key, JSON.stringify({ updatedAt: Date.now(), deadline: 0 }), { onlyIf: { etagMatches: lock.etag } });
-        })();
-        ctx.waitUntil(release.catch(() => {})); await release;
-      }
+      signal.removeEventListener("abort", interrupted);
+      const finish = release(); ctx.waitUntil(finish.catch(() => {})); await finish;
     }
   },
 } satisfies ExportedHandler<RecoveryBindings>;
