@@ -65,6 +65,24 @@
 }
 .typeset-description p + p { margin-top: 1em; }
 
+/* Comment bodies: the prototype's shadcn typeset values for the allowed Markdown subset, at a compact 0.5em flow. */
+.typeset-comment { font-size: 15.75px; line-height: 1.7; overflow-wrap: break-word; }
+@media (min-width: 48rem) { .typeset-comment { font-size: 14px; } }
+.typeset-comment :where(p, ul, ol, blockquote) { margin-top: 0.5em; }
+.typeset-comment > :first-child, .typeset-comment :where(li, blockquote) > :first-child { margin-top: 0; }
+.typeset-comment :where(a) { @apply link-underline; }
+.typeset-comment :where(strong) { font-weight: 600; }
+.typeset-comment :where(del) { color: var(--color-muted-foreground); text-decoration-line: line-through; }
+.typeset-comment :where(ul) { list-style-type: disc; }
+.typeset-comment :where(ol) { list-style-type: decimal; }
+.typeset-comment :where(ul, ol) { padding-inline-start: 1.25em; }
+.typeset-comment :where(li) { margin-top: 0.2em; padding-inline-start: 0.4em; }
+.typeset-comment :where(li)::marker { color: color-mix(in oklab, currentColor 25%, transparent); }
+.typeset-comment :where(:not(pre) > code) { background-color: var(--color-muted); font-family: var(--font-mono); font-size: 0.85em; border-radius: min(calc(var(--radius) * 0.6), 0.35em); padding: 0.125em 0.3em; }
+.typeset-comment :where(pre) { margin-top: calc(0.5em / 0.8125); background-color: var(--color-muted); font-family: var(--font-mono); font-size: 0.8125em; line-height: 1.5; border-radius: var(--radius); padding: 0.5em 0.75em; overflow-x: auto; }
+.typeset-comment :where(blockquote) { border-inline-start: 2px solid var(--color-border); padding-inline-start: 0.75em; color: var(--color-muted-foreground); }
+.typeset-comment :where(hr) { border: 0; border-top: 1px solid var(--color-border); margin-top: 1.2em; }
+
 /* Keep ArtPlayer chrome and subtitles aligned with the prototype typography. */
 .art-video-player { font-family: var(--font-sans) !important; }
 .art-video-player .art-subtitle {

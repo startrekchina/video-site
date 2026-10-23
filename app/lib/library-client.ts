@@ -4,7 +4,7 @@ import { toast } from "@/components/ui/toast";
 
 type Result<T> = { data: T } | { error: { status: number; code?: string; message?: string } };
 
-// One favorites or playlist request; a failure keeps the server's message for the notice.
+// One member JSON request (library, discussion); a failure keeps the server's message for the notice.
 export async function libraryRequest<T = Record<string, unknown>>(path: string, method: string, body: object = {}): Promise<Result<T>> {
   try {
     const response = await fetch(path, { method, credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json" },
