@@ -301,6 +301,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   // Comments found deleted here, kept for the same reason: a late sort answer must not bring them back.
   const [removed, setRemoved] = useState<string[]>([])
   const [page, setPage] = useState(1)
+  const [pageError, setPageError] = useState<string | null>(null)
+  const [pageRetry, setPageRetry] = useState(0)
   const [picked, setPicked] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [targets, setTargets] = useState<Record<string, Target | null>>({})
@@ -324,6 +326,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   // The newest load of each conversation while it runs, the only one whose answers count: an older one still on its
   // way would add what is left after its own cursor to replies already read past it.
   const loads = useRef(new Map<string, object>())
+  // Conversations with a reply on its way, whose load to the end starts only once it is sent.
+  const posting = useRef(new Set<string>())
 
   const cache = (items: Comment[]) => setComments((c) => ({ ...c, ...Object.fromEntries(items.map((item) => [item.id, item])) }))
   const patch = (id: string, change: (c: Comment) => Comment) => {
@@ -346,9 +350,9 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     const newer = data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked)
     const loading = newer.filter((item) => loads.current.has(item.id)).map((item) => item.id)
     // Comments read before it that it does not carry are dropped, so their page reads them again; your pinned posts
-    // show at once and stay, and so does a conversation still loading, whose batch lands on what it has.
+    // show at once and stay, and so does a conversation still sending or loading, or changed here since: it is newer.
     const listed = data.items.map((item) => item.id)
-    const kept = (id: string) => listed.includes(id) || fresh.includes(id) || !before[id] || loads.current.has(id)
+    const kept = (id: string) => listed.includes(id) || fresh.includes(id) || !before[id] || loads.current.has(id) || posting.current.has(id) || (changed.current.get(id) ?? 0) > asked
     setComments((c) => ({
       ...Object.fromEntries(Object.entries(c).filter(([id]) => kept(id))),
       ...Object.fromEntries(newer.map((item) => [item.id, loading.includes(item.id) ? { ...item, replies: c[item.id].replies, replyCount: c[item.id].replyCount } : item])),
@@ -374,11 +378,12 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
 
   // A page beyond the first load reads its comments by ID, so it shows exactly what the fixed order says.
   useEffect(() => {
+    setPageError(null)
     if (!missing) return
     let live = true
     void libraryRequest<{ items: Comment[] }>(`${base}/comments?ids=${missing}`, "GET").then((result) => {
       if (!live) return
-      if ("error" in result) return void failed(result.error.message, "评论未加载，请稍后重试。")
+      if ("error" in result) return setPageError(result.error.message ?? "评论未加载，请稍后重试。")
       cache(result.data.items)
       // Comments deleted since the order was taken leave the list instead of a gap.
       const gone = missing.split(",").filter((id) => !result.data.items.some((item) => item.id === id))
@@ -387,7 +392,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     return () => {
       live = false
     }
-  }, [missing])
+  }, [missing, pageRetry])
 
   // Posting can move the open conversation off the page; keep reading it from the cache.
   // Narrow layouts retain its row so the inline conversation stays available too.
@@ -476,15 +481,20 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   }
 
   const postReply = async (root: Comment, body: string) => {
-    const target = targets[root.id] ?? null
-    const r = await send<Reply>(root.id, body, `${base}/comments/${root.id}/replies`, target ? { replyTo: target.id } : {})
-    if (!r) return false
-    setTargets((t) => ((t[root.id] ?? null)?.id === target?.id ? { ...t, [root.id]: null } : t))
-    // The new reply ends the conversation: it loads with whatever came before it. If no batch gets through it is
-    // only counted, so the load-more control still brings the rest in order instead of paging past it.
-    if (!(await more(root.id, true))) patch(root.id, (c) => ({ ...c, replyCount: c.replyCount + 1 }))
-    setAnnouncement("回复已发送")
-    return true
+    posting.current.add(root.id)
+    try {
+      const target = targets[root.id] ?? null
+      const r = await send<Reply>(root.id, body, `${base}/comments/${root.id}/replies`, target ? { replyTo: target.id } : {})
+      if (!r) return false
+      setTargets((t) => ((t[root.id] ?? null)?.id === target?.id ? { ...t, [root.id]: null } : t))
+      // The new reply ends the conversation: it loads with whatever came before it. If no batch gets through it is
+      // only counted, so the load-more control still brings the rest in order instead of paging past it.
+      if (!(await more(root.id, true))) patch(root.id, (c) => ({ ...c, replyCount: c.replyCount + 1 }))
+      setAnnouncement("回复已发送")
+      return true
+    } finally {
+      posting.current.delete(root.id)
+    }
   }
 
   const vote = async (root: Comment, item: Comment | Reply, value: 1 | -1) => {
@@ -591,18 +601,42 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
                 </EmptyHeader>
               </Empty>
             ) : (
-              <ol ref={list} aria-label="评论" aria-busy={!!missing} className="divide-y divide-line">
-                {rows.map((c) => {
-                  const isOpen = c.id === open?.id
-                  return (
-                    <li key={c.id}>
-                      <CommentRow c={c} ctx={ctx} wide={wide} open={isOpen} pulse={pulse} onOpen={() => setPicked(!wide && isOpen ? null : c.id)} onReply={() => reply(c, null)}>
-                        {!wide && isOpen && <InlineThread thread={threadOf(c)} />}
-                      </CommentRow>
-                    </li>
-                  )
-                })}
-              </ol>
+              <>
+                <ol ref={list} aria-label="评论" aria-busy={!!missing && !pageError} className="divide-y divide-line">
+                  {rows.map((c) => {
+                    const isOpen = c.id === open?.id
+                    return (
+                      <li key={c.id}>
+                        <CommentRow c={c} ctx={ctx} wide={wide} open={isOpen} pulse={pulse} onOpen={() => setPicked(!wide && isOpen ? null : c.id)} onReply={() => reply(c, null)}>
+                          {!wide && isOpen && <InlineThread thread={threadOf(c)} />}
+                        </CommentRow>
+                      </li>
+                    )
+                  })}
+                </ol>
+                {missing && pageError && (
+                  <Empty role="alert" className="py-12">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <MessageSquareIcon />
+                      </EmptyMedia>
+                      <EmptyTitle>评论暂时无法加载</EmptyTitle>
+                      <EmptyDescription>{pageError}</EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setPageError(null)
+                          setPageRetry((n) => n + 1)
+                        }}
+                      >
+                        重试
+                      </Button>
+                    </EmptyContent>
+                  </Empty>
+                )}
+              </>
             )}
           </div>
           {wide && open && (

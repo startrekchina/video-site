@@ -104,3 +104,69 @@ it("keeps the conversation selected while a post is pending", async () => {
   finish({ data: posted }); await sending; tree = render();
   expect(conversation(tree)).toBe("c9");
 });
+
+function commentList(node: ReactNode): ReactElement<{ "aria-busy": boolean }> | undefined {
+  if (Array.isArray(node)) return node.map(commentList).find(Boolean);
+  if (!isValidElement<{ children?: ReactNode; "aria-busy": boolean }>(node)) return;
+  return node.type === "ol" ? node : commentList(node.props.children);
+}
+const retryPage = (tree: ReactNode) => elements<{ children: ReactNode; onClick: () => void }>(tree, "Button").find(button => button.props.children === "重试");
+const thread = (tree: ReactNode) => elements<{ thread: { root: Comment; composer: ReactElement<{ value: string; onValueChange: (value: string) => void; onSubmit: (body: string) => Promise<boolean> }> } }>(tree, state.wide ? "ConversationPane" : "InlineThread")[0]?.props.thread;
+
+it.each([true, false])("offers a retry after a page read fails (wide=%s)", async wide => {
+  state.wide = wide;
+  let tree = await mount();
+  state.request.mockResolvedValueOnce({ error: { status: 0 } });
+  pager(tree).onChange(2); render(); await Promise.resolve(); tree = render();
+  expect(rows(tree)).toHaveLength(0);
+  expect(commentList(tree)?.props["aria-busy"]).toBe(false);
+  expect(retryPage(tree)).toBeDefined();
+  expect(pager(tree).page).toBe(2);
+
+  state.request.mockResolvedValueOnce({ error: { status: 503, message: "暂时不可用。" } });
+  retryPage(tree)!.props.onClick(); tree = render();
+  expect(commentList(tree)?.props["aria-busy"]).toBe(true);
+  await Promise.resolve(); tree = render();
+  expect(commentList(tree)?.props["aria-busy"]).toBe(false);
+  expect(retryPage(tree)).toBeDefined();
+
+  retryPage(tree)!.props.onClick(); render(); await Promise.resolve(); tree = render();
+  expect(rows(tree).map(row => row.props.c.id)).toEqual(comments.slice(10).map(c => c.id));
+  expect(commentList(tree)?.props["aria-busy"]).toBe(false);
+  expect(retryPage(tree)).toBeUndefined();
+  expect(pager(tree).page).toBe(2);
+});
+
+it.each([[true, false], [false, false], [true, true], [false, true]] as const)("loads a posted reply across a sort refresh (wide=%s, lateSort=%s)", async (wide, lateSort) => {
+  state.wide = wide;
+  let tree = await mount(2);
+  const root = { ...comments[10], replyCount: 0, replies: [] };
+  const replies = Array.from({ length: 11 }, (_, index) => ({
+    ...root, id: `r${index}`, body: `Fictional reply ${index}`, createdAt: 100 + index, replyTo: null,
+  }));
+  const answer = replies.at(-1)!;
+  let finishPost!: (value: { data: typeof answer }) => void;
+  let finishSort!: (value: { data: { order: string[]; items: Comment[]; pageSize: number; maxLength: number } }) => void;
+  state.request.mockImplementation((path: string, method: string) => {
+    if (method === "POST") return new Promise(resolve => { finishPost = resolve; });
+    if (path.includes("sort=")) return new Promise(resolve => { finishSort = resolve; });
+    if (path.includes("/replies?")) return Promise.resolve({ data: path.includes("afterId=r9") ? { items: replies.slice(10), rest: 0 } : { items: replies.slice(0, 10), rest: 1 } });
+    const ids = new URL(path, "http://localhost").searchParams.get("ids")!.split(",");
+    return Promise.resolve({ data: { items: comments.filter(c => ids.includes(c.id)).map(c => c.id === root.id ? { ...root, replyCount: 11, replies: replies.slice(0, 10) } : c) } });
+  });
+  rows(tree)[0].props.onOpen(); tree = render();
+  thread(tree)!.composer.props.onValueChange(answer.body); tree = render();
+  const posting = thread(tree)!.composer.props.onSubmit(answer.body); render();
+  elements<{ onChange: (sort: string) => void }>(tree, "SortTabs")[0].props.onChange("new"); render();
+  const sorted = { data: { order: comments.map(c => c.id), items: comments.slice(0, 10), pageSize: 10, maxLength: 1000 } };
+  if (!lateSort) { finishSort(sorted); await Promise.resolve(); render(); }
+  finishPost({ data: answer }); expect(await posting).toBe(true); render();
+  if (lateSort) { finishSort(sorted); await Promise.resolve(); render(); }
+
+  tree = render(); pager(tree).onChange(2); render(); await Promise.resolve(); tree = render();
+  rows(tree)[0].props.onOpen(); tree = render();
+  expect(thread(tree)!.root.replies.map(r => r.id)).toEqual(replies.map(r => r.id));
+  expect(thread(tree)!.root.replyCount).toBe(11);
+  expect(thread(tree)!.composer.props.value).toBe("");
+  expect(state.request.mock.calls.filter(([path]) => path.includes("/replies?"))).toHaveLength(2);
+});
