@@ -130,10 +130,11 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
     document.addEventListener("visibilitychange", hidden); window.addEventListener("pagehide", leave);
     // The recovery canplay handler below restores the position and the play state.
     retry.current = () => { if (art && !disposed) { failed = false; restoreTo = position; show(null); art.url = absolute(quality.url); } };
-    // switchQuality keeps the position, play state and rate; a failed switch is classified by the error handler like any other.
-    const switchQuality = async (label: string) => {
+    // Serialize reloads so the next switch snapshots the restored position, play state and rate.
+    let qualityJob = Promise.resolve();
+    const switchQuality = (label: string) => qualityJob = qualityJob.then(async () => {
       const next = source.qualities.find(item => item.label === label);
-      if (!art || !next || next === quality) return;
+      if (disposed || !art || !next || next === quality) return;
       quality = next; rememberQuality(label);
       if (failed) { retry.current(); return; }
       switching = true;
@@ -142,7 +143,7 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
         // Media failures use video:error; a blocked resume has no media error event.
         if (!disposed && error instanceof DOMException && error.name === "NotAllowedError") say("浏览器阻止自动播放，请点击播放。");
       } finally { switching = false; }
-    };
+    });
     const danmakuPath = `/units/${unitId}/danmaku`;
     void Promise.all([import("artplayer"), import("artplayer-plugin-danmuku")]).then(([{ default: Artplayer }, { default: danmakuPlugin }]) => {
       if (disposed || !container.current) return;

@@ -272,6 +272,30 @@ it("switches quality in place, remembers it, keeps the position through the swit
   expect(state.art.currentTime).toBe(1234); expect(state.art.play).toHaveBeenCalledOnce();
 });
 
+it("serializes rapid quality choices so a second switch cannot snapshot the first reload's zero position", async () => {
+  const storage = remember(null); await mount({ source: tiers });
+  const player = Object.assign(state.art, { playbackRate: 2 });
+  let finish: () => void = () => {};
+  state.art.switchQuality.mockImplementation(async () => {
+    const position = player.currentTime, rate = player.playbackRate;
+    player.currentTime = 0; player.playbackRate = 1;
+    await new Promise<void>(resolve => { finish = resolve; });
+    player.currentTime = position; player.playbackRate = rate;
+  });
+  const first = control().onSelect({ html: "720p" });
+  await settle();
+  expect(state.art.switchQuality).toHaveBeenCalledTimes(1);
+  const second = control().onSelect({ html: "1080p" });
+  await settle();
+  expect(state.art.switchQuality).toHaveBeenCalledTimes(1);
+  finish(); await first; await settle();
+  expect(state.art.switchQuality).toHaveBeenNthCalledWith(2, "http://localhost:6120/media/p1080");
+  finish();
+  expect(await second).toBe("1080p");
+  expect(player.currentTime).toBe(1234); expect(player.playbackRate).toBe(2);
+  expect(storage.setItem).toHaveBeenLastCalledWith("player-quality", "1080p");
+});
+
 it("reconnects on a newly chosen quality when the current one has failed", async () => {
   remember(null); await mount({ source: tiers }); state.message.mockClear();
   await emit("video:timeupdate");

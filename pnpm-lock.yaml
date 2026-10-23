@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  artplayer@5.4.0: d6ffd6993c2057f64bdafa7eed2dfc8c851df24b8c951c14812b08b92f8fb2af
+  artplayer@5.4.0: d55ab31a572f29d93d3b46a4c7f88a5823ff71837d6c0a8c6a3c17cac9fc6f1d
 
 importers:
 
@@ -31,7 +31,7 @@ importers:
         version: 0.3.0(motion@13.4.6(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
       artplayer:
         specifier: 5.4.0
-        version: 5.4.0(patch_hash=d6ffd6993c2057f64bdafa7eed2dfc8c851df24b8c951c14812b08b92f8fb2af)
+        version: 5.4.0(patch_hash=d55ab31a572f29d93d3b46a4c7f88a5823ff71837d6c0a8c6a3c17cac9fc6f1d)
       artplayer-plugin-danmuku:
         specifier: 5.3.0
         version: 5.3.0
@@ -4268,7 +4268,7 @@ snapshots:
 
   artplayer-plugin-danmuku@5.3.0: {}
 
-  artplayer@5.4.0(patch_hash=d6ffd6993c2057f64bdafa7eed2dfc8c851df24b8c951c14812b08b92f8fb2af):
+  artplayer@5.4.0(patch_hash=d55ab31a572f29d93d3b46a4c7f88a5823ff71837d6c0a8c6a3c17cac9fc6f1d):
     dependencies:
       option-validator: 2.0.6
 
