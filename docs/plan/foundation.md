@@ -66,7 +66,7 @@ staging 核对（2026-10-15，`78914f2`）：入口脚本、根样式与字体�
 - **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；staging / prod 的真实 ID 由被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
 - **远程 D1 触发器解析**：staging 的 `/query` 将 0010 内裸 `CASE…END` 错认作触发器结束；该迁移完整回滚，0009 已成功。[同类问题](https://github.com/cloudflare/workers-sdk/issues/4727)用等价括号规避。`pnpm db:migrate:staging` / `db:migrate:production` 只规范临时副本，再交给 cf 的增量迁移 runner，原始迁移不改写；SQLite 正反用例及 staging 0010/0011 实测通过。
 - **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `staging` / `production`）返回完整配置；Worker 名、D1、R2、Rate Limiting namespace 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 staging / prod。
-- **Secrets**：以 `bindings.secret()` 声明，本地开发缺失时警告，**实际部署会拒绝缺少声明的 Secret**。当前声明认证、播放、Turnstile、备份加密与邮件五项；备份 API Token 与启用的 WebDAV / S3 目标凭证在对应模块接入时再声明，不上传占位凭证。线上可用部署时 `--secrets-file` 写入，密钥文件必须被 Git 忽略；既有四项密钥交接文件不包含站长另行配置的 EMAIL_API_KEY，不能据此宣称 production 已齐备。
+- **Secrets**：`bindings.secret()` 声明的是必需项，本地开发缺失时警告，**实际部署会拒绝缺少声明的 Secret**。认证、Turnstile、备份加密、备份 API Token 与邮件五项线上必需；历史 keyring 和 WebDAV / S3 可选 Secret 只在本地声明以推导类型，线上按需预配并由 CLI 保留，不强制为未启用目标上传占位凭证。备份 Token 是独立运行时 Secret，不能将构建机部署凭证当作已配置的运行时备份权限。线上可用部署时 `--secrets-file` 写入，密钥文件必须被 Git 忽略；既有四项密钥交接文件不包含站长另行配置的 EMAIL_API_KEY 或新增备份 Token，不能据此宣称 production 已齐备。
 - **云端复用与日志**：按站长授权复用既有 staging Worker 与访问域名，D1 名称/ID 和 R2 桶名分别从本机 `.env` 注入，不能按数据库名推断媒体桶。Custom Domain 通过 `worker.domains` 管理；关闭 workers.dev / preview URLs。启用应用日志、query 脱敏并关闭 invocation logs；原生 traces 含路径，凭证路径脱敏验证前保持关闭。
 
 ### 6.1 总体架构

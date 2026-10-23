@@ -4,7 +4,7 @@
 
 ## 范围与状态
 
-承接 A7、B 6.9/6.10/6.16/7，依赖第三至第五阶段主要功能。T6.1 备份与恢复、T6.2 production 发布均待实施。staging 已通过 GitHub `dev` 的云端自动发布，D1 已应用当前全部迁移；production 只有资源/密钥准备记录和构建/dry-run，不是已发布。
+承接 A7、B 6.9/6.10/6.16/7，依赖第三至第五阶段主要功能。T6.1 的暂存、认证加密、手动备份、WebDAV/S3、各端保留、隔离恢复工具及条件式定时调度具有本地实现。开发者确认频率由站长在配置完整的外部渠道后于管理面板自行设置；当前控件提供每天、每周或每隔 1–30 天及北京时间。浏览器仅验证本地缺配置态、关闭设置保存和桌面/手机视口；可用目标的完整交互与真实 staging 演练未完成，T6.1 整体仍未完成验收。T6.2 production 发布待实施。staging 已接通 GitHub `dev` 云端自动发布，production 只有资源/密钥准备记录和构建/dry-run，不是已发布。
 
 staging 已连接当前仓库 `startrekchina/video-site` 的 `dev`，启用推送构建且关闭其他分支/PR 预览；cf strict 限制下使用 Wrangler 补充发布。配置转换的 3 项定向用例、23 项工具测试、类型检查、staging 构建和 Wrangler dry-run 通过，15 个服务端模块完整打包。实际云端发布、运行时绑定及入口烟测通过，不替代专项功能、性能和实机验收。production 不启用自动发布。
 
@@ -19,27 +19,148 @@ staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2
 - staging 媒体桶迁至 APAC（2026-10-16，开发者授权）：新桶对象与原桶逐一一致，Workers Builds 构建 Secret 与本机 `.env` 改指新桶，`38457f4` 起生效；原 ENAM 桶按开发者决定暂时保留作回退备份，过程见[账号与性能计划](authentication.md#t458-数据位置与成员机房测量)。
 - staging 诊断恢复核验：首次多提交[复验](../staging-revalidation-20261014.md)确认 D1 优化、核心安全与日志脱敏，并定位签发 R2 串行等待；仅并行 HEAD 的修复已通过 A/B/B/A 实测，三个签发入口中位耗时降低约 24%–26%，历史尾延迟未复现、尚未整体验收。cf 恢复原始 `cbb16db` 版本 `323dc854-6954-48a5-a543-30d40827a7bf` 至 100% 流量，11 个 Secrets、绑定和观测配置一致；首次 6 账号/4 版本与修复复测 2 账号/2 版本分别清理。恢复后实际请求日志确认原版本且无诊断事件；修复随后经 PR #26 进入 `dev` 并随 staging 自动发布，没有 production 操作。
 - 诊断版本清理边界：平台拒删最新上传版本（API 10339）；沿已确认的 strict 补充路径，以固定 Wrangler 4.150.0 `versions upload` 上传无探针的干净 `cbb16db` 副本 `512c4b13-b83b-459a-99db-5f6466385a55`，只上传、不部署，再用 cf 删除停用诊断版本。该原版副本保留且未激活，原始版本继续 100% 流量；不能将其称为未清除的诊断或已发布修复。清理时一次 D1 `fetch failed` 重试后通过，未扩大删除范围；完整[恢复与清理证据](../staging-revalidation-20261014.md#修复恢复与清理)及 JSON 独立记录。
-- [ ] T6.1 站长专用备份页/状态/手动创建与重试、加密下载、WebDAV/S3，逐请求 OWNER_EMAIL + 正常管理员门禁；来源与 JSON 校验不靠隐藏入口。
-- [ ] T6.1 配置完整外部目标后才可启用频率/北京时间设置；共用 D1→私有 R2→加密→所选目标→回读校验，目标失效拒绝，保留各端最后可恢复副本。
+- [x] T6.1a 私有 R2 暂存与流式认证加密内核：长度/SHA-256 回读、认证封装与可恢复性校验、失败保留完整源副本；实现及本地自检通过，不代表 T6.1 验收。
+- [x] T6.1b 手动备份服务端链路：逐请求站长门禁、D1 导出、状态查询、加密下载及人工重试；实现、并发/断线/失败脱敏/环境隔离本地自检通过；staging 已实测加密下载、断线即时收尾及同 ID 重试。
+- [x] T6.1c 外部目标、各端保留与隔离恢复工具的实现、自检和复核；验证范围见下方摘要，平台演练不以本地模拟替代。
+- [x] T6.1a2 站长页面与调度设置 API 的实现、自检和复核：逐请求 OWNER_EMAIL + 正常管理员、来源和 JSON 门禁；配置写入私有 R2。SSR 覆盖渠道选择与失效提示，浏览器仅覆盖缺配置态和关闭设置保存，完整操作仍待 staging 验证。
+- [x] T6.1a3 Cron 调度实现、自检和复核：条件领取执行槽、复用完整备份流程、与手动备份/清理互斥、同轮暂停媒体扫描；北京时间边界、关闭/修改、失效与失败不自动重试、并发和状态保存失败的本地模拟通过。
 - [ ] T6.1 本地模拟权限、环境、下载可恢复性、部分失败、重试和保留；staging 实测网页执行生命周期/中断重试、全定时流程 15 分钟、存储访问与内存成本。
 - [ ] T6.1 演练隔离手动恢复、重加密与旧凭证清理、角色/封禁/设备复核、历史讨论人工重删；补齐密钥保管和恢复说明，确认媒体冷备。
 - [ ] T6.2 全部主要功能、相关测试与 staging 端到端通过，核对日志、权限/封禁、并发、预算及平台边界。
 - [ ] T6.2 补齐 production 独立 Secrets、邮件与启用备份目标，核 Worker/D1/R2/Turnstile/域名和隔离；获明确授权后正式迁移、部署与 HTTPS/权限/安全头验收，记录发布版本。
 
+## 备份内核边界
+
+`app/lib/backup-storage.server.ts` 负责 SQL 流存入本环境私有 R2、回读核对长度/SHA-256、加密与认证回读；`backups.server.ts` 负责导出、权限、任务生命周期和保留，`backup-targets.server.ts` 负责外部目标传输，`backup-restore.server.ts` 负责隔离导入、完整性与凭证处理。内核不承担 HTTP 路由、Cron 或业务表职责，不影响媒体扫描的 `library/` 前缀。
+
+- 对象只使用 `backups/<environment>/<UUID>/` 前缀；源 SQL 和完成记录不可覆盖。只有源对象回读成功才写源完成记录，重试加密复用该源副本，不重复导出。失败不删除完整源副本，也不写密文完成记录。
+- 封装使用标准 `node:crypto` 的 AES-256-GCM 单流认证，不自建分块密码协议。每份密文随机 salt/nonce，HKDF-SHA-256 派生文件密钥；版本、环境、备份 ID、创建时间、schema、源长度/摘要、密钥指纹均由 AAD 认证。导出 bookmark 只写私有完成记录，不放入密文文件头。密钥由至少 32 字节的高熵 Worker Secret 提供，不使用用户密码；密钥指纹只用于识别历史密钥，不包含密钥本身。
+- 固定前缀和有界 JSON 头后是等长密文及末尾 16 字节认证标签。workerd 要求解密前设置标签，因此通过 R2 条件范围读取预取同一对象版本的末尾 16 字节，再流式验证长度/SHA-256、GCM 标签及还原内容摘要；认证成功前不向调用方输出明文。后续恢复同样须在 Cloudflare 私有暂存中完成整份认证后才能导入。
+- 使用 `FixedLengthStream` 保留 R2 写入的已知长度与背压；流式哈希/加密不拼接整份 SQL。格式校验拒绝超出 AES-GCM 单条消息限制（`2^36 - 32` 字节）的源。当前使用 R2 单次 `put`，接入 D1 导出时还须核对上游长度与平台单次写入限制，不宣称支持任意大小数据库。
+- 内核错误由 HTTP 调用方归类，不直接展示上游异常。没有完成记录的对象不能用于下载或算作成功副本；过期清理覆盖任务源前缀的残留，未过期的完整源供人工重试。
+- 本地验证覆盖完整往返、空/多块输入、错误密钥、篡改/截断/追加、环境不匹配、源/密文读回损坏、存储失败、取消及不覆盖；不重跑未受影响的 UI/认证/媒体链路。类型检查与 development 构建仍执行。真实平台生命周期、内存/时限、网页与外部目标、保留策略和隔离恢复不由此切片宣称通过。
+
+平台依据（2026-10-16 文档核对）：[Workers node:crypto](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)、[FixedLengthStream](https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/)、[R2 条件写入与校验](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)。本工程兼容日期保持 `2026-09-25`；运行时支持还须本地 Workers 测试及后续 staging 验证。
+
+### T6.1a 验证摘要
+
+2026-10-16，基于 `3f21b5b` 工作树的备份内核差异：`pnpm test test/backup-storage.test.ts` 17 项通过，覆盖空/多块 SQL、独立 Web Crypto 还原、144 MiB 生成流、密钥/环境/ID 不匹配、头/密文/标签篡改、截断/追加、读回损坏、对象版本变化、上传/完成记录失败、人工重试、不覆盖及取消。`pnpm typecheck`、`pnpm build` 和差异检查通过，未改已有测试基线；内核没有密钥或明文输出接口，私有源与密文完成记录只在对应校验后生成。故障注入中的断流伴随本地 R2 的连接中断日志，测试断言通过；cf/Vite 的既有配置弃用与测试缺少本机 Secrets 提示仍存在，测试使用虚构密钥。
+
+144 MiB 用例证明该规模下的本地流式路径可完成，不是 staging 峰值内存、平台时限或真实 D1 导出证据。内核测试不替代 HTTP 门禁与生命周期测试；后者见 T6.1b 验证摘要。未连接云端、创建真实备份、演练恢复或发布。
+
+## 手动备份链路
+
+入口 `/admin/backups` 的创建请求先复用实时会话/成员校验，再核对 `admin` 与 `OWNER_EMAIL` 的邮箱大小写规范化匹配。当前有效成员的邮箱已由 Better Auth 验证，缺失、无效或不匹配的站长配置拒绝访问，不新增平行邮箱校验器或角色。状态、重试和下载均独立鉴权；JSON 写入需要同源及显式确认维护影响。
+
+`backups.server.ts` 维护本环境任务、D1 REST 导出与 HTTP 生命周期，`backup-storage.server.ts` 承担暂存、认证加密与完整性校验。数据流为站长请求 → 本环境 R2 条件租约/任务记录 → D1 全量 polling export → 私有 R2 校验 → 加密及回读 → 完成记录；原始 SQL、bookmark、signed URL 和路径只在服务端，不进入状态响应。导出前读取迁移列表摘要，导出开始后不依赖 D1 查询。导出目标 ID 与 DB 绑定从同一配置派生，不接受客户端资源 ID。
+
+- HTTP 请求等待全流程，14 分钟主动截止。客户端断线会结束本次调用，请求自身的 catch/finally 不再执行，只有 `waitUntil` 登记的工作可在约 30 秒宽限内继续；因此断线由请求 `signal` 的 abort 监听同步登记收尾：备份把运行中任务记为 `BACKUP_INTERRUPTED` 并释放租约，清理直接释放租约。任务状态写入串行执行，断线收尾不会与请求自身的写入竞争同一 ETag。`waitUntil` 只保护小型状态写入和租约释放，不承载备份或清理。主备份在截止前完成校验后先持久化结果，再用原截止时间内的剩余窗口清理，不另起完整超时窗口。清理失败或超时只记录 `cleanup` 失败，不翻转备份成功；清理结果保存失败仍返回错误，`cleanup: null` 不表示清理成功。进程直接终止时，尚未保存完成结果的任务在租约到期后显示中断并允许人工重试；已保存的成功结果保留。staging 必须实测连接、中断及平台限制。
+- `backup-control/<environment>/` 保存任务与全环境单任务条件租约，`backups/` 保存源和密文，不新增业务表。每次导出前写入不可覆盖的 `sources/<sourceId>.json` 归属索引，保留任务 ID 与创建时间；重试换源后，索引仍可定位旧源残留。外部写入前额外持久化已校验密文与目标意图，防止中断后丢失远端对象归属。有效租约直到显式释放或到期均阻止其他备份、清理及定时媒体扫描，不因任务已经显示完成而提前放行清理并发。任务及租约相邻写入至少间隔 1.1 秒；状态保存和租约释放使用各自 ETag，过期执行者不能覆盖新尝试或释放新租约。列表按反向时间 ID 分页，每页最多 20 项，仅返回公开任务 ID 作为翻页位置。
+- 人工重试保留任务 ID；已有源完成记录时复用源及原导出日期，已校验密文在外部失败时仍保留下载与重试引用，不重新导出或加密。否则使用新的源 ID，不覆盖上次残留。已完整成功的备份拒绝重试，不因清理失败重复上传，过期清理通过独立入口重试。目标位置变更不将原失败任务静默改投新位置；需恢复原配置重试或创建新任务。失败只记录固定分类，不保存上游错误文本、URL 或凭证。导出失败另在 Worker 日志写入 `backup_export_rejected`，只含任务 ID、HTTP 状态、导出状态和数值 API 错误码，供定位上游拒绝原因。
+- 下载只接受完成记录指向的文件，创建时已通过 SHA-256/GCM 校验，下载通过条件读取锁定同一 ETag/长度；ETag 仅锁定版本，不替代首次内容校验。更换备份密钥不阻止下载原密文，恢复仍需要对应历史密钥。
+- `download`、WebDAV/S3 与定时入口共用导出与认证加密，未配置的目标单独不可选。本地 `development` 禁止远程导出；线上需补齐独立 `D1_EXPORT_TOKEN`、站长邮箱和备份密钥并另行获准发布。
+- 单次 R2 写入仍是当前边界：导出必须返回未压缩的可靠长度，SQL 大小为单次上传上限预留封装空间；缺少长度或超限明确失败，不缓存整份文件或伪造成功。真实 D1 导出响应、实际库规模及大文件路径需 staging 验证后再判断是否需要 multipart。
+
+平台依据（2026-10-16）：[D1 export](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/export/)、[Workers duration](https://developers.cloudflare.com/workers/platform/limits/#duration)、[R2 limits](https://developers.cloudflare.com/r2/platform/limits/)。T6.1b 接口切片验证新增备份入口及共享 Worker 分发/配置，不覆盖后续 UI、外部目标、清理与恢复工具；完整差异验证见 T6.1c。
+
+### T6.1b 验证摘要
+
+2026-10-16，基于 `3f21b5b` 工作树的手动备份差异：最终 `pnpm test test/backups.test.ts` 26 项通过；此前同轮 `test/auth.test.ts`、`test/auth-http.test.ts`、`test/http.test.ts` 的 50 项以及 `test/backup-storage.test.ts`、`test/security.test.ts` 的 19 项通过结果仍覆盖最终差异，共 95 项应用定向验证，不是全量回归。`node --test scripts/prepare-staging-wrangler.test.mjs` 3 项、最终 `pnpm typecheck` 和 `pnpm build` 通过；既有测试用例未修改。
+
+场景覆盖：匹配邮箱的正常管理员成功，其余身份和失效会话在每个入口拒绝；同源/JSON/维护确认；导出轮询与认证加密下载；配置缺失、外部目标、长度/编码/大小限制拒绝；上游错误及重定向不泄露凭据；完整源复用、日期保留；并发及重试发布窗口互斥、过期执行者无法覆盖新尝试；模拟请求断线/执行超时、进程中断残留与最终状态写入失败；文件版本改变拒绝下载、历史密文可下载、环境隔离与分页。复核确认未把整次任务交给 `waitUntil`，未新增 Cron、业务表、依赖或云端产品。
+
+Cloudflare 导出响应均为模拟，D1/R2 使用本地 workerd；未做浏览器、真实 D1 export、staging 生命周期/内存/时限或恢复演练。该接口切片不含页面验证，本地 development 不允许调用远程导出。线上发布前必须另行配置对应环境的 OWNER_EMAIL 与运行时导出 Token；构建凭证不会作为备份权限交付。本轮未提交、推送或部署。
+
 ## 备份接口映射
 
-| 入口与方法（草案） | 权限 | 请求 / 响应 |
+| 入口与方法 | 权限 | 请求 / 响应 |
 | --- | --- | --- |
-| 备份页面 / `GET /admin/backups` | 仅站长 | 返回本环境备份时间、状态、可用目标和脱敏失败信息；不返回原始 SQL、对象键、上游下载地址或外部存储凭证。 |
-| `POST /admin/backups`、`POST /admin/backups/:id/retry`、`GET /admin/backups/:id/download` | 仅站长 | 创建接收目标 `download / webdav / s3`，创建/重试均经业务写入来源与 JSON 校验；目标配置由服务端读取。下载仅允许本环境已完成并校验的加密文件，由 Worker 鉴权后流式返回，不能重定向到 R2 或 D1 导出地址（6.9.4）。 |
-| `PUT /admin/backups/schedule` | 仅站长，启用时须有配置完整的 WebDAV / S3 目标 | 接收启用状态、目标类型、备份频率、北京时间执行时间，经业务写入来源与 JSON 校验；服务端验证目标配置，不接受以直接下载或私有 R2 暂存启用定时备份。返回本环境调度状态。 |
+| 备份页面 / `GET /admin/backups` | 仅站长 | loader 直接复用状态服务，展示目标、列表、创建/重试、加密下载与调度设置；创建和重试先经对话框说明维护影响；创建、重试、清理与保存调度的结果以 toast 反馈，时间按北京时间显示为 `YYYY-MM-DD HH:mm`。 |
+| `GET /admin/backups/status?after=<任务ID>`、`GET /admin/backups/:id` | 仅站长 | 返回本环境备份时间、状态、可用目标和脱敏失败信息；不返回原始 SQL、对象键、上游下载地址或外部存储凭证。 |
+| `POST /admin/backups`、`POST /admin/backups/:id/retry`、`GET /admin/backups/:id/download` | 仅站长 | 创建/重试接收 `{target: "download" / "webdav" / "s3", maintenanceConfirmed: true}`，校验来源、JSON、目标配置；重试目标类型不变。仅下载本环境已完整校验且未清理的 R2 密文，不能重定向到 R2 或 D1 地址。外部失败仍可下载完整密文，不表示外部成功。 |
+| `PUT /admin/backups/schedule` | 仅站长，设置/启用须有配置完整的 WebDAV / S3 目标 | JSON 字段：`enabled`、`target: "webdav" / "s3"`、`frequency: "daily" / "weekly" / "interval"`、`time: "HH:mm"`；weekly 的 `weekday` 为 0–6（周日为 0），interval 的 `intervalDays` 为 1–30，其余对应字段为 null。校验来源、JSON 和目标配置；渠道失效仍允许保持原参数关闭。返回本环境调度状态，不接受直接下载或私有暂存目标。 |
+
+业务 JSON 沿用 `{data, requestId}` / `{error, requestId}`。创建与重试的 `200` 表示任务结果已经持久化，不表示所选目标成功；页面检查 `data.status === "complete"`，失败展示固定的 `failure.code/message`。状态保存失败直接返回错误。页面 loader 直接复用服务函数，不发内部 HTTP 请求。`POST /admin/backups/cleanup` 以空 JSON 人工重试清理，仍要求站长及同源门禁。
+
+### 外部目标与各端保留
+
+- WebDAV 目标目录由站长预建，文件平铺在预配 HTTPS 目录；S3 使用预配 HTTPS endpoint 的 path-style bucket URL，`aws4fetch@1.0.20` 签名已知 SHA-256，不将流体交给签名库缓存，也不采用库的自动重试。`Accept-Encoding: identity` 在签名后设置，保持未压缩回读且不让运行时对该传输头的调整影响签名。PUT/GET/DELETE 均拒绝重定向，凭证不转发至其他主机。
+- PUT 后流式 GET 核对长度/SHA-256，不能以 ETag 代替。外部失败不影响完整 R2 密文的下载，任务仍显示所选目标失败，不能把这份下载副本报告为外部成功。
+- 默认 30 天。清理分页读取控制记录，以已持久化、具有认证/备份历史密钥且仍可校验的副本确定各端保护点；正在发布的任务不能作为唯一删除依据。R2 用已认证对象的版本与长度确认，外部保护点重新流式回读核验。每个外部目标位置独立识别，不对变更后的地址删除旧位置文件。
+- R2 与外部副本独立清理、独立记录；一端受保护不导致另一端永久超期保留。失败或控制状态保存失败不报告全部删除，人工清理可重试；没有可信保护点时不删除该端。清理在网页/定时的完整备份流程或人工请求中执行。只列举本环境任务及源归属索引的 `backups/<environment>/<sourceId>/`，不触碰媒体、本机下载及其他环境。换源遗留前缀满 30 天且不再被任务引用时，也必须有可信 R2 保护点才删除；先清空源前缀，成功后删除归属索引。
+- `BACKUP_KEYRING` 是可选私有 JSON 数组，元素为历史 `{backupKey, authSecret}` 条目，最多 20 组；当前条目由现有 Secrets 派生。备份认证头记录两个密钥的 SHA-256 指纹；加密与认证 Secret 按各自指纹独立查找，不要求来自同一条目。重试可以用新备份密钥加密旧 SQL，而 SQL 中的 TOTP 仍使用旧认证 Secret。清理只把两种所需密钥均实际持有的副本算作可恢复；缺记录或缺密钥不推测可恢复，也不销毁剩余恢复选项。历史密钥仍须在密码管理器和离线保管，轮换时同步 Secret 清单。
+
+### 隔离恢复工具
+
+`tools/backup-restore/` 是临时运维 Worker，不接入站点网页、Git 自动发布或生产恢复按钮。它复用备份内核，以独立操作 Token 保护唯一 `/operate` 接口，拒绝浏览器 Origin 和非 JSON；同一隔离目标以 R2 条件租约串行执行。Token、旧/新认证 Secret 和备份历史密钥只放 Worker Secrets。构建需先安装主项目依赖，再安装该目录的固定 cf/Vite 工具链；cf 要求独立项目在自己的 manifest 声明开发服务器，因此保留独立锁文件，不另建业务实现。
+
+官方 [Time Travel 文档](https://developers.cloudflare.com/d1/reference/time-travel/)明确说明目前不能 clone/fork 新库，不能拿原地 Time Travel 代替本项目的默认隔离恢复。可执行路径是新建空 D1 后用完整备份导入，旧库始终保留。没有获准的隔离目标时停止，不覆盖旧库。
+
+1. 获得目标环境、维护窗口、临时 Worker/新 D1 和资源写入授权。确认无备份任务执行且定时保持关闭，暂停成员写入与媒体导入，保留旧库；工具本身不会暂停线上服务、切换绑定或重新开放。
+2. 在 `tools/backup-restore/.env` 设置 `.env.example` 中的映射，源 D1 与隔离 D1 ID 必须不同。准备被忽略的 `.dev.vars.restore-secrets.json`：`D1_IMPORT_TOKEN`（仅隔离 D1 导入所需的 D1 Edit）、`BACKUP_ENCRYPTION_KEY`、`BETTER_AUTH_SECRET`、`RESTORE_NEW_AUTH_SECRET`、`RESTORE_OPERATOR_TOKEN`，引用历史密钥时另加 `BACKUP_KEYRING`。新认证 Secret 和操作 Token 各自独立、高熵且至少 32 字节；本次流程中不更换新 Secret。`sanitize` 和 `credentials` 共用密钥清单校验，新认证 Secret 不得复用任何当前或历史认证/备份密钥，而不只排除恢复点所选的旧认证 Secret。
+3. 本地准备：`pnpm --dir tools/backup-restore install --frozen-lockfile`；进入该目录执行 `pnpm build` 和 `pnpm exec cf deploy --dry-run`。部署须另有明确授权，获准后才执行 `pnpm exec cf deploy --prebuilt --secrets-file .dev.vars.restore-secrets.json`。临时 Worker 的 workers.dev 地址仅用于带 Token 的本机运维请求；完成后按授权删除临时 Worker，不删除旧库或备份。
+4. 可直接使用本环境 R2 已认证密文；从本机/WebDAV/S3 恢复时，只向 Cloudflare 私有 R2 上传加密文件，按文件头的环境、源 ID 与密钥指纹选择对象，文件名可采用新的 `encrypted-<UUID>.bin`。不能上传/下载本机中间明文 SQL，也不能把外部地址或凭据放入操作请求。
+5. 本机 `.dev.vars.restore-client.json` 只含 `endpoint`（HTTPS `/operate`）及 `operatorToken`。将请求和结果放在被忽略的 `.cloudflare/`：`node tools/backup-restore/operate.mjs .dev.vars.restore-client.json .cloudflare/restore-request.json .cloudflare/restore-result.json`。结果文件使用独占创建，避免覆盖证据；Token 不放命令行或 URL。请求示例见下表。
+6. `restore` 仅接受空隔离库，先整份认证，再锁定同一密文版本流式解密至 `backup-restore/` 私有暂存；回读确认后在 Cloudflare 内执行官方 `init → PUT → ingest → poll`，上传 URL 不携带 API Token。导入的 `active` 或无 status 中间响应沿同一 bookmark 继续轮询，只有 `complete` 才进入数据校验；明确失败、未知状态及进行中 bookmark 变化均拒绝。SQL 暂存无论导入结果均尝试删除，密文保持不变；硬终止残留只能按本次恢复前缀人工检查清理。导入后不再是空库，失败时不盲目重新导入或删库，先检查阶段，必要时另建隔离目标。
+7. `validate` 核对迁移摘要、SQLite/外键完整性、业务计数/有序摘要及媒体关联。媒体版本与已认证恢复点相同则复用之前的全量哈希证据；不同版本流式重验长度/SHA-256，匹配后更新隔离库的媒体 ETag。缺媒体或不一致保持隔离，从本地冷备补齐后再检查。摘要结果与选定恢复点及恢复前记录复核，不把模拟导入当作平台成功。
+8. `sanitize` 在 Cloudflare 内先验证全部旧 TOTP、生成并回验新密文，再用 D1 原子 batch 重加密 TOTP、清空库可识别的备用码组、撤销会话/verification/未用邀请/未完成注册/原生临时 Token。密码、设备、已用邀请和讨论保留。旧认证 Secret 按文件头指纹从 keyring 选取，不能默认等于当前认证 Secret；单次工具上限 1000 个 TOTP，超限明确停止。
+9. `credentials` 用新 Secret 只读复核 TOTP、空备用码及旧凭证清理结果。`sanitize` 断线或结果不明时先执行此检查，不盲重试、换 Secret 或直接开放。分批 `review` 核对成员角色、封禁和设备；管理员维护期间人工 review 历史讨论并重新手动删除，不加删除台账或清空讨论。不明确的账号继续保持维护。
+10. 完成数据、媒体、凭证和人工复核后，再经授权切换应用 D1 绑定与新认证 Secret，检查旧会话/邮箱 JWT 失效、新登录/TOTP/设备、已用邀请额度和播放；旧库保留。没有满足这些条件，任何工具响应都不是重新开放授权。
+
+| 操作 | JSON 请求字段（标识均取选定恢复点，不能跨环境） |
+| --- | --- |
+| 恢复导入 | `action: "restore"`, `id`（源 UUID）, `file`（`encrypted-<UUID>`）, `keyId`, `authKeyId` |
+| 数据复核 | `action: "validate"`, `schemaVersion` |
+| 凭证清理 | `action: "sanitize"`, `authKeyId`（恢复点旧认证指纹）, `maintenanceConfirmed: true` |
+| 清理结果复核 | `action: "credentials"`, `authKeyId`（同上） |
+| 人工复核资料 | `action: "review"`, 可选 `after`（上页返回值），每页 100 个成员及其设备元数据；不返回认证秘密，`readyToOpen` 固定为 `false` |
+
+### T6.1c 验证与缺口
+
+调度比较基线为已推送 `dev` 的 `62b1683`。直接改动 → 受影响入口 → 验证范围：私有 R2 调度/任务记录 → 北京时间计算、配置门禁、并发与中断 → 调度模拟；共享 scheduled → 备份与媒体扫描互斥/正常扫描 → 定时入口及媒体回归；站长表单与请求方法 → PUT 权限、来源/JSON、页面状态 → HTTP、客户端默认方法、SSR 和局部浏览器。媒体传输、讨论及认证业务规则不变，不重复已验收的实机/长播，不以局部改动重跑全站浏览器验收。
+
+2026-10-17 调度最终自检覆盖 70 项：`test/backup-schedule.test.ts` 19 项、`test/backups.test.ts` 35 项、`test/backup-page.test.ts` 2 项、`test/auth-client.test.ts` 2 项、`test/media-sync.test.ts` 12 项。测试分批执行：备份 34 项同轮通过，新增 PUT 用例在夹具修正后单独复验通过，未修改原有验收断言；最终输入类型校验补强后复跑调度 19 项，其他未受影响的同轮结果复用。类型检查与 development 构建通过；不是最终全量回归或 staging 验收。
+
+外部目标、保留与隔离恢复的既有证据对应 `10e666b`（`62b1683` 仅补文档）：应用全量 362 项、备份恢复定向 52 项、工具测试 21 项、虚构资源映射的 staging 构建与必需 Secret 清单断言通过。恢复/加密内核、工具、资源映射、依赖和配置未改变，复用这些证据，不把它们记成本次调度的执行结果。cf beta.12 的必需 Secret 检查与保留已有 Secret 路径按固定版本实现核对，真实发布仍须复核运行时配置。
+
+场景覆盖站长页面 SSR 与入口/直连权限、各端独立保留、缺历史密钥不删除、换源残留清理、外部失败及最终状态超时后复用完整密文。SQL 演练在 Workers 测试环境生成虚构库的有效 SQL，经加密/认证/解密/模拟 import 实际写入另一 D1 binding，逐表业务计数与摘要一致，再验证 TOTP、密码、设备、已用邀请和讨论保留；新备份密钥加密旧认证 Secret 的源可按独立指纹恢复。Cloudflare REST、WebDAV/S3 网络仍是模拟，不代表真实服务可访问或 15 分钟/内存验收。恢复工具已用虚构资源映射完成最终独立构建和 cf dry-run，核对源/目标 ID 不同且历史 keyring 非部署必需项，没有部署。测试和构建的 cf/Vite 既有弃用及本地缺 Secrets 提示仍存在，未用真实凭证消除提示。
+
+本地浏览器（当前工作树，虚构 Nova 站长，development）：1440×1000 与 360×800 检查维护提示、空记录、缺配置禁用、勾选维护确认仍不能创建、关闭设置的实际 PUT 保存及成功反馈；手机无横向溢出，未捕获客户端 error。SSR 另验仅 S3 可用时初选正确、已保存渠道失效时可提示关闭。可用渠道的启用/修改/关闭、手动创建/下载/失败重试的完整浏览器操作受 development 禁远程导出的边界限制，未用生产旁路替代。仅作手机视口模拟，不是实机验收。测试页面已关闭，6120 保留当前代码服务供复用。
+
+站长页面体验（2026-10-17）：保存位置与频率用站内分段选择，记录状态用胶囊标签，下载/重试与记录同行，任务 ID 与密钥指纹收进“详细信息”；维护影响由创建/重试的确认对话框统一说明，不再依赖页面勾选；页面只保留状态、错误、维护影响与密钥提醒，删去控件已能表达或重复的说明；失败分类和错误码文案改为站长可读的短句，服务端与客户端错误码文案一致。未改变权限、请求字段、维护确认参数或备份行为。本地以虚构 Nova 站长和虚构 R2 记录检查 1440 与 360 宽度、深浅色、确认对话框及拒绝 toast；本地禁止远程导出，成功路径的实际交互待 staging 发布后复核。
+
+未完成：定时全流程 15 分钟/内存、WebDAV/S3 真实回读、隔离恢复演练及媒体冷备确认。配置本环境备份 Secrets、写入外部渠道、新建隔离 D1/临时恢复 Worker 仍需明确授权；本轮提交、合入 `dev` 和推送已获授权，推送触发 staging 自动发布，不创建 PR，不操作 production。
+
+staging 站长配置：指定用户名与邮箱已交叉核对为同一已验证、注册完成的正常账号，角色为 `admin`。站长邮箱由本环境 Workers Builds 的 `STAGING_OWNER_EMAIL` Secret 提供，构建生成运行时 `OWNER_EMAIL`，避免后续自动发布丢失配置；其他构建变量保持不变。运行时邮箱与账号匹配已核对，不在仓库保存真实邮箱。此项不代表备份渠道已就绪或 T6.1 已验收。
+
+2026-10-17 staging 交付：`dev` 的 `6809761` 经 Workers Builds 自动发布，应用全量 386 项、工具 21 项、类型检查和 staging 构建通过；版本 `61d59218-ea51-4d87-bf20-efa66f673e24` 承载 100% 流量，来源 SHA 一致。除站长邮箱外的运行时绑定及 11 个 Secrets 与发布前一致；公开首页 `200`，匿名备份页跳转登录，状态接口 `401`，均为 `private, no-store`。未使用指定账号代登录或执行备份，完整浏览器操作及平台演练缺口不变；production 未操作。
+
+staging 手动加密下载排查（2026-10-17）：失败任务的目标为 `download`，记录 `BACKUP_EXPORT_FAILED`，约 1.44 秒结束且无备份产物，不涉及 WebDAV/S3。`ba5a17d` 增加的 `backup_export_rejected` 日志显示 D1 导出接口返回 `HTTP 401`、API 错误码 `10000`，根因是运行时 Secret 的值不是有效 Token，而非 polling 协议或 D1 Edit 权限。该 Secret 原沿用 CLI 与 Workers Builds 部署凭证的 `CLOUDFLARE_API_TOKEN` 变量名，容易与构建 Token 混填；`d102813` 改为按用途命名的 `D1_EXPORT_TOKEN`/`D1_IMPORT_TOKEN`，开发者另建仅授予 D1 Edit 的 Token 写入 staging `D1_EXPORT_TOKEN`。随后站长页面手动加密下载成功：约 8.1 秒完成，SQL 752,484 字节、密文 753,083 字节，下载文件头、长度、`.stcnbak` 文件名及 `private, no-store`/`noindex` 响应头核对通过，密文中无 SQL 明文。旧 `CLOUDFLARE_API_TOKEN` 运行时 Secret 已无代码引用，由开发者在 staging 删除。
+
+D1 polling 契约由[官方导出测试](https://github.com/cloudflare/workers-sdk/blob/main/packages/wrangler/src/__tests__/d1/export.test.ts)交叉核对：`HTTP 202 / status: "active"` 表示导出进行中，须沿同一 bookmark 继续轮询，只有 `complete` 后才下载 SQL 并暂存、加密。新增真实手动下载 HTTP 入口回归在未修复代码上稳定得到与页面相同的 `BACKUP_EXPORT_FAILED` 和无产物结果，确认实现误拒绝 `active`。当前判断接受 `active` 及既有无 status 的中间响应，未知状态、明确失败及 bookmark 变化仍拒绝；未修改原测试基线、外部渠道配置或密钥。该协议缺陷独立成立，但不是上述 staging 失败的原因。
+
+轮询修复本地自检：`pnpm test test/backups.test.ts test/backup-schedule.test.ts` 59 项通过，含新增 5 项成功与拒绝边界；`pnpm typecheck`、staging 构建和 `git diff --check` 通过。staging 构建首次因当前工作树缺少 `STAGING_D1_DATABASE_NAME` 在编译前停止，以 Node `--env-file` 注入已有私有环境映射后通过，未复制或改写配置。D1 REST 仍为模拟，复用既有暂存、加密和调度测试，不重复无关模块或浏览器检查；既有 cf/Vite 配置弃用提示保留，本地结果不替代 staging 实际备份、时限和内存验证。
+
+轮询修复 staging 交付（2026-10-17）：`8d3880e` 快进合入并推送 `dev`，Workers Builds 构建 `69834604-6e02-47ae-ab70-7b79e107ecbd` 成功，31 个应用测试文件共 391 项、工具 21 项、类型检查及 staging 构建通过。版本 `36706559-1760-4d26-9ad4-72a201021617` 承载 100% 流量，来源 SHA 匹配；运行时绑定、环境配置、11 个 Secret 绑定及兼容日期与发布前一致。匿名首页 `200`、备份页 `302` 到登录、状态接口 `401`，均带 `noindex` 和 `private, no-store`；未操作 production。
+
+staging 断线实测（2026-10-17，`d102813`）：页面内发起手动下载并在 3 秒后中止请求，任务一直显示 `running`，租约保持到 14 分钟截止，期间阻止新备份、清理及定时媒体扫描；截止后状态按兜底路径显示 `BACKUP_INTERRUPTED`，同 ID 人工重试成功。根因是断线结束调用后请求自身的 catch/finally 不执行，原实现依赖 finally 释放租约。本地 vitest 运行环境不会在中止时取消处理函数，故原断线用例未暴露该问题。修复按上文改为 abort 监听登记 `waitUntil` 收尾；新增两条用例让请求永不恢复，只靠宽限期工作完成，分别验证备份记为中断并释放租约后可再次备份、清理释放租约，两条均在未修复代码上失败。开发者确认 `5de6e9e` 的清理与超时行为，补充外部上传后超时用例：不保存成功、保留下载与回执，重试复用同一远端对象且不重新导出。本地 7 个备份测试文件共 119 项及 `pnpm typecheck` 通过；改动只涉及备份与清理请求的收尾，不跑无关模块全量测试。修复复验：`087b9c1` 自动发布版本 `b1e7efb0` 承载 100% 流量；3 秒中止请求后约 1 秒状态即为 `BACKUP_INTERRUPTED`，随即同 ID 人工重试成功（租约未释放时会返回 `BACKUP_BUSY`），下载 753,083 字节，文件头与响应头核对通过。清理请求断线未在 staging 触发，由本地用例覆盖。
+
+### T6.1 复核修复验证
+
+比较基线为 `99508fe`，证据针对本次备份恢复修复。直接改动 → 受影响入口 → 验证范围：D1 导入轮询 → 隔离恢复 → `active`/无 status、明确失败/未知状态/bookmark 变化及明文暂存清理；恢复密钥校验 → `sanitize`/`credentials` → 当前与全部历史认证/备份密钥拒绝复用、独立新密钥允许；传输头签名顺序 → WebDAV/S3 的 PUT/GET/DELETE → 保留 identity、S3 SignedHeaders 排除该头及内容回读；主备份/清理分阶段持久化与租约 → 手动备份、清理、Cron 和定时媒体扫描 → 清理越界仍保留成功、不重复上传、互斥、条件释放、状态写入失败及最后副本保护。两处等价精简由有界元数据导入与加密内核用例覆盖，不改变权限、数据表或资源配置。
+
+2026-10-17 本地 115 项定向范围分批全部通过：最终 `pnpm test test/backups.test.ts` 42 项通过，包含三条串行场景及相邻的换源残留清理；同轮七文件命令中另外六个文件的 73 项通过结果复用，分别为 `test/backup-restore.test.ts` 12 项、`test/backup-restore-http.test.ts` 14 项、`test/backup-targets.test.ts` 9 项、`test/backup-storage.test.ts` 17 项、`test/backup-schedule.test.ts` 19 项、`test/backup-page.test.ts` 2 项。其业务实现、依赖、配置及数据前提未变，不重复执行。任务 `running → complete → cleanup` 和租约 `领取 → 条件释放 → 再次领取` 的同键写入须间隔 1.1 秒；连续创建后保留清理、连续拒绝三种格式、过期运行任务恢复这三条用例按开发者确认使用 15 秒执行预算，避免原 5 秒预算引发超时及残留异步影响。全部业务断言、其他用例时限、测试运行器和备份的 14 分钟截止保持不变。
+
+`pnpm typecheck`、`pnpm build`（development）及 `tools/backup-restore/` 中以 `.env.example` 虚构资源映射执行的 `pnpm build` 全部通过；这些结果对应同轮修复代码，后续仅调整三条测试的执行预算与文档，不改变运行代码、类型契约、依赖或资源配置，复用而不重建。Standards 与 Spec 两轴静态复核均无新增阻断项，三份改动文档的 78 个本地路径/锚点和 `git diff --check` 通过。测试保留既有 cf/Vite 弃用提示；先前故障注入及超时残留的连接中断日志不作为通过证据，以完整备份文件的最终断言结果为准。
+
+未运行全量应用/工具测试：差异局限于备份恢复内核及其调用方，未改认证、讨论、媒体传输、测试运行器、依赖或发布配置，定时入口的媒体扫描互斥由调度用例覆盖。未改页面布局或交互实现，HTTP/SSR 用例覆盖受影响返回值与权限，不重复全站浏览器/实机验收。真实 staging 的网页下载/中断、S3 上传回读、15 分钟/内存和隔离恢复仍未验证。本次 Git 交付已获开发者授权：提交、快进合入并推送 `dev`，由既有流水线触发 staging 自动发布；发布状态与真实链路验证单独核对，不操作 production。
 
 ## 当前运维风险
 
 - cf beta.12 固定 strict 检查因 staging 最近由 script API 更新而拒绝上传；官方 beta.16 同样固定 `strict: true`，不能仅靠升级解除。staging 采用已获准的 Wrangler 补充发布，开发、构建和迁移继续使用 cf；生成配置须核对模式、目标、全部拆分模块及静态资源，不读取或重建既有运行时 Secrets。直接 API 发布仍需另行授权，不修改 CLI 内部实现或重建 Worker。
-- production 密钥交接文件仅含原四项，不含 EMAIL_API_KEY；不能据此认定配置齐全。备份导出、OWNER_EMAIL 及启用外部目标在模块接入时声明，不上传假值。
+- production 密钥交接文件仅含原四项，不含 EMAIL_API_KEY 或运行时备份 Token；不能据此认定配置齐全。备份导出、站长邮箱、外部目标及 keyring 已声明，真实配置与权限尚未验证，未启用的目标不上传假值。
 - 原生凭证路径需禁用相关应用日志以避免平台附加 URL，invocation/traces 未脱敏前保持关闭；认证小样本/静态配置不等于全部业务平台验证。
-- Time Travel 隔离能力、网页任务生命周期与全流程时限仍未验；无法满足时让站长决定，不擅自加 Queues/Workflows 或原地覆盖生产。
+- Time Travel 官方尚不支持新库克隆，默认隔离恢复使用完整备份；手动下载已在 staging 实测，定时全流程时限与大库导出仍待实测，不擅自加 Queues/Workflows 或原地覆盖生产。
 
 ### 6.9 环境与备份
 
@@ -62,8 +183,8 @@ staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2
 | Worker bindings | `DB`：本环境自有 D1；`MEDIA_BUCKET`：私有 R2；`ASSETS`：公开素材；`AUTH_RATE_LIMITER`、`ADMIN_RATE_LIMITER`、`EMAIL_RATE_LIMITER` 可作辅助防滥用。认证入口使用 Better Auth 的 D1 持久化限流；站点发信/管理业务配额仍由 D1 精确判定。各环境资源与计数隔离。 |
 | Worker 配置 | `APP_ENV, APP_ORIGIN, WEBAUTHN_RP_ID, TURNSTILE_SITE_KEY`，以及**发信服务的发件人地址与发件域名、邮件服务商 API 基础地址**、备份目标数据库标识、Cron 调度入口和兼容日期；业务备份频率/执行时间由站长在网页设置（6.9.2），不固定为每日 04:00。真实 Cloudflare 标识只保存在本机/平台配置，缺失或混用环境时拒绝运行。发件域名需按服务商要求配置 SPF/DKIM（必要时的 DMARC），staging 与 prod 用不同的发件人标识以便区分测试邮件。`node:crypto` 支持按选定兼容日期核实，不能只凭 Vitest 自动兼容通过就认定生产可用。 |
 | 站长配置 | `OWNER_EMAIL`：本环境唯一获准使用网页备份的管理员邮箱，仅服务端读取；缺失、格式无效或没有匹配的正常管理员时拒绝网页备份访问，不回退到“任意管理员”。随备份模块声明并提供样例占位值，实际邮箱不入库。 |
-| Worker Secrets | `BETTER_AUTH_SECRET`：库 Cookie/JWT 签名以及 TOTP/备用码认证加密，必需且每环境独立；`TURNSTILE_SECRET_KEY`：人机验证；`EMAIL_API_KEY`：Postal HTTPS API，传输层已声明，staging 已配置；`CLOUDFLARE_API_TOKEN`：备份导出最小权限；`BACKUP_ENCRYPTION_KEY`：备份加密；`WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD`：启用 WebDAV 时的 HTTPS 目标及凭证。已取消独立 `TOTP_ENCRYPTION_KEY` 与可选 `AUTH_SECRET` 设计；当前声明认证/播放/Turnstile/备份加密/邮件五项，备份导出凭证随模块加入必需声明，外部目标凭证仅对启用目标要求完整，不以占位值部署。production Secrets 尚未上传。 |
-| S3 备份 Secrets | `S3_BACKUP_ENDPOINT, S3_BACKUP_REGION, S3_BACKUP_BUCKET, S3_BACKUP_ACCESS_KEY_ID, S3_BACKUP_SECRET_ACCESS_KEY`：预配置的 HTTPS S3 兼容目标及其独立最小权限凭证；与媒体访问隔离，不向浏览器下发。随备份模块按启用的目标声明，未配置的目标在网页中不可选，不为未启用目标强制填写假凭证。 |
+| Worker Secrets | `BETTER_AUTH_SECRET`：库 Cookie/JWT 签名以及 TOTP/备用码认证加密，必需且每环境独立；`TURNSTILE_SECRET_KEY`：人机验证；`EMAIL_API_KEY`：Postal HTTPS API，传输层已声明，staging 已配置；`D1_EXPORT_TOKEN`：独立运行时备份导出凭证，只授予本账号 D1 Edit；`BACKUP_ENCRYPTION_KEY`：至少 32 字节的高熵备份加密密钥。基本五项作为 cf 部署必需 Secret；可选 `BACKUP_KEYRING` 与外部目标在本地配置声明以推导类型，线上由站长按需预配并由 CLI 保留，不放入部署必需列表，不以占位值部署。备份 Token 不复用构建部署凭证，也不沿用 CLI 与 Workers Builds 存放部署凭证的 `CLOUDFLARE_API_TOKEN` 变量名，避免两类凭证混填；production Secrets 尚未上传。 |
+| 外部备份 Secrets | `WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD`：预配的 HTTPS WebDAV 目录及凭证；`S3_BACKUP_ENDPOINT, S3_BACKUP_REGION, S3_BACKUP_BUCKET, S3_BACKUP_ACCESS_KEY_ID, S3_BACKUP_SECRET_ACCESS_KEY`：预配的 HTTPS S3 兼容目标及其独立最小权限凭证。与媒体访问隔离，不向浏览器下发；仅对启用目标要求完整，未配置的目标在网页中不可选，不为未启用目标强制填写假凭证。 |
 | 仅站长本机 | `TMDB_API_KEY`、目标环境资源映射和离线导入所需的最小权限 D1/R2 凭证；不把导入管理能力做成浏览器接口，不给 Worker 播放路径额外的上传管理 token。 |
 | 集中默认配置 | 站点业务默认：邀请额度 2、邀请码 30 天、预留 15 分钟、看完 90%、进度 15 秒、备份 30 天、评论 1000 字/每页 10 条/回复每批 10 条、管理高影响操作 30 次/分钟、发信间隔 60 秒/每用途每小时 5 次。认证配置统一维护 6.3 的原生参数及显式选择：滚动会话 30 天/updateAge 1 天/freshAge 5 分钟、验证与重置链接各 1 小时、二步挑战 5 分钟、备用码 10 个、TOTP 6 位/30 秒/±1 步、原生尝试/锁定/IP 限流。settings 与原生配置已调整并通过运行探针和第三阶段验收；播放、进度和备份等配置随对应阶段验证。 |
 
@@ -74,6 +195,7 @@ staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2
 #### 6.9.2 定时备份执行与失败行为
 
 - **调度条件与设置**：只有本环境 WebDAV 或 S3 目标配置完整，站长才可以在网页设置并启用备份频率与执行时间。时间以**北京时间（Asia/Shanghai）**展示和保存，执行时换算为 UTC；不再固定每日 04:00。仅使用直接下载或只有私有 R2 暂存时不能开启定时备份；未设置启用时不自动运行。定时入口每次重新检查所选外部目标，目标配置失效时不继续导出或报告成功，网页展示不可执行状态。导出造成的维护/查询影响仍是已知代价，应随所设执行时间向站长说明。
+- **执行槽与数据归属**：私有 `backup-control/<environment>/schedule.json` 保存设置与下次时间，默认关闭；同键写入间隔至少 1.1 秒，ETag 条件写入拒绝并发覆盖。每次保存计算严格晚于当前时刻的下次执行；interval 以保存当日的北京时间日期为锚点。复用每五分钟 Cron，延迟多个时点只执行一次，不循环补跑；领取时推进下次时间并保存任务 ID，目标失效/任务冲突也消费本次槽，不自动重试失败。完整任务记录是完成状态的权威，进程中断后超时显示失败；并发编辑的设置不会被旧任务结束写回覆盖。scheduled 等待整个备份，本轮有备份或检测到有效手动租约时不运行媒体扫描，其余 tick 保持扫描。
 
 1. 定时入口按本环境已启用的频率与时间发起全量 D1 SQL 导出，包括 schema 和全部业务数据；导出无法通过普通 D1 binding 替代。当前官方 API 是 `POST /accounts/{account_id}/d1/database/{database_id}/export`，首次使用 `output_format: 'polling'`，之后以返回的 bookmark 填入 `current_bookmark` 持续轮询同一任务，直至完成或失败；不能伪造同步 dump API。
 2. 导出期间数据库可能无法服务查询，持续轮询中断时平台会取消导出。不得将仍在执行的导出留到下一次定时触发才继续。完成后及时读取返回的短期 `signed_url` 并流式存入私有 R2 备份对象；不能把下载 URL 返给浏览器、写日志或交给 WebDAV / S3 抓取。
@@ -92,7 +214,7 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 3. 优先按事故选择 Time Travel 或完整备份。网页下载、WebDAV 或 S3 副本须验证密文认证、备份元数据、长度和校验，先在 Cloudflare 内解密到私有对象再导入；不在本机下载未加密 SQL，不让包含密码哈希/TOTP 数据的明文副本离开 Cloudflare。
 4. SQL 恢复使用当时官方支持的导入流程。当前 D1 REST import 为 `init → 上传 SQL → ingest → poll`，参数和临时地址以官方响应为准；上传及轮询在 Cloudflare 内完成，不能把 SQL 文本交给站长本机 CLI 作为中间明文文件。在隔离目标确认 schema 兼容、外键完整、业务计数与摘要一致后，再执行目标切换。
 5. 验证 `media_files` 和字幕关联的 R2 对象确实存在且长度/校验匹配；**恢复 D1 不会恢复 R2 媒体，也不会恢复 Worker Secrets**。缺媒体时需从站长本地冷备及字幕原件重新导入；尚未补齐的文件保持不可播，不先开放错误地址。
-6. **重新开放前统一撤销**：删除旧 Better Auth 会话、临时 verification 记录并撤销未使用邀请码及全部二步备用码；切换认证签名 Secret，使恢复点带回的邮箱 JWT 失效；媒体按会话鉴权，删除旧会话即同时作废恢复点带回的播放权限。切换认证 Secret 前在 Cloudflare 内以旧 Secret 解密并重加密保留的 TOTP，备用码以库可识别的空组作废；验证完整后才切换，不靠已恢复的数据库版本计数拒绝旧凭证。密码哈希与通行密钥按恢复点保留，TOTP 设备保留；恢复可能带回后来解绑的设备，重开前由站长复核。此运维步骤尚待实现和演练。
+6. **重新开放前统一撤销**：删除旧 Better Auth 会话、临时 verification 记录并撤销未使用邀请码及全部二步备用码；切换认证签名 Secret，使恢复点带回的邮箱 JWT 失效；媒体按会话鉴权，删除旧会话即同时作废恢复点带回的播放权限。切换认证 Secret 前在 Cloudflare 内以旧 Secret 解密并重加密保留的 TOTP，备用码以库可识别的空组作废；验证完整后才切换，不靠已恢复的数据库版本计数拒绝旧凭证。密码哈希与通行密钥按恢复点保留，TOTP 设备保留；恢复可能带回后来解绑的设备，重开前由站长复核。工具入口及当前演练边界见[隔离恢复工具](#隔离恢复工具)，真实 staging 演练尚未完成。
 7. **角色与封禁状态由站长逐条复核**；无法确认的账号保持**维护状态**而不是直接放行。
 8. **邀请码**：恢复出的全部未使用码撤销后，`validUnused = 0`，`occupied = used`，`available = total - used`；已用记录仍占额度，不因恢复返还（6.5.2）。
 9. **旧讨论（已确认做法）**：恢复点中的历史评论和回复**照原样恢复**，不做自动识别或自动清理。维护期间由管理员**人工 review 并重新手动删除**需要移除的内容。**不引入隐藏标记、软删除、删除 ID 台账，也不批量清空正常讨论**；**接受无法自动识别全部历史删除**这一事实，**不宣称历史备份或恢复点已被擦除**。
