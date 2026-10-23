@@ -110,7 +110,7 @@ export async function catalog(db: D1Reader, userId: string, query = "", target?:
 export function homeStages(works: Work[]) {
   const continued = works.flatMap(work => {
     const item = continuation(work);
-    return item ? [{ work, ...item }] : [];
+    return item?.unit.playable ? [{ work, ...item }] : [];
   }).sort((a, b) => b.at - a.at);
   if (continued.length) return { label: "继续观看", items: continued };
   return { label: "推荐起点", items: recommendedStarts.flatMap(start => {
