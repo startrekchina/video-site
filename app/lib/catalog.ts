@@ -3,7 +3,7 @@ export type WorkCard = { slug: string; kind: "series" | "movie"; tmdbId: number;
 export type Work = WorkCard & { seasons: { id: string; number: number; episodes: Episode[] }[]; units: Episode[] };
 export function workCard({ seasons, units, ...card }: Work): WorkCard { return card; }
 export const displayTitle = (unit: { titleZh: string | null; titleEn: string | null }) => unit.titleZh || unit.titleEn || "标题暂缺";
-export const episodeCode = (unit: Episode) => `S${String(unit.seasonNumber).padStart(2, "0")}E${String(unit.number).padStart(2, "0")}`;
+export const episodeCode = (unit: Pick<Episode, "seasonNumber" | "number">) => `S${String(unit.seasonNumber).padStart(2, "0")}E${String(unit.number).padStart(2, "0")}`;
 export const formatRuntime = (minutes: number | null | undefined) => minutes == null ? "时长暂缺" : `${Math.ceil(minutes)} 分钟`;
 export function workProgress(work: WorkCard) { return { total: work.episodeCount, watched: work.watchedCount }; }
 export function presentationNavigation(currentUrl: URL, nextUrl: URL) {

@@ -9,7 +9,10 @@ export const recommendedStarts = [
   { tmdbId: 253, why: "1966 年，一切的起点：柯克与斯波克" },
 ].map(start => ({ ...start, season: 1, episode: 1 }));
 // Fan short codes, not TMDB data; every series in the poster manifest has one.
-const codes: Record<number, string> = { 253: "TOS", 1992: "TAS", 655: "TNG", 580: "DS9", 1855: "VOY", 314: "ENT", 67198: "DIS", 82491: "ST", 85948: "LD", 85949: "PIC", 106393: "PRO", 103516: "SNW", 223530: "SFA" };
+export const codes: Record<number, string> = { 253: "TOS", 1992: "TAS", 655: "TNG", 580: "DS9", 1855: "VOY", 314: "ENT", 67198: "DIS", 82491: "ST", 85948: "LD", 85949: "PIC", 106393: "PRO", 103516: "SNW", 223530: "SFA" };
+// Only bundled poster files reach the browser.
+export const posterPath = (asset: string | null) => asset?.startsWith("/assets/posters/star-trek/") && !asset.includes("..") ? asset : "";
+export const playableMedia = "SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''";
 const stills = new Map(stillManifest.episodes.map(item => [`${item.tmdbId}:${item.season}:${item.episode}`, `/assets/stills/star-trek/${item.file}`]));
 
 // Called only after membership validation; no storage identifiers enter the global UI.
@@ -36,7 +39,7 @@ function searchQuery(query: string) {
 function workDto(row: WorkRow) {
   return { slug: row.id, kind: row.kind, tmdbId: row.tmdb_id, titleZh: row.title_zh || row.title_en || "标题暂缺", titleEn: row.title_en || "",
     overviewZh: row.overview_zh, overviewEn: row.overview_en, year: row.year,
-    poster: row.poster_asset?.startsWith("/assets/posters/star-trek/") && !row.poster_asset.includes("..") ? row.poster_asset : "",
+    poster: posterPath(row.poster_asset),
     code: codes[row.tmdb_id] ?? "", favorite: Boolean(row.favorite) };
 }
 export async function catalogCards(db: D1Reader, userId: string, query = "", kind: "series" | "movie" | null = null) {
@@ -63,7 +66,6 @@ export async function catalog(db: D1Reader, userId: string, query = "", target?:
   const matching = `SELECT id FROM works WHERE (? = '' OR instr(lower(coalesce(title_zh, '')), lower(?)) > 0 OR instr(lower(coalesce(title_en, '')), lower(?)) > 0)
     AND (? IS NULL OR id = ?) AND (? IS NULL OR id = (SELECT work_id FROM playable_units WHERE id = ?))`;
   const parameters = [search, search, search, workId, workId, unitId, unitId];
-  const playableMedia = "SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''";
   // The home page keeps only the units continuation() can pick: for each series, its latest finished episode and the first unfinished one after it.
   const afterFinished = `WITH ordered AS MATERIALIZED (SELECT u.id, u.work_id, p.completed,
       row_number() OVER (PARTITION BY u.work_id ORDER BY s.season_number, u.episode_number, u.id) AS n,

@@ -20,7 +20,7 @@ import { SiteFooter } from "./site-footer";
 import { SiteMark } from "./site-mark";
 import { useHeaderTone } from "@/lib/header-tone";
 
-const mainNavigation = [{ to: "/", label: "首页", end: true }, { to: "/series", label: "剧集" }, { to: "/movies", label: "电影" }];
+const mainNavigation = [{ to: "/", label: "首页", end: true }, { to: "/series", label: "剧集" }, { to: "/movies", label: "电影" }, { to: "/library", label: "我的片库" }];
 const guestNavigation = [{ to: "/", label: "首页", end: true }, { to: "/about", label: "关于" }];
 type Member = { username: string; role: "member" | "admin" };
 export type SearchWork = Pick<Work, "slug" | "kind" | "titleZh" | "titleEn" | "code" | "year">;
