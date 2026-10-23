@@ -51,7 +51,8 @@ export function createAuth(env: Env, registrationUserId?: string, integration?: 
       sendVerificationEmail: integration?.sendMail,
     },
     user: { changeEmail: { enabled: true, updateEmailWithoutVerification: false } },
-    session: { ...settings.session, cookieCache: { enabled: false } },
+    // The cache only spares native session lookups; site SQL still checks the session row and member on every request.
+    session: { ...settings.session, cookieCache: { enabled: true, strategy: "jwe", maxAge: 5 * 60 } },
     rateLimit: { enabled: true, storage: "database", ...settings.rateLimits.auth },
     advanced: {
       // Migrations and runtime tests validate the schema; do not introspect it on every request.
@@ -60,7 +61,7 @@ export function createAuth(env: Env, registrationUserId?: string, integration?: 
       // The cookie is explicitly named; avoid Better Auth's automatic __Secure- prefix.
       useSecureCookies: false,
       defaultCookieAttributes: { secure, httpOnly: true, sameSite: "lax", path: "/" },
-      cookies: { session_token: { name: secure ? "__Host-session" : "session" } },
+      cookies: { session_token: { name: secure ? "__Host-session" : "session" }, session_data: { name: secure ? "__Host-session-data" : "session-data" } },
     },
     disabledPaths: [
       "/sign-up/email", "/sign-in/email", "/update-user", "/delete-user", "/delete-user/callback",

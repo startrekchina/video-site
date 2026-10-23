@@ -91,7 +91,7 @@ staging 核对（2026-10-15，`78914f2`）：入口脚本、根样式与字体�
 - 稳定错误码至少区分 `AUTH_REQUIRED`、`AUTH_INVALID`、`CSRF_INVALID`、`TURNSTILE_REQUIRED`、`FRESH_SESSION_REQUIRED`、`INVITATION_INVALID`、`INVITATION_EXPIRED`、`INVITATION_USED`、`INVITATION_REVOKED`、`QUOTA_EXHAUSTED` 和 `REVISION_CONFLICT`；前端按 code 处理，不解析中文 message。邀请码无效使用 `400`，其已用/过期/作废及额度不足使用 `409`。
 - 受保护 HTML 页面未登录时跳转登录页；6.5 列明的公开页无需登录，受保护 JSON 和媒体接口返回错误。登录、邮箱找回保留库脱敏语义；注册可返回库的用户名/邮箱冲突码，不能承诺注册入口完全隐藏账号存在性。邀请码失败仍明确区分状态，不返回邀请人的私人资料。
 - 登录态 HTML、loader 数据、认证 action、邀请凭证和媒体响应使用 `Cache-Control: private, no-store`，禁止共享缓存绕过鉴权。公开静态资源可以按文件版本缓存；静态资源、重定向、错误和媒体响应同样带 `X-Robots-Tag: noindex`。Workers 静态资源头与 Worker 生成响应头分别配置，不能假定其中一处覆盖另一处。
-- 动态响应设置 `Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff`。浏览器不接收内部 R2 key/URL、Worker Secrets、密码哈希或 TOTP 密文；必要注册/绑定/签发流程只向有权接收者给出凭证材料，站长专用加密备份文件下载按 6.9.4 单独鉴权。Better Auth 自己的登录/会话端点可返回原生会话 token，按敏感凭证处理；本站会话列表仅给设备信息与 ID，撤销时在服务端映射 token。日志只记录请求 ID、路由模板、状态、错误码及必要资源 ID，不记录 Cookie、密码、邀请码、备用码、TOTP、完整 token/URL；平台 URL 日志也须验证脱敏。
+- 动态响应设置 `Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff`。浏览器不接收内部 R2 key/URL、Worker Secrets、密码哈希或 TOTP 密文；必要注册/绑定/签发流程只向有权接收者给出凭证材料，站长专用加密备份文件下载按 6.9.4 单独鉴权。Better Auth 自己的登录/会话端点可返回原生会话 token，按敏感凭证处理；本站会话列表仅给设备信息与 ID，撤销时在服务端映射 token。日志只记录请求 ID、路由模板、状态、错误码、处理请求的机房代码（`colo`）及必要资源 ID，不记录 Cookie、密码、邀请码、备用码、TOTP、完整 token/URL；平台 URL 日志也须验证脱敏。
 
 ## 基础验证方法
 
