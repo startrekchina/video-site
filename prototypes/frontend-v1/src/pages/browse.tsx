@@ -20,7 +20,12 @@ const NAV = [
 
 export function BrowsePage({ kind }: { kind: WorkKind | "search" }) {
   const [params] = useSearchParams()
-  const [q, setQ] = useState(params.get("q") ?? "")
+  const query = params.get("q") ?? ""
+  return <BrowseView key={`${kind}:${query}`} kind={kind} query={query} />
+}
+
+function BrowseView({ kind, query }: { kind: WorkKind | "search"; query: string }) {
+  const [q, setQ] = useState(query)
   const [desc, setDesc] = useState(false)
   const [view, setView] = useState<View>("grid")
   const all = kind === "search" ? [...SERIES, ...MOVIES] : kind === "series" ? SERIES : MOVIES

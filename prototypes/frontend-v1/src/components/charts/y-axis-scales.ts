@@ -28,6 +28,16 @@ export function groupLinesByYAxisId(
 
 type YScale = ReturnType<typeof scaleLinear<number>>;
 
+export function getBarMax(data: Record<string, unknown>[], dataKeys: string[], stacked: boolean): number {
+  let max = 0;
+  for (const point of data) {
+    const values = dataKeys.map((key) => typeof point[key] === "number" ? point[key] as number : 0);
+    const value = stacked ? values.reduce((sum, item) => sum + item, 0) : Math.max(0, ...values);
+    max = Math.max(max, value);
+  }
+  return max || 100;
+}
+
 export function getPrimaryYScale(
   yScales: Record<string, YScale>,
   fallback: YScale

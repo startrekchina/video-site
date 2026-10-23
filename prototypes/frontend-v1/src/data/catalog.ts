@@ -183,6 +183,8 @@ export const WORKS: Work[] = build()
 if (strippedTitles) console.info(`[catalog] stripped "第 N 集" prefix from ${strippedTitles} episode title(s)`)
 export const SERIES = WORKS.filter((w) => w.kind === "series")
 export const MOVIES = WORKS.filter((w) => w.kind === "movie")
+export const SEASON_TOTAL = SERIES.reduce((total, work) => total + work.seasons.length, 0)
+export const EPISODE_TOTAL = SERIES.reduce((total, work) => total + work.seasons.reduce((count, season) => count + season.episodes.length, 0), 0)
 
 export type Unit =
   | { kind: "movie"; id: string; work: Work; runtimeMin: number }

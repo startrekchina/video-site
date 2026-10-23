@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useSpring } from "motion/react";
+import { motion, useReducedMotion, useSpring } from "motion/react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -136,6 +136,7 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
   panelStyle,
   backgroundColor,
 }: ChartTooltipInnerProps) {
+  const reduced = useReducedMotion();
   const {
     tooltipData,
     width,
@@ -279,7 +280,7 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
         >
           <g transform={`translate(${margin.left},${margin.top})`}>
             <TooltipIndicator
-              animate={!discreteInteraction}
+              animate={!discreteInteraction && !reduced}
               colorEdge={indicatorColor}
               colorMid={indicatorColor}
               columnWidth={columnWidth}
@@ -309,6 +310,7 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
           <g transform={`translate(${margin.left},${margin.top})`}>
             {lines.map((line, index) => (
               <TooltipDot
+                animate={!reduced}
                 color={resolveDotColor(line, index)}
                 cornerRadiusFraction={
                   dotVariant === "ring" ? dotRadiusFraction : undefined
@@ -332,7 +334,8 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
 
       {/* Tooltip Box */}
       <TooltipBox
-        animate={boxMotion.animate}
+        animate={boxMotion.animate && !reduced}
+        entrance={!reduced}
         backgroundColor={backgroundColor}
         className={className}
         containerHeight={height}
@@ -360,7 +363,7 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
       {/* Date/Category Ticker - only show for vertical charts */}
       <DatePillTracker
         currentIndex={tooltipData?.index ?? 0}
-        discreteInteraction={discreteInteraction}
+        discreteInteraction={discreteInteraction || !!reduced}
         enabled={showDatePill && !isHorizontal}
         labels={dateLabels}
         springConfig={springConfig}

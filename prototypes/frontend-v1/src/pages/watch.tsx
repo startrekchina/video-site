@@ -199,7 +199,7 @@ function WatchUnit({ unitId }: { unitId: string }) {
   const pr = useStore((s) => s.progress[unitId])
   const progress = useStore((s) => s.progress)
   const playlistId = useSearchParams()[0].get("playlist")
-  const playlist = useStore((s) => s.playlists.find((p) => p.id === playlistId))
+  const playlist = useStore((s) => s.playlists.find((p) => p.id === playlistId && (p.visibility === "public" || p.owner === s.me?.username)))
   const [ended, setEnded] = useState(false)
   // A saved value that names no current track (an older key, say) falls back to the first track.
   const [sub, setSub] = useState<SubtitleLang>(() => SUBS.find((s) => s.lang === localStorage.getItem("proto-sub"))?.lang ?? SUBS[0].lang)
@@ -268,8 +268,13 @@ function WatchUnit({ unitId }: { unitId: string }) {
       </div>
 
       {inQueue && <QueueBar playlist={playlist!} watched={queue.map((u) => !!progress[u.id]?.watched)} current={position} next={next} />}
-      {/* Only what the player can't do: subtitles, next episode and resume already live in the player, the title bar and the season list. */}
       <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+        <label className="flex items-center gap-2 text-sm">
+          字幕
+          <select aria-label="字幕" value={sub} onChange={(event) => setSub(event.target.value as SubtitleLang)} className="h-8 rounded-lg border border-input bg-background px-2 focus-visible:outline-2 focus-visible:outline-ring">
+            {SUBS.map((track) => <option key={track.lang} value={track.lang}>{track.label}</option>)}
+          </select>
+        </label>
         <Button variant="outline" size="sm" onClick={() => actions.setWatched(unit.id, !pr?.watched)}>
           {pr?.watched ? <CheckIcon className="text-success" data-icon="inline-start" /> : null}
           {pr?.watched ? "已看完" : "标记为已看"}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useReducedMotion } from "motion/react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,7 @@ function XAxisLabel({
   tickerHalfWidth,
   animatePosition,
 }: XAxisLabelProps) {
+  const reduced = useReducedMotion();
   const fadeBuffer = 20;
   const fadeRadius = tickerHalfWidth + fadeBuffer;
 
@@ -71,7 +73,7 @@ function XAxisLabel({
         width: 0,
         display: "flex",
         justifyContent: "center",
-        transition: animatePosition
+        transition: animatePosition && !reduced
           ? `left ${X_AXIS_POSITION_TWEEN_MS}ms cubic-bezier(${LINE_LOADING_PULSE_EASE.join(", ")})`
           : undefined,
       }}
@@ -80,7 +82,7 @@ function XAxisLabel({
         className={cn("whitespace-nowrap text-chart-label text-xs")}
         style={{
           opacity,
-          transition: "opacity 0.4s ease-in-out",
+          transition: reduced ? undefined : "opacity 0.4s ease-in-out",
         }}
       >
         {label}

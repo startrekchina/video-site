@@ -3,6 +3,7 @@ import { ArchiveIcon, DownloadIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-
 import { Link, Navigate, useSearchParams } from "react-router"
 
 import { useStore, type Member } from "@/data/store"
+import { expiredJobs, updateSchedule, type External, type Frequency, type Job, type Schedule, type Target } from "@/data/backups"
 import { fakeLatency } from "@/lib/utils"
 import { Page, PageHeading, PageHeadingDescription, PageHeadingTagline, PageHeadingTitle, Panel, PanelHeader, PanelTitle, Separator } from "@/components/site/panel"
 import { Button } from "@/components/ui/button"
@@ -19,36 +20,6 @@ import { MaintenancePanel } from "@/pages/maintenance"
 // Owner backup page backfilled from the formal app for design review. Exports, uploads and files are simulated;
 // ?demo=empty shows a site without WebDAV/S3 and no records, ?demo=invalid a saved schedule whose channel broke.
 
-type Target = "download" | "webdav" | "s3"
-type External = Exclude<Target, "download">
-type Frequency = "daily" | "weekly" | "interval"
-type Job = {
-  id: string
-  target: Target
-  createdAt: number
-  status: "complete" | "failed" | "running"
-  failure?: string
-  downloadReady: boolean
-  r2Deleted?: boolean
-  deleted?: boolean
-  cleanupFailed?: boolean
-  byteLength?: number
-  keyId?: string
-  authKeyId?: string
-}
-type Schedule = {
-  enabled: boolean
-  target: External
-  frequency: Frequency
-  intervalDays: number
-  weekday: number
-  time: string
-  nextRunAt?: number
-  lastRunAt?: number
-  lastStatus?: "complete" | "failed"
-  failure?: string
-}
-
 const labels: Record<Target, string> = { download: "加密下载", webdav: "WebDAV", s3: "S3" }
 const frequencyLabels: Record<Frequency, string> = { daily: "每天", weekly: "每周", interval: "每隔几天" }
 const weekdayLabels = [[1, "周一"], [2, "周二"], [3, "周三"], [4, "周四"], [5, "周五"], [6, "周六"], [0, "周日"]] as const
@@ -58,7 +29,6 @@ const select =
 // sv-SE yields "2026-10-17 14:30".
 const time = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "short" }).format
 const at = (beijing: string) => Date.parse(`${beijing}+08:00`)
-const DAY = 86_400_000
 
 /** Prototype: the root admin stands in for the site owner, the only account that sees backups. */
 export const isBackupOwner = (me: Member | null) => me?.username === "station_keeper"
@@ -126,7 +96,7 @@ function BackupsView({ demo }: { demo: string | null }) {
   async function cleanup() {
     setBusy(true)
     await fakeLatency()
-    const expired = jobs.filter((job) => !job.deleted && job.createdAt < Date.now() - 30 * DAY)
+    const expired = expiredJobs(jobs, Date.now())
     setJobs(jobs.map((job) => (expired.includes(job) ? { ...job, deleted: true, r2Deleted: true, downloadReady: false } : job)))
     toast.add({ title: expired.length ? `清理完成，删除了 ${expired.length} 份过期备份。` : "没有需要清理的过期备份。", type: "success" })
     setBusy(false)
@@ -143,7 +113,7 @@ function BackupsView({ demo }: { demo: string | null }) {
     if (saving) return
     setSaving(true)
     await fakeLatency()
-    setSaved({ ...saved, enabled: scheduleEnabled, target: scheduleTarget, frequency, intervalDays, weekday, time: scheduleTime, failure: undefined })
+    setSaved(updateSchedule(saved, { enabled: scheduleEnabled, target: scheduleTarget, frequency, intervalDays, weekday, time: scheduleTime }, Date.now()))
     toast.add({ title: "自动备份设置已保存。", type: "success" })
     setSaving(false)
   }
