@@ -5,6 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  artplayer-plugin-danmuku@5.3.0: f8c7c97b7ce6347112aa8594e204fda2135f2d809204ffcc678b81c61b396486
   artplayer@5.4.0: d55ab31a572f29d93d3b46a4c7f88a5823ff71837d6c0a8c6a3c17cac9fc6f1d
 
 importers:
@@ -34,7 +35,7 @@ importers:
         version: 5.4.0(patch_hash=d55ab31a572f29d93d3b46a4c7f88a5823ff71837d6c0a8c6a3c17cac9fc6f1d)
       artplayer-plugin-danmuku:
         specifier: 5.3.0
-        version: 5.3.0
+        version: 5.3.0(patch_hash=f8c7c97b7ce6347112aa8594e204fda2135f2d809204ffcc678b81c61b396486)
       aws4fetch:
         specifier: 1.0.20
         version: 1.0.20
@@ -4266,7 +4267,7 @@ snapshots:
 
   arg@5.0.2: {}
 
-  artplayer-plugin-danmuku@5.3.0: {}
+  artplayer-plugin-danmuku@5.3.0(patch_hash=f8c7c97b7ce6347112aa8594e204fda2135f2d809204ffcc678b81c61b396486): {}
 
   artplayer@5.4.0(patch_hash=d55ab31a572f29d93d3b46a4c7f88a5823ff71837d6c0a8c6a3c17cac9fc6f1d):
     dependencies:

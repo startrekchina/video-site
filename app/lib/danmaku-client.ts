@@ -23,7 +23,10 @@ export function savedDanmakuSettings(colors: readonly string[]): Partial<Option>
 }
 export function saveDanmakuSettings(option: Option, hidden: boolean) {
   const picked = Object.fromEntries(Object.keys(fields).map(key => [key, key === "visible" ? !hidden : option[key as keyof Option]]));
-  try { localStorage.setItem(settingsKey, JSON.stringify(picked)); } catch { /* Keep the settings for this page only. */ }
+  try {
+    const serialized = JSON.stringify(picked);
+    if (localStorage.getItem(settingsKey) !== serialized) localStorage.setItem(settingsKey, serialized);
+  } catch { /* Keep the settings for this page only. */ }
 }
 
 // Block words and deletions apply at display time; listeners clear what is already on screen.

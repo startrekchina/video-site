@@ -72,6 +72,24 @@ it("checks text, position, color and time on the server", async () => {
   expect((await call("POST", unit, draft(), cookie, { "Content-Type": "text/plain" })).status).toBe(400);
 });
 
+it("rejects Unicode line separators and invisible-only text without rejecting emoji joiners", async () => {
+  for (const text of ["a\u2028b", "a\u2029b", "\u200B", " \u200D\uFE0F "]) {
+    expect((await emit({ text })).status, JSON.stringify(text)).toBe(400);
+  }
+  expect(await count("danmaku")).toBe(0);
+  expect(await count("rate_limit_counters")).toBe(0);
+  expect((await emit({ text: "👩‍💻" })).status).toBe(200);
+});
+
+it("keeps a fractional-end timestamp within the original duration at tenth-second precision", async () => {
+  await env.DB.prepare("UPDATE media_files SET duration_seconds = 100.08 WHERE id = 'source'").run();
+  const response = await emit({ time: 100.08 });
+  expect(response.status).toBe(200);
+  const { item } = (await json<{ item: Danmaku }>(response)).data!;
+  expect(item.time).toBe(100);
+  expect(await env.DB.prepare("SELECT position_seconds FROM danmaku WHERE id = ?").bind(item.id).first("position_seconds")).toBe(100);
+});
+
 it("refuses guests, unverified and banned members", async () => {
   expect((await call("GET", unit, undefined, "")).status).toBe(401);
   expect((await emit({}, "")).status).toBe(401);

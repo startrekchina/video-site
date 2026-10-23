@@ -2,4 +2,5 @@ allowBuilds:
   esbuild: true
   workerd: true
 patchedDependencies:
+  artplayer-plugin-danmuku@5.3.0: patches/artplayer-plugin-danmuku@5.3.0.patch
   artplayer@5.4.0: patches/artplayer@5.4.0.patch

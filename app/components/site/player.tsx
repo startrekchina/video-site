@@ -42,10 +42,14 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
-    const measure = () => element.style.setProperty("--player-top", `${element.getBoundingClientRect().top + window.scrollY}px`);
+    const measure = () => {
+      element.style.setProperty("--player-top", `${element.getBoundingClientRect().top + window.scrollY}px`);
+      element.style.setProperty("--player-emitter", `${emitter.current?.getBoundingClientRect().height ?? 0}px`);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element.parentElement!);
+    if (emitter.current) observer.observe(emitter.current);
     window.addEventListener("resize", measure);
     return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
   }, [unitId]);
@@ -145,8 +149,9 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
       } finally { switching = false; }
     });
     const danmakuPath = `/units/${unitId}/danmaku`;
-    void Promise.all([import("artplayer"), import("artplayer-plugin-danmuku")]).then(([{ default: Artplayer }, { default: danmakuPlugin }]) => {
+    void Promise.all([import("artplayer"), import("artplayer-plugin-danmuku").catch(() => null)]).then(([{ default: Artplayer }, danmakuModule]) => {
       if (disposed || !container.current) return;
+      const danmakuPlugin = danmakuModule?.default;
       // ArtPlayer's own reconnects restart at 0 and, with cached leading bytes, can loop forever; the reconnect button is the only recovery path.
       Artplayer.RECONNECT_TIME_MAX = 0;
       art = new Artplayer({ container: container.current, url: absolute(quality.url), lang: "zh-cn", theme: "#fafafa", volume: 0.6, autoplay: false, setting: true, playbackRate: true, fullscreen: true, fullscreenWeb: true, pip: true, hotkey: true, mutex: false, backdrop: true, playsInline: true, lock: true, fastForward: true, miniProgressBar: true,
@@ -156,7 +161,7 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
         controls: source.qualities.length > 1 ? [{ name: "quality", position: "right", index: 10, style: { marginRight: "10px" }, html: quality.label,
           selector: source.qualities.map(item => ({ html: item.label, default: item === quality })),
           async onSelect(item) { await switchQuality(String(item.html)); return quality.label; } }] : [],
-        plugins: [danmakuPlugin({
+        plugins: danmakuPlugin ? [danmakuPlugin({
           // A failed read leaves this page without danmaku; playback goes on.
           danmuku: async () => {
             const result = await libraryRequest<{ items: Danmaku[] }>(danmakuPath, "GET");
@@ -165,30 +170,34 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
             return [];
           },
           speed: 7, fontSize: 22, opacity: 0.9, margin: [10, "25%"], ...savedDanmakuSettings(danmaku.colors),
+          SPEED: { min: 0, max: 5, steps: [10, 7.5, 7, 5, 2.5, 1].map(value => ({ name: `${value}秒`, value, hide: value === 7.5 || value === 7 || value === 2.5 })) },
           COLOR: [...danmaku.colors], maxLength: danmaku.maxLength, lockTime: danmaku.lockTime,
           beforeVisible: (item: Danmu & { id?: string }) => danmakuVisible(item),
           // Only a danmaku the server accepted appears; a refusal says why (B 6.17).
           async beforeEmit(item: Danmu & { id?: string }) {
-            const result = await libraryRequest<{ item: Danmaku }>(danmakuPath, "POST", { text: item.text, time: art?.currentTime ?? 0, mode: item.mode ?? 0, color: item.color ?? danmaku.colors[0] });
+            if (!art || !ready || failed || switching || restoreTo !== null) { say("视频正在加载，请稍后发送弹幕。"); return false; }
+            const result = await libraryRequest<{ item: Danmaku }>(danmakuPath, "POST", { text: item.text, time: art.currentTime, mode: item.mode ?? 0, color: item.color ?? danmaku.colors[0] });
             if ("error" in result) { if (!disposed) say(result.error.message ?? "弹幕未发送，请稍后重试。"); return false; }
             Object.assign(item, { id: result.data.item.id, text: result.data.item.text });
             return true;
           },
-        })],
+        })] : [],
       });
-      const player = art, plugin = player.plugins.artplayerPluginDanmuku as DanmakuPlugin;
-      const saveDanmaku = () => saveDanmakuSettings(plugin.option, plugin.isHide);
-      player.on("artplayerPluginDanmuku:config", saveDanmaku); player.on("artplayerPluginDanmuku:show", saveDanmaku); player.on("artplayerPluginDanmuku:hide", saveDanmaku);
-      // Danmaku already on screen skip beforeVisible, so a new block word or a deletion clears them; the rest re-enter at their times.
-      offDanmaku = subscribeDanmakuFilter(() => plugin.reset());
-      // The plugin's own narrow fallback hangs the emitter below the player box, outside the height-capped frame.
-      let placed: HTMLElement | undefined;
-      const placeEmitter = () => {
-        if (!emitter.current || player.fullscreen || player.fullscreenWeb) return;
-        const target = player.width < emitterMinWidth ? emitter.current : player.template.$controlsCenter;
-        if (target !== placed) { placed = target; plugin.mount(target as HTMLDivElement); }
-      };
-      player.on("ready", placeEmitter); player.on("resize", placeEmitter);
+      const player = art, plugin = player.plugins.artplayerPluginDanmuku as DanmakuPlugin | undefined;
+      if (plugin) {
+        const saveDanmaku = () => saveDanmakuSettings(plugin.option, plugin.isHide);
+        player.on("artplayerPluginDanmuku:config", saveDanmaku); player.on("artplayerPluginDanmuku:show", saveDanmaku); player.on("artplayerPluginDanmuku:hide", saveDanmaku);
+        offDanmaku = subscribeDanmakuFilter(() => plugin.reset(true));
+        // The plugin's own narrow fallback hangs the emitter below the player box, outside the height-capped frame.
+        let placed: HTMLElement | undefined;
+        const placeEmitter = () => {
+          if (!emitter.current || player.fullscreen || player.fullscreenWeb) return;
+          const target = player.width < emitterMinWidth ? emitter.current : player.template.$controlsCenter;
+          if (target !== placed) { placed = target; plugin.mount(target as HTMLDivElement); }
+        };
+        player.on("ready", placeEmitter); player.on("resize", placeEmitter);
+        placeEmitter();
+      } else say("弹幕加载失败，刷新页面可重试。");
       player.once("ready", () => {
         if (startSeconds > 0 && startSeconds < player.duration) player.seek = startSeconds;
         position = player.currentTime; ready = true;
@@ -228,5 +237,5 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
     };
   }, [unitId]);
   useEffect(() => selectSubtitle.current(subtitle), [subtitle]);
-  return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom))]"><div ref={container} className="size-full" />{children}</div><div ref={emitter} className="px-2 pb-2 empty:hidden" /></div>;
+  return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom)-var(--player-emitter,0px))]"><div ref={container} className="size-full" />{children}</div><div ref={emitter} className="px-2 pb-2 empty:hidden" /></div>;
 }

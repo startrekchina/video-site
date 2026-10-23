@@ -102,6 +102,8 @@ Cloudflare 导出响应均为模拟，D1/R2 使用本地 workerd；未做浏览�
 
 官方 [Time Travel 文档](https://developers.cloudflare.com/d1/reference/time-travel/)明确说明目前不能 clone/fork 新库，不能拿原地 Time Travel 代替本项目的默认隔离恢复。可执行路径是新建空 D1 后用完整备份导入，旧库始终保留。没有获准的隔离目标时停止，不覆盖旧库。
 
+恢复工具与恢复点的 schema 必须匹配。当前业务汇总要求 `0015_danmaku.sql` 对应的 `danmaku` 表；更早的备份不能直接通过当前工具的完整校验，不代表密文或其中的数据已失效。首次发布前不维护旧开发 schema 的兼容层。需要恢复旧备份时，须先确定对应 Git 版本的 schema、汇总校验和增量升级顺序，在保留当前鉴权、取消收尾与明文清理约束的隔离流程中演练；不能直接部署缺少这些修复的旧工具，也不能跳过缺表校验或删除旧备份。该路径尚未在 staging 演练，不能用当前版本的恢复证据替代。
+
 1. 获得目标环境、维护窗口、临时 Worker/新 D1 和资源写入授权。确认无备份任务执行且定时保持关闭，暂停成员写入与媒体导入，保留旧库；工具本身不会暂停线上服务、切换绑定或重新开放。
 2. 在 `tools/backup-restore/.env` 设置 `.env.example` 中的映射，源 D1 与隔离 D1 ID 必须不同。准备被忽略的 `.dev.vars.restore-secrets.json`：`D1_IMPORT_TOKEN`（仅隔离 D1 导入所需的 D1 Edit）、`BACKUP_ENCRYPTION_KEY`、`BETTER_AUTH_SECRET`、`RESTORE_NEW_AUTH_SECRET`、`RESTORE_OPERATOR_TOKEN`，引用历史密钥时另加 `BACKUP_KEYRING`。新认证 Secret 和操作 Token 各自独立、高熵且至少 32 字节；本次流程中不更换新 Secret。`sanitize` 和 `credentials` 共用密钥清单校验，新认证 Secret 不得复用任何当前或历史认证/备份密钥，而不只排除恢复点所选的旧认证 Secret。
 3. 本地准备：`pnpm --dir tools/backup-restore install --frozen-lockfile`；进入该目录执行 `pnpm build` 和 `pnpm exec cf deploy --dry-run`。部署须另有明确授权，获准后才执行 `pnpm exec cf deploy --prebuilt --secrets-file .dev.vars.restore-secrets.json`。临时 Worker 的 workers.dev 地址仅用于带 Token 的本机运维请求；完成后按授权删除临时 Worker，不删除旧库或备份。

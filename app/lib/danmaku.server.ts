@@ -18,7 +18,8 @@ const fields = "d.id, d.position_seconds AS time, d.text, d.mode, d.color";
 // B 6.17: plain text without line breaks, counted in Unicode code points like comments.
 function text(value: unknown) {
   const body = typeof value === "string" ? value.trim() : "";
-  return body && [...body].length <= settings.danmaku.maxLength && !/\p{Cc}/u.test(body) ? body : invalid(`弹幕需为 1–${settings.danmaku.maxLength} 个字，不能换行。`);
+  return body && [...body].length <= settings.danmaku.maxLength && !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(body)
+    && /[^\p{White_Space}\p{Default_Ignorable_Code_Point}]/u.test(body) ? body : invalid(`弹幕需为 1–${settings.danmaku.maxLength} 个字，不能换行。`);
 }
 
 // Danmaku under one playable unit: members read and send, admins list senders and delete (B 6.17).
@@ -70,7 +71,8 @@ export async function danmakuHttp(request: Request, env: Env, identity = createR
   if (!unit) missing();
   if (unit.media_duration === null) fail("NOT_FOUND", "MEDIA_MISSING", "片源暂时无法播放。");
   if (time > unit.media_duration!) invalid("弹幕时间超出片长。");
-  const key = `danmaku:${current.member.user_id}`, item: Danmaku = { id: crypto.randomUUID(), time: Math.round(time * 10) / 10, text: content, mode, color };
+  const key = `danmaku:${current.member.user_id}`, item: Danmaku = { id: crypto.randomUUID(),
+    time: Math.min(Math.round(time * 10), Math.floor(unit.media_duration! * 10)) / 10, text: content, mode, color };
   // One transaction: the danmaku is written only while both limits hold, its counter row follows it, and this member's
   // expired counters are cleared. Counters outlive deleted danmaku, so deletions refund nothing.
   const [saved] = await db.batch([
