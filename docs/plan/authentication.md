@@ -11,7 +11,7 @@
 - 2026-10-22 staging 定向复验：实际增量迁移的邀请来源一致性、封禁时仅作废有效未用码、旧会话即时撤销通过；发码幂等、额度、跨成员/跨来源拒绝及媒体授权通过。三个专用虚构成员及其会话/邀请码已精确清理，外键检查无违规。封禁状态由 SQL 触发，不计管理员网页或通知验收，详见[复验记录](../staging-readiness-20261022.md#邀请与封禁迁移)。
 - 2026-10-22 性能复测：五条页面/媒体路径各 20 个请求全部成功，TTFB 中位数 377–492 ms；三轮各 50 个并发 64 KiB Range 全部成功。18 个慢样本主要在 TLS 建连，仍有两次建连后的等待超过 800 ms；不能认定历史尾延迟已解决。浏览器性能 trace 不可用，真正冷启动、手机冷缓存及完整成本矩阵仍未完成；详见[性能证据与限制](../staging-readiness-20261022.md#请求性能与并发)。
 
-- [x] T2.4 采用 Better Auth；旧 POC 29 项行为/差距测试及[报告](../../spikes/better-auth/REPORT.md)已归档，不视为正式验收。
+- [x] T2.4 采用 Better Auth；旧 POC 29 项行为/差距测试及[报告](https://github.com/startrekchina/video-site/blob/803be06/spikes/better-auth/REPORT.md)已归档，不视为正式验收。
 - [x] T2.7 锁定 1.7.7、0008/0009 增量迁移、原生配置/21 项探针、关于页文案与 8 视图复核完成。
 - [x] T3.1 邀请注册归属/续作、HTTP 防护、Postal 单次发信及用途配额、登录/验证/找回页面接通；实际验证/找回邮件与新密码登录经站长确认。
 - [x] T3.2 二步/备用码、通行密钥 UV、本人会话管理、改密及本人改邮箱完成；站长确认真实 TOTP/备用码、电脑撤销手机会话、通行密钥登录有效。
@@ -19,7 +19,7 @@
 - [x] 邀请来源数据层补强的实现与本地自检：增量约束及旧表重建衔接完整；经开发者确认修正一行既有夹具，原断言保留。新增 28 项包含在全量 219 项中全部通过，类型检查、构建和隔离本地库 14 个迁移通过；staging 已应用 0013，运行中的本机开发库未迁移，staging 功能验收待完成。
 - [x] 主题 3 PR #23 审查回归修复及本地同步：完成后连续注册、仅更换邀请码与封禁/解封时保留过期码三项新增场景在本地 dev 通过，远程迁移工具 4 项通过；PR 工作树受影响的 43 项 Workers 用例、类型检查与 development 构建通过。封禁增量迁移与应用代码已通过 `dev` 云端自动发布到 staging，专项功能与平台验收待完成。
 
-证据：[第三阶段记录](../screenshots/phase3/README.md)、[新基线截图](../screenshots/phase2-better-auth/README.md)、[历史过程](../archive/plan-20261007.md)。认证平台 8 次 HTTP 检查、最多 2 路并发，6 条样本 CPU P99 83.573 ms、isolate memory P99 19,952,700 bytes，错误 0；不是完整容量结论。套餐每小时 3,000/每日 24,000 封已确认，月额度/API 频率未知，不能推断无限。
+证据：[第三阶段记录](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase3/README.md)、[新基线截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase2-better-auth/README.md)、[历史过程](../archive/plan-20261007.md)。认证平台 8 次 HTTP 检查、最多 2 路并发，6 条样本 CPU P99 83.573 ms、isolate memory P99 19,952,700 bytes，错误 0；不是完整容量结论。套餐每小时 3,000/每日 24,000 封已确认，月额度/API 频率未知，不能推断无限。
 
 ### 6.3.4 采用决定与核对依据
 

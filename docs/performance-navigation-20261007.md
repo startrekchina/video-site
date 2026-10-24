@@ -38,4 +38,4 @@ Kimi 实际验证英文筛选只返回 TNG、筛选后的视图/排序保持条�
 
 临时 `DEBUG-nav-802b`/`Server-Timing` 诊断代码已移除；线上公开响应未保留诊断头。63 个客户端文本产物及改动文件的已知敏感值检查通过，官方公开 Turnstile 测试值按样例识别。按本次 T4 官方 API 例外更新 staging，最终启动 44 ms；D1/R2/既有 Secrets、五分钟 Cron 和私密日志配置保留。没有新建云端资源、重新导入资料或修改 production/Git 远端。
 
-部署涉及 loader 数据契约更新，已有测试站标签页应刷新一次。开发服务继续保留在 `0.0.0.0:6120`。此前[原型布局修复证据](screenshots/design-fixes-20261007/README.md)和[自然长时播放基线](screenshots/phase4/README.md)仍保留；本轮性能检查未重新跑两小时播放。
+部署涉及 loader 数据契约更新，已有测试站标签页应刷新一次。开发服务继续保留在 `0.0.0.0:6120`。此前[原型布局修复证据](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-fixes-20261007/README.md)和[自然长时播放基线](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase4/README.md)仍保留；本轮性能检查未重新跑两小时播放。

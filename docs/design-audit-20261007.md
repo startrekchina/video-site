@@ -2,7 +2,7 @@
 
 > 文档索引（2026-10-11）：文中的数字需求章节现指 [B 详细需求](../docs/detailed-requirements.md)；实施方案由 B 链接到对应模块计划。历史结果仍按记录日期解读。
 
-**初次审查结论：正式页面有 12 项设计与安排偏离。** 下文保留修复前基点、发现与截图；同日站长要求修复后，F01–F12 已完成本地复验并更新 staging，详见[修复证据](screenshots/design-fixes-20261007/README.md)。真实手机验收仍待反馈，不能将所列检查解释为所有状态已穷举。
+**初次审查结论：正式页面有 12 项设计与安排偏离。** 下文保留修复前基点、发现与截图；同日站长要求修复后，F01–F12 已完成本地复验并更新 staging，详见[修复证据](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-fixes-20261007/README.md)。真实手机验收仍待反馈，不能将所列检查解释为所有状态已穷举。
 
 ## 依据与方法
 
@@ -10,7 +10,7 @@
 - 比对了全局布局、样式、全部现有页面的展示代码、原型对应页面和基础组件。22 个已迁入的 UI 基础组件中，17 个除换行外源码完全一致；另外 5 个为 CopyButton、Dialog、LineNav、StatusButton、ThemeSwitcher 的适配。不存在的原型组件不一律算缺陷，要看对应展示或业务是否仍要求保留。
 - Kimi 会话 `video-site-design-audit-802b`，标签组“视频站原型设计核对”。复用 `0.0.0.0:6120`，本机虚构成员/片库和自生成视频。检查 1440×1000、375×800，并补查 1440×600 和 812×375；手机深色与触控媒体特征也已检查。实测 coarse=true、fine=false 时海报 filter=none，不能把未启用触控的 Chrome 灰度截图判为手机缺陷。
 - 访客使用同一服务的 `127.0.0.1:6120`，隔离现有 localhost 登录 Cookie。该别名未配置在 Turnstile 域名中，出现的 widget 错误不作为正式登录页缺陷或防机器人验证证据；本次没有提交注册、发信、改密、绑定验证器或管理操作。
-- 管理页本次核对完整展示源码及[既有桌面截图](screenshots/phase3/admin-desktop-light.jpg)和第三阶段记录；当前浏览器成员没有管理员权限，没有临时提权或现场重跑所有管理弹窗。真实手机、所有网络故障状态和所有业务数据组合没有在本次穷举，因此不能声称“所有元素、所有状态均通过”。
+- 管理页本次核对完整展示源码及[既有桌面截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase3/admin-desktop-light.jpg)和第三阶段记录；当前浏览器成员没有管理员权限，没有临时提权或现场重跑所有管理弹窗。真实手机、所有网络故障状态和所有业务数据组合没有在本次穷举，因此不能声称“所有元素、所有状态均通过”。
 
 ## 初次审查逐页结果（修复前）
 
@@ -34,35 +34,35 @@
 
 ### F01 · P1：短屏和横屏的播放器控制条落在首屏之外
 
-[Player](../app/components/site/player.tsx) 的高度上限只有 `70svh`，没有扣除顶栏和标题所占空间。1440×600 实测播放器 top=216、bottom=636；812×375 实测 top=216、bottom≈478.72。正常进入页面看不到底部控制条，后者还出现左侧缩小播放器、右侧空白，和原型的全宽黑色区域/居中播放器不同。[矮桌面截图](screenshots/design-audit-20261007/watch-short-desktop.png)、[横屏截图](screenshots/design-audit-20261007/watch-landscape.png)。
+[Player](../app/components/site/player.tsx) 的高度上限只有 `70svh`，没有扣除顶栏和标题所占空间。1440×600 实测播放器 top=216、bottom=636；812×375 实测 top=216、bottom≈478.72。正常进入页面看不到底部控制条，后者还出现左侧缩小播放器、右侧空白，和原型的全宽黑色区域/居中播放器不同。[矮桌面截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-audit-20261007/watch-short-desktop.png)、[横屏截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-audit-20261007/watch-landscape.png)。
 
 需求 6.14 明确要求短屏、手机横屏和工具栏变化时关键控件可达。应恢复原型播放器外层黑底、内层居中和扣除顶部区域的封顶思路，同时修正原型自身的最小宽度在极矮屏下的限制，不能机械复制遮挡。
 
 ### F02 · P2：季选择栏出现没有内容依据的横向滚动
 
-[作品页](../app/routes/title.tsx) 把 `screen-line-bottom` 与 `overflow-x-auto` 放在同一个 nav 上。两个季按钮时，桌面实测 clientWidth=1151、scrollWidth=1440，伪元素宽度 2880；缺少 `no-scrollbar` 和 `scroll-fade-x`。原型[对应代码](../prototypes/frontend-v1/src/pages/title.tsx)已有注释，明确把贯穿屏幕的横线放在滚动容器外，避免扩大滚动范围。[手机截图](screenshots/design-audit-20261007/title-mobile.png)可见多余横线/滚动条。
+[作品页](../app/routes/title.tsx) 把 `screen-line-bottom` 与 `overflow-x-auto` 放在同一个 nav 上。两个季按钮时，桌面实测 clientWidth=1151、scrollWidth=1440，伪元素宽度 2880；缺少 `no-scrollbar` 和 `scroll-fade-x`。原型[对应代码](../prototypes/frontend-v1/src/pages/title.tsx)已有注释，明确把贯穿屏幕的横线放在滚动容器外，避免扩大滚动范围。[手机截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-audit-20261007/title-mobile.png)可见多余横线/滚动条。
 
 ### F03 · P2：顶栏账号菜单与手机胶囊的安排被改写
 
 [SiteShell](../app/components/site/site-shell.tsx) 和[root 导航](../app/root.tsx)用账号、邀请、关于等平铺链接替代原型的账号头像菜单；账号身份、分组菜单、快捷退出和搜索快捷键徽标/竖分隔线没有保留。退出目前只能从账号页底部进入。手机胶囊只剩两个图标，缺少“搜索”文字、分隔线及原型菜单条目的行高/选中底色；断点也从 sm 改成 lg。
 
-对照[原型顶栏](../prototypes/frontend-v1/src/components/site/site-header.tsx)和[手机导航](../prototypes/frontend-v1/src/components/site/bottom-nav.tsx)。尚未开发的“我的片库”可以随 T5 开放，已经实现的账号菜单和布局无需因真实认证而省略。[当前手机菜单](screenshots/design-audit-20261007/menu-mobile-dark.png)。
+对照[原型顶栏](../prototypes/frontend-v1/src/components/site/site-header.tsx)和[手机导航](../prototypes/frontend-v1/src/components/site/bottom-nav.tsx)。尚未开发的“我的片库”可以随 T5 开放，已经实现的账号菜单和布局无需因真实认证而省略。[当前手机菜单](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-audit-20261007/menu-mobile-dark.png)。
 
 ### F04 · P2：成员页脚整块“图纸标题栏”信息缺失
 
 正式页脚始终只有 Logo 与主题切换，实测 `dt` 数为 0；原型成员页脚有站名/社区说明、剧集/季/单集/电影、字幕、来源、运行平台、字体和版权分格。需求 6.14 明确保留这种构图。访客和认证页采用简洁页脚合理，不能把成员页脚也统一删成简洁版。
 
-[正式外壳](../app/components/site/site-shell.tsx)、[原型页脚](../prototypes/frontend-v1/src/components/site/site-footer.tsx)、[当前截图](screenshots/design-audit-20261007/footer-desktop.png)。正式计数应来自获授权的数据，不恢复原型假账本或“原型”标记。
+[正式外壳](../app/components/site/site-shell.tsx)、[原型页脚](../prototypes/frontend-v1/src/components/site/site-footer.tsx)、[当前截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-audit-20261007/footer-desktop.png)。正式计数应来自获授权的数据，不恢复原型假账本或“原型”标记。
 
 ### F05 · P2：全站搜索浮层被替换为普通提交表单
 
-原型是带搜索图标、分组结果、可滚动列表、键盘选择和页脚提示的搜索面板；当前浮层只有标题、说明、输入和“搜索”，提交后离开浮层进入 `/search`。布局高度、遮罩、位置及整个查找流程都变了，实测结果行数为 0。[当前截图](screenshots/design-audit-20261007/search-mobile.png)。
+原型是带搜索图标、分组结果、可滚动列表、键盘选择和页脚提示的搜索面板；当前浮层只有标题、说明、输入和“搜索”，提交后离开浮层进入 `/search`。布局高度、遮罩、位置及整个查找流程都变了，实测结果行数为 0。[当前截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-audit-20261007/search-mobile.png)。
 
 对照[原型 CommandMenu](../prototypes/frontend-v1/src/components/site/command-menu.tsx)与[正式 SiteShell](../app/components/site/site-shell.tsx)。服务端鉴权、真实检索及 URL 参数是必要适配；它们并不要求舍弃搜索面板的展示与已定稿交互。此前迁移记录描述了这个实现选择，不能据此视为站长已接受设计变更。
 
 ### F06 · P2：片库工具栏的分段选择、当前分类与筛选框未保留
 
-[正式片库](../app/routes/catalog.tsx)把海报墙/时间轴的图标分段控件换成两个 ghost 文字按钮，年份排序换成字符箭头，分类链接没有原型选中底色/`aria-current`，筛选框没有搜索图标并新增提交按钮。375 px 工具栏从原型的同一行变成两行；当前视图缺少清晰的选中外观。[截图](screenshots/design-audit-20261007/catalog-mobile.png)。
+[正式片库](../app/routes/catalog.tsx)把海报墙/时间轴的图标分段控件换成两个 ghost 文字按钮，年份排序换成字符箭头，分类链接没有原型选中底色/`aria-current`，筛选框没有搜索图标并新增提交按钮。375 px 工具栏从原型的同一行变成两行；当前视图缺少清晰的选中外观。[截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-audit-20261007/catalog-mobile.png)。
 
 对照[原型 BrowsePage](../prototypes/frontend-v1/src/pages/browse.tsx)。GET 检索、保留 view/order 参数可以继续使用，应恢复原型的控件排列与选中视觉。时间轴的首次扫入展示也未调用现有 `sweep` 参数，属于次要差异。
 
@@ -70,7 +70,7 @@
 
 [正式作品页](../app/routes/title.tsx)删掉 Calendar/Layers/已看/Database 图标行，把季集与已看计数并成普通文本；主操作始终留在右侧资料列，没有原型手机下方通栏。季格没有每季已看/总集数；选集行缺少虚线分栏、原型标题截断和手机简介单行规则，位置/间距及剩余时长展示也不一致。简介的 `typeset-description` 排版被普通段落取代。
 
-对照[原型作品页](../prototypes/frontend-v1/src/pages/title.tsx)及[原型截图](../prototypes/frontend-v1/screenshots/episode-stills-desktop.png)，当前见[手机截图](screenshots/design-audit-20261007/title-mobile.png)。收藏、加入片单和手动已看按钮属于 T5，当前不补假按钮；已经可读的统计与纯展示结构可以恢复。
+对照[原型作品页](../prototypes/frontend-v1/src/pages/title.tsx)及[原型截图](../prototypes/frontend-v1/screenshots/episode-stills-desktop.png)，当前见[手机截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-audit-20261007/title-mobile.png)。收藏、加入片单和手动已看按钮属于 T5，当前不补假按钮；已经可读的统计与纯展示结构可以恢复。
 
 ### F08 · P2：播放页的资料/字幕/快捷键区和选集结构缺失
 
@@ -84,7 +84,7 @@
 
 ### F10 · P2：已登录成员的错误页面使用访客外壳，新增错误态没有同套布局
 
-[ErrorBoundary](../app/root.tsx)直接创建没有成员参数的 SiteShell。已登录虚构成员访问不存在页面后，导航变成首页/关于/登录，手机成员导航消失；403 页面只是两个未分层的普通文本块，没有正文内的返回入口。[当前 403 截图](screenshots/design-audit-20261007/forbidden-mobile-dark.png)。
+[ErrorBoundary](../app/root.tsx)直接创建没有成员参数的 SiteShell。已登录虚构成员访问不存在页面后，导航变成首页/关于/登录，手机成员导航消失；403 页面只是两个未分层的普通文本块，没有正文内的返回入口。[当前 403 截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-audit-20261007/forbidden-mobile-dark.png)。
 
 404 图形主体确实与原型一致，但周围的身份和导航安排没有保持。恢复已知成员的适当外壳、复用现有 PageHeading/Empty/按钮布局，不改变独立鉴权及受保护信息边界。
 
@@ -119,4 +119,4 @@
 
 最终 175 项应用测试、15 项工具测试、类型检查、staging 构建/dry-run 通过；本地桌面、375/320 px、浅深色、横屏/短屏、选择/空态/错误、键盘及减少动态效果复验通过。手动触发真实续期回调验证播放/暂停位置与英文字幕保持，另有此前修复前的 121 分钟自然播放基线，不将短时回归冒充新的两小时验收。
 
-按本次 T4 已获授权更新 staging，保留 D1/R2/Secrets 和五分钟 Cron；实际浏览器验证生成视频解码、可见控制条、安全头及匿名门禁。逐项修复、测量、截图与验证边界见[修复记录](screenshots/design-fixes-20261007/README.md)。真实手机反馈仍未收到，T4 整体保持待验收；production 与 Git 远端未修改。
+按本次 T4 已获授权更新 staging，保留 D1/R2/Secrets 和五分钟 Cron；实际浏览器验证生成视频解码、可见控制条、安全头及匿名门禁。逐项修复、测量、截图与验证边界见[修复记录](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-fixes-20261007/README.md)。真实手机反馈仍未收到，T4 整体保持待验收；production 与 Git 远端未修改。
