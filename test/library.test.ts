@@ -148,6 +148,13 @@ it("expands the queue in item order, keeps first appearances and skips finished 
   expect(html).toContain(`href="/playlists/${id}"`);
 }, 60000);
 
+it("keeps the playlist queue on the episode step links", async () => {
+  const id = await create(); await add(id, { workId: "series" });
+  const page = async (search: string) => (await exports.default.fetch(`http://localhost:6120/watch/episode-unit${search}`, { headers: { Cookie: cookie } })).text();
+  expect(await page(`?playlist=${id}`)).toContain(`href="/watch/episode-two?playlist=${id}"`);
+  expect(await page("")).not.toContain("?playlist=");
+}, 60000);
+
 it("offers the add menu on the watch page of an episode without a source", async () => {
   const html = await (await exports.default.fetch("http://localhost:6120/watch/episode-three", { headers: { Cookie: cookie } })).text();
   expect(html).toContain("这一集片源暂缺"); expect(html).toContain("加入片单");

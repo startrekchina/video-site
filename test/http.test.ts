@@ -127,7 +127,9 @@ describe("worker responses", () => {
     expect(html).toContain("正确密码加一个未使用的备用码");
     expect(html).toContain("管理员也无法替你重设");
     expect(html).not.toMatch(/href="\/recover"|注册时拿到的任意一个恢复码|24 小时内有效|连续认证失败时/);
-    expect(html).toContain('name="theme"');
+    // B 6.11: one header toggle, no three-way selector in the footer.
+    expect(html).toContain('aria-label="切换深浅色"');
+    expect(html).not.toContain('name="theme"');
     expect(html).not.toMatch(/href="\/(series|movies|library|playlists|invites|account|admin)(?:["#?\/])/);
     expect(html).not.toMatch(/PROTO|proto\/frontend-v1|站长待填/);
     expect(html.indexOf("localStorage.getItem('site-theme')")).toBeLessThan(html.indexOf('rel="stylesheet"'));

@@ -199,7 +199,8 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
         placeEmitter();
       } else say("弹幕加载失败，刷新页面可重试。");
       player.once("ready", () => {
-        if (startSeconds > 0 && startSeconds < player.duration) player.seek = startSeconds;
+        // The page has no resume line; the player says where it picks up.
+        if (startSeconds > 0 && startSeconds < player.duration) { player.seek = startSeconds; player.notice.show = `从上次的位置继续（${Math.round(startSeconds / player.duration * 100)}%）`; }
         position = player.currentTime; ready = true;
         if (autoplay) void player.play().catch(() => say("浏览器阻止自动播放，请点击播放。"));
       });

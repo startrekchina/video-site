@@ -2,15 +2,15 @@ import type React from "react"
 import { Link } from "react-router"
 
 import { cn } from "@/lib/utils"
-import { ThemeSwitcher } from "@/components/ui/theme-switcher"
 
+import { FooterArt } from "./footer-art"
 import { SiteMark } from "./site-mark"
 
-function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
+export function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
   return (
     <div className={cn("flex flex-col gap-1 bg-background px-4 py-3", className)}>
       <dt className="font-sans text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm">{children}</dd>
+      <dd className="text-sm wrap-anywhere">{children}</dd>
     </div>
   )
 }
@@ -29,7 +29,7 @@ export function SiteFooter({ stats }: { stats?: { series: number; seasons: numbe
           <>
             <div className="screen-line-bottom flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3 font-mono text-sm">
               <span className="font-medium">video.startrekchina.org</span>
-              <span className="font-sans text-muted-foreground">星际舰队档案馆 · 《星际迷航》中文粉丝的邀请制观看站</span>
+              <span className="font-sans text-muted-foreground">星际舰队档案馆</span>
             </div>
 
             <dl className="grid grid-cols-2 gap-px bg-line font-mono md:grid-cols-4">
@@ -66,10 +66,9 @@ export function SiteFooter({ stats }: { stats?: { series: number; seasons: numbe
               关于
             </Link>
           )}
-          <ThemeSwitcher />
         </div>
       </div>
-      <div className="h-[calc(var(--fade-bottom-height)+env(safe-area-inset-bottom,0px))]" />
+      <FooterArt />
     </footer>
   )
 }

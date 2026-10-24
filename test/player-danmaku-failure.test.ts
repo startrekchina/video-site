@@ -3,7 +3,7 @@ import { Player } from "@/components/site/player";
 
 const state = vi.hoisted(() => ({ effects: [] as (() => void | (() => void))[], refs: [] as { current: unknown }[], message: vi.fn(),
   options: null as unknown, listeners: new Map<string, () => void>(), art: { currentTime: 0, duration: 100, seek: 0, plugins: {},
-    on: vi.fn(), once: vi.fn(), play: vi.fn(async () => {}), destroy: vi.fn(), hotkey: { add: vi.fn() }, subtitle: { show: false }, setting: { update: vi.fn() } } }));
+    on: vi.fn(), once: vi.fn(), play: vi.fn(async () => {}), destroy: vi.fn(), hotkey: { add: vi.fn() }, subtitle: { show: false }, setting: { update: vi.fn() }, notice: { show: "" } } }));
 vi.mock("react", async original => ({ ...await original<typeof import("react")>(),
   useEffect: (effect: () => void | (() => void)) => { state.effects.push(effect); },
   useRef: (current: unknown) => { const ref = { current }; state.refs.push(ref); return ref; }, useState: () => [null, state.message] }));

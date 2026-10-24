@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Player, noticeToast } from "@/components/site/player";
 import Watch from "@/routes/watch";
-import { TabsTrigger } from "@/components/ui/tabs";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import type { PlaybackSource } from "@/lib/playback.server";
 import type { Episode, Work } from "@/lib/catalog";
@@ -15,7 +14,7 @@ const state = vi.hoisted(() => ({
   pageState: [] as unknown[], pageIndex: null as number | null, refIndex: 0, handlers: new Map<string, Handler[]>(),
   location: { state: null as unknown }, navigation: "POP", danmaku: null as unknown,
   art: { currentTime: 1234, duration: 4000, seek: 0, url: "", destroy: vi.fn(), hotkey: { add: vi.fn() },
-    on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() },
+    on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() }, notice: { show: "" },
     width: 1200, fullscreen: false, fullscreenWeb: false, template: { $controlsCenter: { name: "controls-center" } },
     plugins: { artplayerPluginDanmuku: { reset: vi.fn(), mount: vi.fn(), option: {} as Record<string, unknown>, isHide: false } } },
 }));
@@ -345,10 +344,10 @@ it("keeps watch page subtitle choices in step with a removed track without resta
     state.pageIndex = 0;
     const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
     state.pageIndex = null;
-    return { player: elements(tree, Player)[0].props as Parameters<typeof Player>[0], tabs: elements(tree, TabsTrigger) };
+    return { player: elements(tree, Player)[0].props as Parameters<typeof Player>[0], choices: elements(tree, "option") };
   };
   let view = render();
-  expect(view.tabs.map(tab => tab.props.value)).toEqual(["en", "off"]);
+  expect(view.choices.map(choice => choice.props.value)).toEqual(["en", "off"]);
   expect(view.player.source).toBe(source);
   fetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
   state.effects.length = 0; state.refs.length = 0; state.refIndex = 0;
@@ -356,7 +355,7 @@ it("keeps watch page subtitle choices in step with a removed track without resta
   cleanups = state.effects.map(effect => effect());
   await vi.dynamicImportSettled(); await new Promise(resolve => setTimeout(resolve, 0));
   view = render();
-  expect(view.tabs.map(tab => tab.props.value)).toEqual(["off"]);
+  expect(view.choices.map(choice => choice.props.value)).toEqual(["off"]);
   expect(view.player.subtitle).toBe("off");
   expect(state.art.destroy).not.toHaveBeenCalled();
 });
@@ -427,6 +426,11 @@ it("tries to autoplay once the saved start is applied and leaves the play button
   await emit("ready"); await settle();
   expect(state.art.play).toHaveBeenCalledOnce(); expect(startAtPlay).toBe(600);
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请点击播放"), reconnect: false });
+});
+
+it("says where playback resumes from the saved start", async () => {
+  await mount({ startSeconds: 600 }); await emit("ready");
+  expect(state.art.seek).toBe(600); expect(state.art.notice.show).toBe("从上次的位置继续（15%）");
 });
 
 it("hands the end to the page after the final report and leaves fullscreen only for a next-up prompt", async () => {
