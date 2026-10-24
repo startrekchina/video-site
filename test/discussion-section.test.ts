@@ -282,3 +282,83 @@ it.each([
     expect(state.request.mock.calls.filter(([path]) => path.includes("/replies?"))).toHaveLength(retry ? 3 : 2);
   } finally { finishPost({ data: answer }); await posting; }
 });
+
+it.each(([
+  ["post", "success"], ["post", "failure"], ["post", "page-failure"],
+  ["load", "success"], ["load", "failure"], ["sort", "success"],
+] as const).flatMap(([phase, outcome]) => [true, false].map(wide => [wide, phase, outcome] as const)))("revalidates after a protected conversation becomes idle (wide=%s, phase=%s, outcome=%s)", async (wide, phase, outcome) => {
+  state.wide = wide;
+  const root = { ...comments[10], replyCount: 0, replies: [] };
+  let replies = Array.from({ length: phase === "post" ? 11 : 21 }, (_, index) => ({
+    ...root, id: `r${index}`, body: `Fictional reply ${index}`, createdAt: 100 + index, replyTo: null,
+  }));
+  const answer = { ...replies[0], id: "posted-reply", body: "Fictional posted reply", createdAt: 200 };
+  let resume!: () => void;
+  const blocked = new Promise<void>(resolve => { resume = resolve; });
+  let holdLoad = false, released = false, failPage = outcome === "page-failure";
+  state.request.mockImplementation(async (path: string, method: string) => {
+    if (method === "POST") {
+      await blocked;
+      if (outcome === "failure") return { error: { status: 503 } };
+      replies = [...replies, answer];
+      return { data: answer };
+    }
+    const url = new URL(path, "http://localhost");
+    if (path.includes("/replies?")) {
+      if (holdLoad) {
+        holdLoad = false;
+        await blocked;
+        if (outcome === "failure") return { error: { status: 503 } };
+      }
+      const after = Number(url.searchParams.get("afterAt"));
+      const remaining = replies.filter(reply => reply.createdAt > after);
+      return { data: { items: remaining.slice(0, 10), rest: Math.max(0, remaining.length - 10) } };
+    }
+    const ids = url.searchParams.get("ids")?.split(",");
+    if (ids?.includes(root.id) && released && failPage) {
+      failPage = false;
+      return { error: { status: 503 } };
+    }
+    const order = phase === "sort" && url.searchParams.get("sort") === "new"
+      ? [root.id, ...comments.filter(c => c.id !== root.id).map(c => c.id)] : comments.map(c => c.id);
+    const items = (ids ?? order.slice(0, 10)).map(id => comments.find(c => c.id === id)!).map(c => c.id === root.id ? { ...root, replies: replies.slice(0, 10), replyCount: replies.length } : c);
+    return { data: ids ? { items } : { order, items, pageSize: 10, maxLength: 1000 } };
+  });
+  let tree = await mount(2);
+  rows(tree)[0].props.onOpen(); tree = render();
+  thread(tree)!.onMore();
+  const initialDepth = phase === "post" ? 11 : 20;
+  await vi.waitUntil(() => { tree = render(); return thread(tree)!.root.replies.length === initialDepth && !thread(tree)!.loadingMore; });
+  let posting: Promise<boolean> | undefined;
+  if (phase === "post") {
+    thread(tree)!.composer.props.onValueChange(answer.body); tree = render();
+    posting = thread(tree)!.composer.props.onSubmit(answer.body); render();
+  } else {
+    holdLoad = true;
+    thread(tree)!.onMore(); render();
+  }
+  try {
+    replies = replies.filter(reply => reply.id !== "r4").map(reply => ({ ...reply, likes: 5 }));
+    elements<{ onChange: (sort: string) => void }>(render(), "SortTabs")[0].props.onChange("new"); render();
+    await Promise.resolve(); tree = render();
+    if (phase !== "sort") { pager(tree).onChange(2); render(); await Promise.resolve(); tree = render(); }
+    rows(tree).find(row => row.props.c.id === root.id)!.props.onOpen(); tree = render();
+    expect(thread(tree)!.root.replies.some(reply => reply.id === "r4")).toBe(true);
+    if (phase === "post") expect(thread(tree)!.composer.props.sending).toBe(true);
+    else expect(thread(tree)!.loadingMore).toBe(true);
+    released = true; resume();
+    if (posting) expect(await posting).toBe(outcome !== "failure");
+    if (outcome === "page-failure") {
+      await vi.waitUntil(() => { tree = render(); return !!retryPage(tree); });
+      expect(commentList(tree)?.props["aria-busy"]).toBe(false);
+      retryPage(tree)!.props.onClick(); render();
+    }
+    await vi.waitUntil(() => { tree = render(); return thread(tree)!.root.replies[0]?.likes === 5 && !thread(tree)!.loadingMore; });
+    const refreshed = thread(tree)!;
+    expect(refreshed.root.replies).toEqual(replies);
+    expect(refreshed.root.replyCount).toBe(replies.length);
+    expect(refreshed.composer.props.sending).toBe(false);
+    expect(refreshed.composer.props.value).toBe(phase === "post" && outcome === "failure" ? answer.body : "");
+    expect(commentList(tree)?.props["aria-busy"]).toBe(false);
+  } finally { resume(); await posting; }
+});
