@@ -50,14 +50,6 @@ export function PanelTitleSup({ className, ...props }: React.ComponentProps<"sup
   )
 }
 
-export function PanelDescription({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={cn("py-4 text-base text-balance text-muted-foreground", className)} {...props} />
-}
-
-export function PanelContent({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={cn("p-4", className)} {...props} />
-}
-
 /** Centered secondary button closing a panel ("All posts →" in the reference). */
 export function PanelFooterLink({ to, children }: { to: string; children: React.ReactNode }) {
   return (
@@ -129,18 +121,5 @@ export function HeadingGap() {
       <div className="h-4" />
       <div className="screen-line-bottom h-px" />
     </>
-  )
-}
-
-/** Grey caption, e.g. "Fig. 1." in the reference. */
-export function FigCaption({ className, ...props }: React.ComponentProps<"span">) {
-  return (
-    <span
-      className={cn(
-        "pointer-events-none text-sm/none tracking-wide text-[color-mix(in_oklab,var(--muted-foreground)_60%,var(--background))] tabular-nums select-none",
-        className,
-      )}
-      {...props}
-    />
   )
 }

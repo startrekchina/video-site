@@ -220,12 +220,6 @@
   --chart-marker-border: var(--border);
   --chart-marker-foreground: var(--foreground);
   --chart-label: var(--muted-foreground);
-  --chart-scale-01: color-mix(in oklab, var(--foreground) 4%, var(--background));
-  --chart-scale-02: color-mix(in oklab, var(--foreground) 14%, var(--background));
-  --chart-scale-03: color-mix(in oklab, var(--foreground) 30%, var(--background));
-  --chart-scale-04: color-mix(in oklab, var(--foreground) 52%, var(--background));
-  --chart-scale-05: color-mix(in oklab, var(--foreground) 78%, var(--background));
-  --chart-scale-pattern-color: var(--line);
 }
 
 .dark {

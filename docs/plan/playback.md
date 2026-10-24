@@ -20,7 +20,7 @@
 - [x] T4.4 修复 F01/F08/F09 黑框、居中、短屏、信息/字幕/选集和字体；320/375px、桌面短屏/手机横屏与更新后 staging 解码复验通过。本轮未重跑两小时，长时结果保留为修复前功能基线。
 - [x] T4.4-mobile 收到并核对真实手机触屏拖动、中英文字幕及原生全屏反馈。开发者 2026-10-16 iPhone 实机反馈通过，未记录型号与系统版本，开发者确认不另测安卓：staging 2 小时测试视频的播放、拖到中段续播、设置面板与页面标签的中英字幕切换和关闭、横竖屏进出全屏均正常。
 
-证据：[第四阶段](../screenshots/phase4/README.md)、[长时数据](../screenshots/phase4/staging-playback-report.json)、[设计修复](../screenshots/design-fixes-20261007/README.md)。平台 134 请求、7118.834 ms CPU、错误 0，146 条日志无已知凭证泄漏；样本不代表完整容量。保留既有 6120 服务，不重启或另起端口。
+证据：[第四阶段](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase4/README.md)、[长时数据](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase4/staging-playback-report.json)、[设计修复](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-fixes-20261007/README.md)。平台 134 请求、7118.834 ms CPU、错误 0，146 条日志无已知凭证泄漏；样本不代表完整容量。保留既有 6120 服务，不重启或另起端口。
 
 局部修复自检（2026-10-14）：`playback.test.ts`、`player-renewal.test.ts`、`media-sync.test.ts`、`request-identity.test.ts`、`request-performance.test.ts` 共 33 项及 Node 续期 2 项通过；类型检查和 development 构建通过。覆盖缺失/不匹配版本的 GET/HEAD/Range 拒绝、扫描冲突及验证恢复、字幕异常后新期限与后续续期、暂停/自动播放受阻提示，以及视频失败的重试/到期暂停；身份竞态与既有 D1 预算保持通过。PR #24 对应 20 项与 Node 2 项、类型检查和构建也通过。测试执行真实组件 effect/续期控制器，模拟浏览器、ArtPlayer 和授权请求边界；不声称真实解码或字幕 HTTP 404 必然使库拒绝。未重跑全量、浏览器、staging、实机或长播验收，未迁移或部署。
 

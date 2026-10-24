@@ -26,22 +26,10 @@ importers:
       '@ncdai/react-swipe-actions':
         specifier: 0.3.0
         version: 0.3.0(motion@13.4.6(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)
-      '@number-flow/react':
-        specifier: 0.6.2
-        version: 0.6.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@visx/curve':
         specifier: 4.0.0
         version: 4.0.0
       '@visx/event':
-        specifier: 4.0.0
-        version: 4.0.0(@types/react@19.3.0)(react@19.3.0)
-      '@visx/gradient':
-        specifier: 4.0.0
-        version: 4.0.0(@types/react@19.3.0)(react@19.3.0)
-      '@visx/grid':
-        specifier: 4.0.0
-        version: 4.0.0(@types/react@19.3.0)(react@19.3.0)
-      '@visx/group':
         specifier: 4.0.0
         version: 4.0.0(@types/react@19.3.0)(react@19.3.0)
       '@visx/responsive':
@@ -848,12 +836,6 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
-  '@number-flow/react@0.6.2':
-    resolution: {integrity: sha512-WjZuV4aA+vhRCgCF+adGLgFVVAJ8vdvq6EchRT2FiBIgElTXtDOA3YgkcMr9UHpvpS9v4H70AB5wZv0D9jc3QA==}
-    peerDependencies:
-      react: ^18 || ^19
-      react-dom: ^18 || ^19
-
   '@oxc-project/types@0.151.0':
     resolution: {integrity: sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA==}
 
@@ -1330,24 +1312,6 @@ packages:
       '@types/react':
         optional: true
 
-  '@visx/gradient@4.0.0':
-    resolution: {integrity: sha512-AycKA/9Hhx9BXOdWACqYKGU+Dkq/gWzgaDAK/MkVDjXME+3Sl8oE6mn/ZO54gi6wg9qNHhWLnp8XKPJSp4/pzA==}
-    peerDependencies:
-      '@types/react': ^18.0.0 || ^19.0.0
-      react: ^18.0.0 || ^19.0.0
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
-  '@visx/grid@4.0.0':
-    resolution: {integrity: sha512-BUnznqYo8jyn3zXRWZiF0zwg1VQl6w5kYqZ+XMY+cPXtAHZZbwGXBChMpPefH5Lj1+P1b4Pf3QihKG8zjL9PCw==}
-    peerDependencies:
-      '@types/react': ^18.0.0 || ^19.0.0
-      react: ^18.0.0 || ^19.0.0
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
   '@visx/group@4.0.0':
     resolution: {integrity: sha512-HGAq8BCqn5x0t94CJOLJeKtWss9LFpF3HY69HbuO1PlR+B9c4aVT9xbjfudmU8wGQZLT6JNt+PJvxbO2aJ+1aA==}
     peerDependencies:
@@ -1814,9 +1778,6 @@ packages:
   escape-string-regexp@5.0.0:
     resolution: {integrity: sha512-/veY75JbMK4j1yjvuUxuVsiS/hr/4iHs9FTT6cgTexxdE0Ly/glccBAkloH/DofkjRbZU3bnoj38mOmhkZ0lHw==}
     engines: {node: '>=12'}
-
-  esm-env@1.2.2:
-    resolution: {integrity: sha512-Epxrv+Nr/CaL4ZcFGPJIYLWFom+YeV1DqMLHJoEd9SYRxNbaFruBwfEX/kkHUJf55j2+TUbmDcmuilbP1TmXHA==}
 
   esprima@4.0.1:
     resolution: {integrity: sha512-eGuFFw7Upda+g4p+QHvnW0RyTX/SVeJBDM/gCtMARO0cLuT2HcEKnTPvhjV6aGeqrCB/sbNop0Kszm0jsaWU4A==}
@@ -2608,9 +2569,6 @@ packages:
   npm-run-path@6.0.0:
     resolution: {integrity: sha512-9qny7Z9DsQU8Ou39ERsPU4OZQlSTP47ShQzuKZ6PRXpYLtIFgl/DEBYEXKlvcEa+9tHVcK8CF81Y2V72qaZhWA==}
     engines: {node: '>=18'}
-
-  number-flow@0.6.2:
-    resolution: {integrity: sha512-MCnImG4Q5vPwhSXnov56nOuyyKn6LC+Qd7II1UiKc+ACRtug5iAtn0+CwXNxM38AC5lSowEY+oYEtZX2qMnUyw==}
 
   object-assign@4.1.1:
     resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}
@@ -3952,13 +3910,6 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.3
 
-  '@number-flow/react@0.6.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
-    dependencies:
-      esm-env: 1.2.2
-      number-flow: 0.6.2
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
-
   '@oxc-project/types@0.151.0': {}
 
   '@poppinss/colors@4.1.6':
@@ -4320,24 +4271,6 @@ snapshots:
   '@visx/event@4.0.0(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
       '@visx/point': 4.0.0
-      react: 19.3.0
-    optionalDependencies:
-      '@types/react': 19.3.0
-
-  '@visx/gradient@4.0.0(@types/react@19.3.0)(react@19.3.0)':
-    dependencies:
-      react: 19.3.0
-    optionalDependencies:
-      '@types/react': 19.3.0
-
-  '@visx/grid@4.0.0(@types/react@19.3.0)(react@19.3.0)':
-    dependencies:
-      '@visx/curve': 4.0.0
-      '@visx/group': 4.0.0(@types/react@19.3.0)(react@19.3.0)
-      '@visx/point': 4.0.0
-      '@visx/scale': 4.0.0
-      '@visx/shape': 4.0.0(@types/react@19.3.0)(react@19.3.0)
-      classnames: 2.5.1
       react: 19.3.0
     optionalDependencies:
       '@types/react': 19.3.0
@@ -4763,8 +4696,6 @@ snapshots:
   escape-html@1.0.3: {}
 
   escape-string-regexp@5.0.0: {}
-
-  esm-env@1.2.2: {}
 
   esprima@4.0.1: {}
 
@@ -5713,10 +5644,6 @@ snapshots:
     dependencies:
       path-key: 4.0.0
       unicorn-magic: 0.3.0
-
-  number-flow@0.6.2:
-    dependencies:
-      esm-env: 1.2.2
 
   object-assign@4.1.1: {}
 

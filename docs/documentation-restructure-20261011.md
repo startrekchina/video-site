@@ -63,7 +63,7 @@
 | production 发布阶段与前置条件 | [核心计划里程碑](../PLAN.md#优先级与里程碑)、[运维计划](plan/operations.md) T6.2；不改变原发布门槛 |
 | 前端沿用内容、独立目录和模拟能力边界 | B 6.14–6.15、[前端迁移方案](plan/foundation.md#615-前端原型保留与代码沿用)；AGENTS 保留任务触发式读取入口 |
 | Worker 短期媒体 token 架构 | B 6.6、[播放计划](plan/playback.md)；AGENTS 保留凭证保密及禁止规避检测的安全约束 |
-| 两次 staging 临时 API 授权 | [第三阶段记录](screenshots/phase3/README.md#临时部署授权记录)、[第四阶段记录](screenshots/phase4/README.md#发布与剩余验收)；仅限当次任务/环境，不构成后续授权 |
+| 两次 staging 临时 API 授权 | [第三阶段记录](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase3/README.md#临时部署授权记录)、[第四阶段记录](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase4/README.md#发布与剩余验收)；仅限当次任务/环境，不构成后续授权 |
 
 根 PLAN 和六个模块计划的文档维护规则、运维计划的通用 CLI 规则改为链接 AGENTS，不再各自维护副本。README 将第三阶段临时部署过程移入验收记录，保留运行说明和风险入口；不新建文档层级，不改功能里程碑。下次整理仍须逐项核对承接内容，不能以精简为由删除有效约束。
 

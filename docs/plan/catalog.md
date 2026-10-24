@@ -17,7 +17,7 @@
 - [x] T4.2 导航性能修复：批量查询、限制详情/首页单元、视图排序客户端切换；权限与即时会话检查保留。
 - [x] T4.2-mobile 收到并核对真实手机搜索输入及切季结果；模拟视口已通过但不替代实机。开发者 2026-10-16 iPhone 实机反馈通过，未记录型号与系统版本，开发者确认不另测安卓：中文输入搜索、清空后重新输入及第 1/2 季来回切换的结果、选中季与单集列表一致。
 
-验证摘要：27 部作品、52 季、974 单元占位，二次初始化保留 ID/引用/实际时长，Cron 关联及非法字幕修复后重试通过。178 项应用测试、工具测试、类型检查/构建及线上复测已记录。导航同组样本剧集 1303→407 ms、电影 928→368 ms，列表约 222→10.7 KB，不代表所有设备表现。详见[导入说明](../import-media.md)、[第四阶段记录](../screenshots/phase4/README.md)、[设计修复](../screenshots/design-fixes-20261007/README.md)、[性能报告](../performance-navigation-20261007.md)。
+验证摘要：27 部作品、52 季、974 单元占位，二次初始化保留 ID/引用/实际时长，Cron 关联及非法字幕修复后重试通过。178 项应用测试、工具测试、类型检查/构建及线上复测已记录。导航同组样本剧集 1303→407 ms、电影 928→368 ms，列表约 222→10.7 KB，不代表所有设备表现。详见[导入说明](../import-media.md)、[第四阶段记录](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase4/README.md)、[设计修复](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/design-fixes-20261007/README.md)、[性能报告](../performance-navigation-20261007.md)。
 
 时间轴展示自检（2026-10-14）：每行按作品类型显示剧集简称或电影序号，混合列头为“简称 / 序号”；电影时长与网格/详情共用 `formatRuntime`，保持向上取整及无时长隐藏。`pnpm test -- test/works-timeline.test.ts` 的 5 项实际组件渲染用例、`pnpm typecheck` 和 `pnpm build` 通过，覆盖混合结果两种顺序、纯类型列表、两套响应式标签输出和小数/缺失时长。PR #24 分支同一组用例、类型检查及 development 构建也通过。未重跑全量、浏览器、staging 或实机验收，不改变阶段验收状态。
 
