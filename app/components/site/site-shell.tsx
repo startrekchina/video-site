@@ -11,7 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { Toaster } from "@/components/ui/toast";
+import { Toaster, toast } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { BottomRuler } from "./bottom-ruler";
 import { CommandMenu } from "./command-menu";
@@ -26,12 +26,12 @@ type Member = { username: string; role: "member" | "admin" };
 export type SearchWork = Pick<Work, "slug" | "kind" | "titleZh" | "titleEn" | "code" | "year">;
 
 function UserMenu({ member }: { member: Member }) {
-  const navigate = useNavigate(), [busy, setBusy] = useState(false), [error, setError] = useState("");
-  return <><DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="border-none" aria-label="账号菜单"><span className="flex size-6 items-center justify-center rounded-md bg-muted font-mono text-xs text-muted-foreground uppercase inset-ring-1 inset-ring-foreground/10">{member.username.slice(0, 1)}</span><span className="sr-only">{member.username}</span></Button>} />
+  const navigate = useNavigate(), [busy, setBusy] = useState(false);
+  return <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="border-none" aria-label="账号菜单"><span className="flex size-6 items-center justify-center rounded-md bg-muted font-mono text-xs text-muted-foreground uppercase inset-ring-1 inset-ring-foreground/10">{member.username.slice(0, 1)}</span><span className="sr-only">{member.username}</span></Button>} />
     <DropdownMenuContent align="end" className="w-52"><DropdownMenuGroup><DropdownMenuLabel className="flex flex-col gap-0.5"><span className="font-mono text-sm text-foreground">{member.username}</span><span className="text-xs">{member.role === "admin" ? "管理员" : "成员"}</span></DropdownMenuLabel></DropdownMenuGroup><DropdownMenuSeparator />
       <DropdownMenuItem onClick={() => navigate("/account")}><UserIcon />账号与安全</DropdownMenuItem><DropdownMenuItem onClick={() => navigate("/account#passkeys")}><KeyRoundIcon />通行密钥</DropdownMenuItem><DropdownMenuItem onClick={() => navigate("/invites")}><TicketIcon />邀请</DropdownMenuItem>{member.role === "admin" && <DropdownMenuItem onClick={() => navigate("/admin")}><ShieldIcon />管理后台</DropdownMenuItem>}<DropdownMenuSeparator />
-      <DropdownMenuItem disabled={busy} onClick={() => { setBusy(true); setError(""); void call("/api/auth/sign-out", {}).then(() => location.assign("/login")).catch(error => { setError(error.message); setBusy(false); }); }}><LogOutIcon />{busy ? "正在退出…" : "退出登录"}</DropdownMenuItem>
-    </DropdownMenuContent></DropdownMenu>{error && <p role="alert" className="absolute top-full right-2 rounded bg-background p-3 text-sm text-destructive">{error}</p>}</>;
+      <DropdownMenuItem disabled={busy} onClick={() => { setBusy(true); void call("/api/auth/sign-out", {}).then(() => location.assign("/login")).catch(error => { toast.add({ title: error.message, type: "error" }); setBusy(false); }); }}><LogOutIcon />{busy ? "正在退出…" : "退出登录"}</DropdownMenuItem>
+    </DropdownMenuContent></DropdownMenu>;
 }
 
 function SearchTrigger({ onClick, className }: { onClick: () => void; className?: string }) {

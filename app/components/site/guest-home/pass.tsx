@@ -97,9 +97,7 @@ export function BoardingPass({ className }: { className?: string }) {
         </Button>
         <Link to="/login" className="link-underline text-foreground">
           密码登录
-        </Link>
-        {passkey.error && <p role="alert" className="w-full text-center text-destructive">{passkey.error}</p>}
-      </div>
+        </Link>      </div>
     </section>
   )
 }

@@ -210,7 +210,7 @@ function FieldTag({ n, color, children }: { n: string; color: string; children: 
 }
 
 function SignIn({ className }: { className?: string }) {
-  const { busy, error, signIn } = usePasskeySignIn()
+  const { busy, signIn } = usePasskeySignIn()
   return (
     <div className={cn("flex flex-col gap-3 p-4", className)}>
       <FieldTag n="02" color="bg-[#cc99cc]">
@@ -223,9 +223,7 @@ function SignIn({ className }: { className?: string }) {
         </Button>
         <Link to="/login" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
           密码登录
-        </Link>
-        {error && <p role="alert" className="w-full text-sm text-destructive">{error}</p>}
-      </div>
+        </Link>      </div>
     </div>
   )
 }

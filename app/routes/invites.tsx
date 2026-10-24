@@ -14,6 +14,7 @@ import { StatusButton } from "@/components/ui/status-button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { toast } from "@/components/ui/toast";
 
 type InviteData = { invitations: Invitation[]; total: number; occupied: number; unlimited: boolean };
 export async function loader({ request, context }: Route.LoaderArgs) {
@@ -25,11 +26,12 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 }
 export const meta = () => pageTitle("邀请");
 export default function InvitesPage({ loaderData: invites }: Route.ComponentProps) {
-  const action = useAction(); const revalidator = useRevalidator();
+  const revalidator = useRevalidator();
   const [operation, setOperation] = useState<{ id: string; expiresAt?: number } | null>(null);
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [created, setCreated] = useState<{ code: string; expiresAt: number } | null>(null);
   const [expiryOpen, setExpiryOpen] = useState(false);
+  const action = useAction(expiryOpen);
   const left = invites.unlimited ? Infinity : Math.max(0, invites.total - invites.occupied);
   function create(expiresAt?: number) {
     void action.run(async () => {
@@ -51,11 +53,10 @@ export default function InvitesPage({ loaderData: invites }: Route.ComponentProp
       <Button variant="ghost" size="sm" disabled={action.busy || left <= 0} onClick={() => { action.clear(); setExpiryOpen(true); }}>指定有效期生成</Button>
       {left <= 0 && <span className="text-sm text-muted-foreground">额度已用完，可以联系管理员调整。</span>}
     </div>
-    {!expiryOpen && !created && <div className="empty:hidden px-4 pb-4">{action.feedback}</div>}
     <Separator /><Panel><PanelHeader><PanelTitle>我发出的邀请码<PanelTitleSup>({invites.invitations.length})</PanelTitleSup></PanelTitle></PanelHeader>
       {!invites.invitations.length ? <Empty className="rounded-none py-12"><EmptyHeader><EmptyMedia variant="icon"><TicketIcon /></EmptyMedia><EmptyTitle>还没有发出邀请码</EmptyTitle><EmptyDescription>生成后把注册链接通过私信发给朋友即可。</EmptyDescription></EmptyHeader></Empty>
         : <><InviteList invitations={invites.invitations} now={invites.now} codes={codes} busy={action.busy} revoke={id => void action.run(async () => {
-          await call("/invites/" + id + "/revoke", {}); revalidator.revalidate(); action.setMessage("邀请码已作废，额度已返还。");
+          await call("/invites/" + id + "/revoke", {}); revalidator.revalidate(); toast.add({ title: "邀请码已作废，额度已返还。", type: "success" });
         })} /><p className="screen-line-top px-4 py-3 text-xs text-muted-foreground">邀请码只在生成后显示一次，请及时复制保存。已使用的邀请码会计入额度，未使用的邀请码作废或过期后会自动返还额度。</p></>}
     </Panel>
     <Dialog open={!!created} onOpenChange={value => { if (!value) { setCreated(null); action.clear(); } }}><DialogContent>

@@ -4,6 +4,7 @@ import { ChevronDownIcon, ListVideoIcon, MonitorSmartphoneIcon, ShieldCheckIcon,
 import { authClient, authError } from "@/lib/auth-client"
 import { Panel, PanelFooterLink, PanelHeader, PanelTitle, Separator } from "@/components/site/panel"
 import { IconTile } from "@/components/ui/icon-tile"
+import { toast } from "@/components/ui/toast"
 
 // The landing page's shared sections, aimed at someone holding an invite code: how joining works, what
 // members get, rules and FAQ. Features are described, the catalogue is not.
@@ -40,20 +41,18 @@ export function bars(seed: string) {
   return Array.from({ length: 42 }, (_, i) => ((src.charCodeAt(i % src.length) * (i + 7)) % 3) + 1)
 }
 
-/** Passkey sign-in shared by the landing's ways in; a finished ceremony reloads into the member home. */
+/** Passkey sign-in shared by the landing's ways in; a finished ceremony reloads into the member home, a failure is a toast. */
 export function usePasskeySignIn() {
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
   const signIn = () => {
     setBusy(true)
-    setError("")
     void authClient.signIn.passkey().then(result => {
       if (result?.error) throw new Error(authError(result.error))
       if (!result?.data) throw new Error("通行密钥登录未完成。")
       window.location.assign("/")
-    }).catch((reason: Error) => { setError(reason.message); setBusy(false) })
+    }).catch((reason: Error) => { toast.add({ title: reason.message, type: "error" }); setBusy(false) })
   }
-  return { busy, error, signIn }
+  return { busy, signIn }
 }
 
 /** How joining works, what members get, rules and FAQ; follows the first screen on every width. */
