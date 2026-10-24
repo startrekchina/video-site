@@ -295,6 +295,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   const [unavailable, setUnavailable] = useState(false)
   const [limits, setLimits] = useState({ pageSize: 10, maxLength: 1000 })
   const [comments, setComments] = useState<Record<string, Comment>>({})
+  const [readIds, setReadIds] = useState<string[]>([])
   // Your own new comments, pinned to the top of page one whatever the sort. Kept apart from the order, so a sort
   // answered after a post cannot drop it.
   const [fresh, setFresh] = useState<string[]>([])
@@ -357,6 +358,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
       ...Object.fromEntries(Object.entries(c).filter(([id]) => kept(id))),
       ...Object.fromEntries(newer.map((item) => [item.id, loading.includes(item.id) ? { ...item, replies: c[item.id].replies, replyCount: c[item.id].replyCount } : item])),
     }))
+    // Retaining local work does not make an older page snapshot current for this sort.
+    setReadIds((ids) => [...new Set([...listed, ...ids.filter((id) => fresh.includes(id) || !before[id])])])
     // Your posts from before the request that it no longer lists were deleted elsewhere.
     setRemoved((r) => [...r, ...fresh.filter((id) => !data.order.includes(id))])
     setLimits({ pageSize: data.pageSize, maxLength: data.maxLength })
@@ -373,7 +376,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   const pageCount = Math.max(1, Math.ceil(all.length / limits.pageSize))
   const current = Math.min(page, pageCount)
   const visible = all.slice((current - 1) * limits.pageSize, current * limits.pageSize)
-  const missing = visible.filter((id) => !comments[id]).join(",")
+  const missing = visible.filter((id) => !comments[id] || !readIds.includes(id)).join(",")
   const items = visible.flatMap((id) => (comments[id] ? [comments[id]] : []))
 
   // A page beyond the first load reads its comments by ID, so it shows exactly what the fixed order says.
@@ -381,10 +384,17 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     setPageError(null)
     if (!missing) return
     let live = true
+    const asked = changes.current
     void libraryRequest<{ items: Comment[] }>(`${base}/comments?ids=${missing}`, "GET").then((result) => {
       if (!live) return
       if ("error" in result) return setPageError(result.error.message ?? "评论未加载，请稍后重试。")
-      cache(result.data.items)
+      cache(result.data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked).map((item) => {
+        const current = known.current[item.id]
+        const keepReplies = current && (loads.current.has(item.id) || posting.current.has(item.id)
+          || current.replies.length > item.replies.length && current.replies.length <= item.replyCount)
+        return keepReplies ? { ...item, replies: current.replies, replyCount: Math.max(item.replyCount, current.replies.length) } : item
+      }))
+      setReadIds((ids) => [...new Set([...ids, ...result.data.items.map((item) => item.id)])])
       // Comments deleted since the order was taken leave the list instead of a gap.
       const gone = missing.split(",").filter((id) => !result.data.items.some((item) => item.id === id))
       if (gone.length) setRemoved((r) => [...r, ...gone])
@@ -458,7 +468,6 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     setSending((s) => ({ ...s, [id]: true }))
     setAnnouncement("正在发送…")
     const result = await libraryRequest<T>(path, "POST", { bodyMarkdown: body, ...extra })
-    setSending((s) => ({ ...s, [id]: false }))
     if ("error" in result) {
       setAnnouncement("")
       failed(result.error.message, "未发送，请稍后重试。")
@@ -470,17 +479,21 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   }
 
   const postRoot = async (body: string) => {
-    const c = await send<Comment>(NEW_DRAFT, body, `${base}/comments`)
-    if (!c) return false
-    cache([c])
-    setPicked(reading.current)
-    setFresh((f) => [c.id, ...f])
-    setPage(1)
-    setAnnouncement("评论已发送")
-    return true
+    try {
+      const c = await send<Comment>(NEW_DRAFT, body, `${base}/comments`)
+      if (!c) return false
+      cache([c])
+      setReadIds((ids) => [...ids, c.id])
+      setPicked(reading.current)
+      setFresh((f) => [c.id, ...f])
+      setPage(1)
+      setAnnouncement("评论已发送")
+      return true
+    } finally { setSending((s) => ({ ...s, [NEW_DRAFT]: false })) }
   }
 
   const postReply = async (root: Comment, body: string) => {
+    if (posting.current.has(root.id)) return false
     posting.current.add(root.id)
     try {
       const target = targets[root.id] ?? null
@@ -494,6 +507,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
       return true
     } finally {
       posting.current.delete(root.id)
+      setSending((s) => ({ ...s, [root.id]: false }))
     }
   }
 

@@ -111,7 +111,7 @@ function commentList(node: ReactNode): ReactElement<{ "aria-busy": boolean }> | 
   return node.type === "ol" ? node : commentList(node.props.children);
 }
 const retryPage = (tree: ReactNode) => elements<{ children: ReactNode; onClick: () => void }>(tree, "Button").find(button => button.props.children === "重试");
-const thread = (tree: ReactNode) => elements<{ thread: { root: Comment; composer: ReactElement<{ value: string; onValueChange: (value: string) => void; onSubmit: (body: string) => Promise<boolean> }> } }>(tree, state.wide ? "ConversationPane" : "InlineThread")[0]?.props.thread;
+const thread = (tree: ReactNode) => elements<{ thread: { root: Comment; composer: ReactElement<{ value: string; sending?: boolean; onValueChange: (value: string) => void; onSubmit: (body: string) => Promise<boolean> }> } }>(tree, state.wide ? "ConversationPane" : "InlineThread")[0]?.props.thread;
 
 it.each([true, false])("offers a retry after a page read fails (wide=%s)", async wide => {
   state.wide = wide;
@@ -169,4 +169,57 @@ it.each([[true, false], [false, false], [true, true], [false, true]] as const)("
   expect(thread(tree)!.root.replyCount).toBe(11);
   expect(thread(tree)!.composer.props.value).toBe("");
   expect(state.request.mock.calls.filter(([path]) => path.includes("/replies?"))).toHaveLength(2);
+});
+
+it.each([true, false])("refreshes a retained conversation when its page is revisited (wide=%s)", async wide => {
+  state.wide = wide;
+  let likes = 0, finishPost!: (value: { data: object }) => void;
+  const answer = { ...comments[10], id: "new-reply", createdAt: 100, replyTo: null };
+  state.request.mockImplementation((path: string, method: string) => {
+    if (method === "POST") return new Promise(resolve => { finishPost = resolve; });
+    if (path.includes("/replies?")) return Promise.resolve({ data: { items: [answer], rest: 0 } });
+    const ids = new URL(path, "http://localhost").searchParams.get("ids")?.split(",");
+    return Promise.resolve({ data: ids ? { items: comments.filter(c => ids.includes(c.id)).map(c => ({ ...c, likes })) }
+      : { order: comments.map(c => c.id), items: comments.slice(0, 10), pageSize: 10, maxLength: 1000 } });
+  });
+  let tree = await mount(2);
+  rows(tree)[0].props.onOpen(); tree = render();
+  const pending = thread(tree)!.composer.props.onSubmit(answer.body); render();
+  try {
+    likes = 5;
+    elements<{ onChange: (sort: string) => void }>(tree, "SortTabs")[0].props.onChange("new"); render();
+    await Promise.resolve(); render(); finishPost({ data: answer }); await pending; tree = render();
+    pager(tree).onChange(2); render(); await Promise.resolve(); tree = render();
+    const root = rows(tree).find(row => row.props.c.id === comments[10].id)!.props.c;
+    expect.soft(root.likes).toBe(5);
+    expect(root.replies.map(reply => reply.id)).toContain(answer.id);
+  } finally { finishPost({ data: answer }); await pending; }
+});
+
+it.each([true, false])("holds the reply send lock through reloads and conversation remounts (wide=%s)", async wide => {
+  state.wide = wide;
+  let resume!: () => void;
+  const blocked = new Promise<void>(resolve => { resume = resolve; });
+  const answer = { ...comments[10], id: "new-reply", createdAt: 100, replyTo: null };
+  state.request.mockImplementation(async (path: string, method: string) => {
+    if (method === "POST") return { data: answer };
+    if (path.includes("/replies?")) { await blocked; return { data: { items: [answer], rest: 0 } }; }
+    const ids = new URL(path, "http://localhost").searchParams.get("ids")?.split(",");
+    return { data: ids ? { items: comments.filter(c => ids.includes(c.id)) }
+      : { order: comments.map(c => c.id), items: comments.slice(0, 10), pageSize: 10, maxLength: 1000 } };
+  });
+  let tree = await mount(2);
+  rows(tree)[0].props.onOpen(); tree = render();
+  const pending = thread(tree)!.composer.props.onSubmit(answer.body);
+  let duplicate: Promise<boolean> | undefined;
+  try {
+    await vi.waitUntil(() => state.request.mock.calls.some(([path]) => path.includes("/replies?")));
+    tree = render(); rows(tree)[1].props.onOpen(); tree = render(); rows(tree)[0].props.onOpen(); tree = render();
+    expect.soft(thread(tree)!.composer.props.sending).toBe(true);
+    duplicate = thread(tree)!.composer.props.onSubmit("Another fictional reply");
+    await Promise.resolve(); await Promise.resolve();
+    expect.soft(state.request.mock.calls.filter(([, method]) => method === "POST")).toHaveLength(1);
+    resume(); expect(await pending).toBe(true); expect(await duplicate).toBe(false);
+    tree = render(); expect(thread(tree)!.composer.props.sending).toBe(false);
+  } finally { resume(); await pending; await duplicate; }
 });
