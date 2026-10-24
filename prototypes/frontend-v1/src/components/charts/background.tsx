@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { useId, useMemo } from "react";
 import { useChartStable } from "./chart-context";
 import {
@@ -67,6 +67,7 @@ export function Background({
   fadeHorizontalLength = 10,
   fadeVerticalLength = 10,
 }: BackgroundProps) {
+  const reduced = useReducedMotion();
   const { innerWidth, innerHeight, isLoaded, enterTransition } =
     useChartStable();
   const uniqueId = useId();
@@ -203,9 +204,9 @@ export function Background({
         animate={{ opacity: revealOpacity }}
         fill={`url(#${patternId})`}
         height={innerHeight}
-        initial={{ opacity: 0 }}
+        initial={reduced ? false : { opacity: 0 }}
         mask={maskRef}
-        transition={isLoaded ? enterFade : { duration: 0 }}
+        transition={isLoaded && !reduced ? enterFade : { duration: 0 }}
         width={innerWidth}
         x={0}
         y={0}

@@ -46,6 +46,7 @@ import { extractReferenceAreaConfigs } from "./reference-area-config";
 import { useScheduledTooltip } from "./use-scheduled-tooltip";
 import {
   buildYScalesForLines,
+  getBarMax,
   getPrimaryYScale,
   normalizeYAxisId,
   wrapSingleYScale,
@@ -250,34 +251,7 @@ const ChartCore = memo(function ChartCore({
 
   // Compute max value considering stacking
   const maxValue = useMemo(() => {
-    if (stacked) {
-      // For stacked bars, sum all values at each data point
-      let max = 0;
-      for (const d of data) {
-        let sum = 0;
-        for (const line of lines) {
-          const value = d[line.dataKey];
-          if (typeof value === "number") {
-            sum += value;
-          }
-        }
-        if (sum > max) {
-          max = sum;
-        }
-      }
-      return max || 100;
-    }
-    // For grouped bars, find max single value
-    let max = 0;
-    for (const line of lines) {
-      for (const d of data) {
-        const value = d[line.dataKey];
-        if (typeof value === "number" && value > max) {
-          max = value;
-        }
-      }
-    }
-    return max || 100;
+    return getBarMax(data, lines.map((line) => line.dataKey), stacked);
   }, [data, lines, stacked]);
 
   // Value scale (linear) - for the value axis
@@ -298,20 +272,9 @@ const ChartCore = memo(function ChartCore({
       lines,
       data,
       innerHeight,
-      resolveDomain: (dataKeys) => {
-        let max = 0;
-        for (const d of data) {
-          for (const key of dataKeys) {
-            const value = d[key];
-            if (typeof value === "number" && value > max) {
-              max = value;
-            }
-          }
-        }
-        return [0, (max || 100) * 1.1];
-      },
+      resolveDomain: (dataKeys) => [0, getBarMax(data, dataKeys, stacked) * 1.1],
     });
-  }, [data, innerHeight, isHorizontal, lines, valueScale]);
+  }, [data, innerHeight, isHorizontal, lines, stacked, valueScale]);
 
   const primaryYScale = getPrimaryYScale(yScales, valueScale);
 

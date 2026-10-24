@@ -140,7 +140,7 @@ export async function discussionHttp(request: Request, env: Env, identity = crea
     return respond(request, { data: { deleted: true } });
   }
   const value = request.method === "PUT" ? body.value : null;
-  if (value !== null && value !== 1 && value !== -1) invalid();
+  if (request.method === "PUT" && value !== 1 && value !== -1) invalid();
   const current = await read(reader => reader.batch([reader.prepare(inUnit).bind(target, unitId)]));
   if (!current.value[0].results.length) missing();
   const userId = current.member.user_id;

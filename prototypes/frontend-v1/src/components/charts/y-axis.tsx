@@ -1,5 +1,6 @@
 "use client";
 
+import { useReducedMotion } from "motion/react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useChartStable, useYScale } from "./chart-context";
@@ -98,6 +99,7 @@ const YAxisInner = memo(function YAxisInner({
   formatValue,
   container,
 }: YAxisProps & { container: HTMLDivElement }) {
+  const reduced = useReducedMotion();
   const { margin, referenceAreas } = useChartStable();
   const yScale = useYScale(yAxisId);
   const isLeft = orientation === "left";
@@ -146,7 +148,7 @@ const YAxisInner = memo(function YAxisInner({
             style={{
               top: tick.y,
               transform: "translateY(-50%)",
-              transition: `top ${Y_AXIS_POSITION_TWEEN_MS}ms cubic-bezier(${LINE_LOADING_PULSE_EASE.join(", ")})`,
+              transition: reduced ? undefined : `top ${Y_AXIS_POSITION_TWEEN_MS}ms cubic-bezier(${LINE_LOADING_PULSE_EASE.join(", ")})`,
               ...(isLeft
                 ? { right: 0, justifyContent: "flex-end", paddingRight: 8 }
                 : { left: 0, justifyContent: "flex-start", paddingLeft: 8 }),

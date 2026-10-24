@@ -180,7 +180,7 @@ export function AboutPage() {
           <p>《星际迷航》（Star Trek）及相关名称、标识和海报的版权归 Paramount 及原权利人所有。本站是粉丝自行维护的非公开站点，与 Paramount 没有任何关联。</p>
           <p>作品资料与海报来自 TMDB。本站使用 TMDB API，但未获得 TMDB 的认可或认证。</p>
           <p className="flex flex-wrap items-center gap-2">
-            版权方联系方式：<a href="mailto:contact@startrekchina.org" className="link-underline font-mono text-foreground">contact@startrekchina.org</a>
+            下架请求请联系站长：<a href="mailto:contact@startrekchina.org" className="link-underline font-mono text-foreground">contact@startrekchina.org</a>
           </p>
         </Prose>
       </Section>

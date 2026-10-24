@@ -47,6 +47,7 @@ interface ChartInteractionResult {
     onTouchStart?: (event: React.TouchEvent<SVGGElement>) => void;
     onTouchMove?: (event: React.TouchEvent<SVGGElement>) => void;
     onTouchEnd?: () => void;
+    onTouchCancel?: () => void;
   };
   interactionStyle: React.CSSProperties;
 }
@@ -228,7 +229,6 @@ export function useChartInteraction({
   const handleTouchStart = useCallback(
     (event: React.TouchEvent<SVGGElement>) => {
       if (event.touches.length === 1) {
-        event.preventDefault();
         const chartX = getChartX(event, 0);
         if (chartX === null) {
           return;
@@ -239,7 +239,6 @@ export function useChartInteraction({
           scheduleTooltip(tooltip);
         }
       } else if (event.touches.length === 2) {
-        event.preventDefault();
         resetTooltipDedupe();
         clearTooltip();
         const x0 = getChartX(event, 0);
@@ -271,7 +270,6 @@ export function useChartInteraction({
   const handleTouchMove = useCallback(
     (event: React.TouchEvent<SVGGElement>) => {
       if (event.touches.length === 1) {
-        event.preventDefault();
         const chartX = getChartX(event, 0);
         if (chartX === null) {
           return;
@@ -282,7 +280,6 @@ export function useChartInteraction({
           scheduleTooltip(tooltip);
         }
       } else if (event.touches.length === 2) {
-        event.preventDefault();
         const x0 = getChartX(event, 0);
         const x1 = getChartX(event, 1);
         if (x0 === null || x1 === null) {
@@ -301,11 +298,6 @@ export function useChartInteraction({
     },
     [getChartX, resolveTooltipFromX, resolveIndexFromX, scheduleTooltip]
   );
-
-  const handleTouchEnd = useCallback(() => {
-    clearTooltip();
-    setSelection(null);
-  }, [clearTooltip]);
 
   const clearSelection = useCallback(() => {
     setSelection(null);
@@ -332,13 +324,14 @@ export function useChartInteraction({
         onMouseUp: handleMouseUp,
         onTouchStart: handleTouchStart,
         onTouchMove: handleTouchMove,
-        onTouchEnd: handleTouchEnd,
+        onTouchEnd: handleMouseLeave,
+        onTouchCancel: handleMouseLeave,
       }
     : {};
 
   const interactionStyle: React.CSSProperties = {
     cursor: canInteract ? "crosshair" : "default",
-    touchAction: "none",
+    touchAction: "pan-y pinch-zoom",
   };
 
   return {

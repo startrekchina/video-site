@@ -150,10 +150,13 @@ async function verifyStream(body: ReadableStream<Uint8Array>, scope: BackupScope
   } finally { signal.removeEventListener("abort", cancel); await reader.cancel().catch(() => {}); }
 }
 
+export function restorePlaintextKey(environment: BackupScope["environment"], id: string) {
+  prefix({ environment, id }); return `backup-restore/${environment}/${id}/source.sql`;
+}
 // Only call from a Cloudflare-side recovery Worker, never a local SQL export CLI or the public application.
-export async function decryptBackupForRestore(bucket: R2Bucket, scope: BackupScope, file: string, secret: string, signal: AbortSignal) {
+export async function decryptBackupForRestore(bucket: R2Bucket, scope: BackupScope, file: string, secret: string, signal: AbortSignal, restoreId: string = crypto.randomUUID()) {
   const verified = await verifyEncryptedBackup(bucket, scope, file, secret, signal);
-  const destination = `backup-restore/${scope.environment}/${crypto.randomUUID()}/source.sql`;
+  const destination = restorePlaintextKey(scope.environment, restoreId);
   const object = await readObject(bucket, `${prefix(scope)}${file}.bin`, verified.etag);
   const tail = await bucket.get(`${prefix(scope)}${file}.bin`, { range: { suffix: 16 }, onlyIf: { etagMatches: verified.etag } });
   if (!tail || !("body" in tail)) { await object.body.cancel(); throw new Error("BACKUP_OBJECT_UNAVAILABLE"); }

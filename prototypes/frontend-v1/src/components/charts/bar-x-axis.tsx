@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,7 @@ function BarXAxisLabel({
   isHovering,
   tickerHalfWidth,
 }: BarXAxisLabelProps) {
+  const reduced = useReducedMotion();
   const fadeBuffer = 20;
   const fadeRadius = tickerHalfWidth + fadeBuffer;
 
@@ -59,7 +60,7 @@ function BarXAxisLabel({
         animate={{ opacity }}
         className={cn("whitespace-nowrap text-chart-label text-xs")}
         initial={{ opacity: 1 }}
-        transition={{ duration: 0.4, ease: "easeInOut" }}
+        transition={{ duration: reduced ? 0 : 0.4, ease: "easeInOut" }}
       >
         {label}
       </motion.span>

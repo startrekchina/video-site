@@ -272,6 +272,30 @@ it("switches quality in place, remembers it, keeps the position through the swit
   expect(state.art.currentTime).toBe(1234); expect(state.art.play).toHaveBeenCalledOnce();
 });
 
+it("serializes rapid quality choices so a second switch cannot snapshot the first reload's zero position", async () => {
+  const storage = remember(null); await mount({ source: tiers });
+  const player = Object.assign(state.art, { playbackRate: 2 });
+  let finish: () => void = () => {};
+  state.art.switchQuality.mockImplementation(async () => {
+    const position = player.currentTime, rate = player.playbackRate;
+    player.currentTime = 0; player.playbackRate = 1;
+    await new Promise<void>(resolve => { finish = resolve; });
+    player.currentTime = position; player.playbackRate = rate;
+  });
+  const first = control().onSelect({ html: "720p" });
+  await settle();
+  expect(state.art.switchQuality).toHaveBeenCalledTimes(1);
+  const second = control().onSelect({ html: "1080p" });
+  await settle();
+  expect(state.art.switchQuality).toHaveBeenCalledTimes(1);
+  finish(); await first; await settle();
+  expect(state.art.switchQuality).toHaveBeenNthCalledWith(2, "http://localhost:6120/media/p1080");
+  finish();
+  expect(await second).toBe("1080p");
+  expect(player.currentTime).toBe(1234); expect(player.playbackRate).toBe(2);
+  expect(storage.setItem).toHaveBeenLastCalledWith("player-quality", "1080p");
+});
+
 it("reconnects on a newly chosen quality when the current one has failed", async () => {
   remember(null); await mount({ source: tiers }); state.message.mockClear();
   await emit("video:timeupdate");
@@ -546,4 +570,69 @@ it("moves the danmaku emitter below the video when the control bar is too narrow
   // The plugin itself moves the emitter into the bar in fullscreen and back afterwards.
   state.art.fullscreen = true; state.art.width = 1920; await emit("resize");
   expect(plugin().mount).toHaveBeenCalledTimes(2);
+});
+
+it("refuses danmaku before resume, during a quality switch and while reconnecting without posting zero", async () => {
+  remember(null);
+  await mount({ source: tiers, startSeconds: 600 });
+  const draft = { text: "test", mode: 0 as const, color: "#FFFFFF" };
+  state.art.currentTime = 0; fetch.mockClear();
+  expect(await danmakuOption().beforeEmit({ ...draft })).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+  await emit("ready");
+  let loaded = () => {};
+  state.art.switchQuality.mockImplementationOnce(() => new Promise<void>(resolve => { loaded = resolve; state.art.currentTime = 0; }));
+  const switching = control().onSelect({ html: "720p" });
+  await settle();
+  expect(await danmakuOption().beforeEmit({ ...draft })).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+  state.art.currentTime = 600; loaded(); await switching;
+  await emit("video:timeupdate");
+  fetch.mockResolvedValueOnce(new Response(null, { status: 503 })); await emit("video:error");
+  (state.refs[1].current as () => void)(); state.art.currentTime = 0; fetch.mockClear();
+  expect(await danmakuOption().beforeEmit({ ...draft })).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+  await emit("video:canplay");
+  fetch.mockResolvedValueOnce(Response.json({ data: { item: { id: "stable", text: "test" } } }));
+  expect(await danmakuOption().beforeEmit({ ...draft })).toBe(true);
+  expect(JSON.parse(String(fetch.mock.calls.at(-1)![1]?.body)).time).toBe(600);
+});
+
+it("places the narrow emitter before the first media event", async () => {
+  Player({ unitId: "episode-unit", source, startSeconds: 600, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() },
+    danmaku, subtitle: "off", onSubtitleChange: vi.fn(), onTracksChange: vi.fn() });
+  state.refs[0].current = {};
+  const slot = { name: "slot" };
+  state.refs[4].current = slot; state.art.width = 700;
+  cleanups = state.effects.map(effect => effect());
+  await vi.dynamicImportSettled(); await settle();
+  expect(plugin().mount).toHaveBeenCalledExactlyOnceWith(slot);
+});
+
+it("has a named speed step for the default and writes unchanged settings only once", async () => {
+  const store = new Map<string, string>(), setItem = vi.fn((key: string, value: string) => { store.set(key, value); });
+  vi.stubGlobal("localStorage", { getItem: (key: string) => store.get(key) ?? null, setItem });
+  await mount();
+  const option = danmakuOption();
+  expect(option.SPEED?.steps?.some(step => step.value === option.speed)).toBe(true);
+  Object.assign(plugin(), { option, isHide: false });
+  await emit("artplayerPluginDanmuku:show"); await emit("artplayerPluginDanmuku:config");
+  expect(setItem).toHaveBeenCalledTimes(1);
+});
+
+it("reserves the measured external emitter height and observes it as fullscreen moves it", () => {
+  const setProperty = vi.fn(), parentElement = {}, slot = { getBoundingClientRect: () => ({ height: 40 }) }, observed: unknown[] = [];
+  let measure = () => {};
+  vi.stubGlobal("ResizeObserver", class { constructor(callback: () => void) { measure = callback; } observe(value: unknown) { observed.push(value); } disconnect() {} });
+  vi.stubGlobal("window", { scrollY: 0, addEventListener() {}, removeEventListener() {} });
+  Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() },
+    danmaku, subtitle: "off", onSubtitleChange: vi.fn(), onTracksChange: vi.fn() });
+  state.refs[2].current = { style: { setProperty }, parentElement, getBoundingClientRect: () => ({ top: 112 }) };
+  state.refs[4].current = slot;
+  const cleanup = state.effects[1]();
+  expect(observed).toEqual([parentElement, slot]);
+  expect(setProperty).toHaveBeenCalledWith("--player-emitter", "40px");
+  slot.getBoundingClientRect = () => ({ height: 0 }); measure();
+  expect(setProperty).toHaveBeenLastCalledWith("--player-emitter", "0px");
+  cleanup?.();
 });

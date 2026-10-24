@@ -77,7 +77,7 @@ export function TooltipContent({ title, rows, children }: TooltipContentProps) {
           {children && (
             <div
               className={cn(
-                "transition-opacity duration-200 ease-out",
+                "transition-opacity duration-200 ease-out motion-reduce:transition-none",
                 rows.length > 0 && "mt-2"
               )}
             >
