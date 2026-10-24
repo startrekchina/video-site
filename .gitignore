@@ -29,6 +29,9 @@ npm-debug.log*
 # agent runtime/state
 .sisyphus/
 .zcode/*
+/.claude/
+/.omp/
+/.zcodeignore
 
 # local SSH material (defense-in-depth)
 *.key
