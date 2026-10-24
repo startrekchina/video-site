@@ -329,6 +329,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   const loads = useRef(new Map<string, object>())
   // Conversations with a reply on its way, whose load to the end starts only once it is sent.
   const posting = useRef(new Set<string>())
+  const replyBusy = (id: string) => loads.current.has(id) || posting.current.has(id)
 
   const cache = (items: Comment[]) => setComments((c) => ({ ...c, ...Object.fromEntries(items.map((item) => [item.id, item])) }))
   const patch = (id: string, change: (c: Comment) => Comment) => {
@@ -353,13 +354,14 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     // Comments read before it that it does not carry are dropped, so their page reads them again; your pinned posts
     // show at once and stay, and so does a conversation still sending or loading, or changed here since: it is newer.
     const listed = data.items.map((item) => item.id)
-    const kept = (id: string) => listed.includes(id) || fresh.includes(id) || !before[id] || loads.current.has(id) || posting.current.has(id) || (changed.current.get(id) ?? 0) > asked
+    const kept = (id: string) => listed.includes(id) || fresh.includes(id) || !before[id] || replyBusy(id) || (changed.current.get(id) ?? 0) > asked
     setComments((c) => ({
       ...Object.fromEntries(Object.entries(c).filter(([id]) => kept(id))),
       ...Object.fromEntries(newer.map((item) => [item.id, loading.includes(item.id) ? { ...item, replies: c[item.id].replies, replyCount: c[item.id].replyCount } : item])),
     }))
-    // Retaining local work does not make an older page snapshot current for this sort.
-    setReadIds((ids) => [...new Set([...listed, ...ids.filter((id) => fresh.includes(id) || !before[id])])])
+    // Preserved replies still need a fresh prefix once their send/load releases the conversation.
+    const waiting = new Set([...loads.current.keys(), ...posting.current])
+    setReadIds((ids) => [...new Set([...listed, ...ids.filter((id) => fresh.includes(id) || !before[id])].filter((id) => !waiting.has(id)))])
     // Your posts from before the request that it no longer lists were deleted elsewhere.
     setRemoved((r) => [...r, ...fresh.filter((id) => !data.order.includes(id))])
     setLimits({ pageSize: data.pageSize, maxLength: data.maxLength })
@@ -376,7 +378,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   const pageCount = Math.max(1, Math.ceil(all.length / limits.pageSize))
   const current = Math.min(page, pageCount)
   const visible = all.slice((current - 1) * limits.pageSize, current * limits.pageSize)
-  const missing = visible.filter((id) => !comments[id] || !readIds.includes(id)).join(",")
+  // Finishing a send/load renders again, making its deferred page read eligible without polling.
+  const missing = visible.filter((id) => (!comments[id] || !readIds.includes(id)) && !replyBusy(id)).join(",")
   const items = visible.flatMap((id) => (comments[id] ? [comments[id]] : []))
 
   // A page beyond the first load reads its comments by ID, so it shows exactly what the fixed order says.
@@ -389,9 +392,10 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
       if (!live) return
       if ("error" in result) return setPageError(result.error.message ?? "评论未加载，请稍后重试。")
       const refresh: Comment[] = []
+      const read = result.data.items.filter((item) => !replyBusy(item.id)).map((item) => item.id)
       cache(result.data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked).map((item) => {
         const current = known.current[item.id]
-        if (current && (loads.current.has(item.id) || posting.current.has(item.id))) {
+        if (current && replyBusy(item.id)) {
           return { ...item, replies: current.replies, replyCount: Math.max(item.replyCount, current.replies.length) }
         }
         // Matching counts do not validate a cached tail: replies may have been deleted and replaced.
@@ -399,7 +403,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
         return item
       }))
       for (const item of refresh) void more(item.id, false, item)
-      setReadIds((ids) => [...new Set([...ids, ...result.data.items.map((item) => item.id)])])
+      setReadIds((ids) => [...new Set([...ids, ...read])])
       // Comments deleted since the order was taken leave the list instead of a gap.
       const gone = missing.split(",").filter((id) => !result.data.items.some((item) => item.id === id))
       if (gone.length) setRemoved((r) => [...r, ...gone])
