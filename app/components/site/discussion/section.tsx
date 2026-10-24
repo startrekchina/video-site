@@ -388,12 +388,17 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     void libraryRequest<{ items: Comment[] }>(`${base}/comments?ids=${missing}`, "GET").then((result) => {
       if (!live) return
       if ("error" in result) return setPageError(result.error.message ?? "评论未加载，请稍后重试。")
+      const refresh: Comment[] = []
       cache(result.data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked).map((item) => {
         const current = known.current[item.id]
-        const keepReplies = current && (loads.current.has(item.id) || posting.current.has(item.id)
-          || current.replies.length > item.replies.length && current.replies.length <= item.replyCount)
-        return keepReplies ? { ...item, replies: current.replies, replyCount: Math.max(item.replyCount, current.replies.length) } : item
+        if (current && (loads.current.has(item.id) || posting.current.has(item.id))) {
+          return { ...item, replies: current.replies, replyCount: Math.max(item.replyCount, current.replies.length) }
+        }
+        // Matching counts do not validate a cached tail: replies may have been deleted and replaced.
+        if (current && current.replies.length > item.replies.length && item.replyCount > item.replies.length) refresh.push(item)
+        return item
       }))
+      for (const item of refresh) void more(item.id, false, item)
       setReadIds((ids) => [...new Set([...ids, ...result.data.items.map((item) => item.id)])])
       // Comments deleted since the order was taken leave the list instead of a gap.
       const gone = missing.split(",").filter((id) => !result.data.items.some((item) => item.id === id))
@@ -427,15 +432,18 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   }
 
   // Loads the next batch of a conversation, or with `all` whatever is left of it. `all` asks the server at least
-  // once, since others may have replied since the count was read. False when no batch reached the server.
-  const more = async (id: string, all = false) => {
-    const root = known.current[id]
+  // once, since others may have replied since the count was read. A refreshed prefix reloads only to the previous
+  // reading depth; a failed batch leaves that confirmed prefix and a working load-more control.
+  // False when no batch reached the server.
+  const more = async (id: string, all = false, refreshed?: Comment) => {
+    const depth = refreshed ? known.current[id]?.replies.length ?? 0 : 0
+    const root = refreshed ?? known.current[id]
     if (!root) return true
     const mine = {}
     loads.current.set(id, mine)
     setLoadingMore((l) => ({ ...l, [id]: true }))
     try {
-      for (let last = root.replies.at(-1), wanted = all || root.replyCount > root.replies.length, reached = false; wanted; reached = true) {
+      for (let last = root.replies.at(-1), count = root.replies.length, wanted = all || root.replyCount > count, reached = false; wanted; reached = true) {
         const result = await libraryRequest<{ items: Reply[]; rest: number }>(`${base}/comments/${id}/replies?afterAt=${last?.createdAt ?? 0}&afterId=${last?.id ?? "0"}`, "GET")
         // Taken over by a newer load, which reads to the end: the load-more button waits while one runs, so only a posted reply starts one.
         if (loads.current.get(id) !== mine) return true
@@ -450,7 +458,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
           return { ...c, replies, replyCount: replies.length + rest }
         })
         last = items.at(-1) ?? last
-        wanted = all && rest > 0
+        count += items.length
+        wanted = rest > 0 && (all || count < depth)
       }
       return true
     } finally {

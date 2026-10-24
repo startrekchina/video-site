@@ -111,7 +111,7 @@ function commentList(node: ReactNode): ReactElement<{ "aria-busy": boolean }> | 
   return node.type === "ol" ? node : commentList(node.props.children);
 }
 const retryPage = (tree: ReactNode) => elements<{ children: ReactNode; onClick: () => void }>(tree, "Button").find(button => button.props.children === "重试");
-const thread = (tree: ReactNode) => elements<{ thread: { root: Comment; composer: ReactElement<{ value: string; sending?: boolean; onValueChange: (value: string) => void; onSubmit: (body: string) => Promise<boolean> }> } }>(tree, state.wide ? "ConversationPane" : "InlineThread")[0]?.props.thread;
+const thread = (tree: ReactNode) => elements<{ thread: { root: Comment; loadingMore: boolean; onMore: () => void; composer: ReactElement<{ value: string; sending?: boolean; onValueChange: (value: string) => void; onSubmit: (body: string) => Promise<boolean> }> } }>(tree, state.wide ? "ConversationPane" : "InlineThread")[0]?.props.thread;
 
 it.each([true, false])("offers a retry after a page read fails (wide=%s)", async wide => {
   state.wide = wide;
@@ -163,12 +163,16 @@ it.each([[true, false], [false, false], [true, true], [false, true]] as const)("
   finishPost({ data: answer }); expect(await posting).toBe(true); render();
   if (lateSort) { finishSort(sorted); await Promise.resolve(); render(); }
 
-  tree = render(); pager(tree).onChange(2); render(); await Promise.resolve(); tree = render();
+  tree = render(); pager(tree).onChange(2); render();
+  await vi.waitUntil(() => {
+    tree = render();
+    return state.request.mock.calls.filter(([path]) => path.includes("/replies?")).length === 3 && rows(tree)[0]?.props.c.replies.length === 11;
+  });
   rows(tree)[0].props.onOpen(); tree = render();
   expect(thread(tree)!.root.replies.map(r => r.id)).toEqual(replies.map(r => r.id));
   expect(thread(tree)!.root.replyCount).toBe(11);
   expect(thread(tree)!.composer.props.value).toBe("");
-  expect(state.request.mock.calls.filter(([path]) => path.includes("/replies?"))).toHaveLength(2);
+  expect(state.request.mock.calls.filter(([path]) => path.includes("/replies?"))).toHaveLength(3);
 });
 
 it.each([true, false])("refreshes a retained conversation when its page is revisited (wide=%s)", async wide => {
@@ -189,7 +193,8 @@ it.each([true, false])("refreshes a retained conversation when its page is revis
     likes = 5;
     elements<{ onChange: (sort: string) => void }>(tree, "SortTabs")[0].props.onChange("new"); render();
     await Promise.resolve(); render(); finishPost({ data: answer }); await pending; tree = render();
-    pager(tree).onChange(2); render(); await Promise.resolve(); tree = render();
+    pager(tree).onChange(2); render();
+    await vi.waitUntil(() => { tree = render(); return rows(tree)[0]?.props.c.likes === 5 && rows(tree)[0]?.props.c.replies.some(reply => reply.id === answer.id); });
     const root = rows(tree).find(row => row.props.c.id === comments[10].id)!.props.c;
     expect.soft(root.likes).toBe(5);
     expect(root.replies.map(reply => reply.id)).toContain(answer.id);
@@ -222,4 +227,58 @@ it.each([true, false])("holds the reply send lock through reloads and conversati
     resume(); expect(await pending).toBe(true); expect(await duplicate).toBe(false);
     tree = render(); expect(thread(tree)!.composer.props.sending).toBe(false);
   } finally { resume(); await pending; await duplicate; }
+});
+
+it.each([
+  [true, 4, false, 0], [false, 4, false, 0], [true, 10, false, 0], [false, 10, false, 0],
+  [true, 10, true, 0], [false, 10, true, 0], [true, 10, false, 20], [false, 10, false, 20],
+] as const)("revalidates retained reply contents (wide=%s, deleted=%s, retry=%s, extra=%s)", async (wide, deleted, retry, extra) => {
+  state.wide = wide;
+  const root = { ...comments[10], replyCount: 0, replies: [] };
+  const original = Array.from({ length: 11 }, (_, index) => ({
+    ...root, id: `r${index}`, body: `Fictional reply ${index}`, createdAt: 100 + index, replyTo: null,
+  }));
+  const answer = original.at(-1)!;
+  let replies = original, failNext = false, finishPost!: (value: { data: typeof answer }) => void;
+  state.request.mockImplementation((path: string, method: string) => {
+    if (method === "POST") return new Promise(resolve => { finishPost = resolve; });
+    const url = new URL(path, "http://localhost");
+    if (path.includes("/replies?")) {
+      if (failNext) { failNext = false; return Promise.resolve({ error: { status: 503 } }); }
+      const after = Number(url.searchParams.get("afterAt"));
+      const remaining = replies.filter(reply => reply.createdAt > after);
+      return Promise.resolve({ data: { items: remaining.slice(0, 10), rest: Math.max(0, remaining.length - 10) } });
+    }
+    const ids = url.searchParams.get("ids")?.split(",");
+    return Promise.resolve({ data: ids ? { items: comments.filter(c => ids.includes(c.id)).map(c => c.id === root.id ? { ...root, replyCount: replies.length, replies: replies.slice(0, 10) } : c) }
+      : { order: comments.map(c => c.id), items: comments.slice(0, 10), pageSize: 10, maxLength: 1000 } });
+  });
+  let tree = await mount(2);
+  rows(tree)[0].props.onOpen(); tree = render();
+  const posting = thread(tree)!.composer.props.onSubmit(answer.body); render();
+  try {
+    elements<{ onChange: (sort: string) => void }>(tree, "SortTabs")[0].props.onChange("new"); render();
+    await Promise.resolve(); render(); finishPost({ data: answer }); await posting; render();
+    replies = [...original.filter(reply => reply.id !== `r${deleted}`).map(reply => ({ ...reply, likes: 5 })), { ...answer, id: "r11", createdAt: 111, body: "Fictional replacement reply" }];
+    replies.push(...Array.from({ length: extra }, (_, index) => ({ ...answer, id: `r${12 + index}`, createdAt: 112 + index })));
+    failNext = retry;
+    pager(render()).onChange(2); tree = render();
+    rows(tree)[0].props.onOpen(); tree = render();
+    if (retry) {
+      await vi.waitUntil(() => { tree = render(); return thread(tree)!.root.replies[0]?.likes === 5 && !thread(tree)!.loadingMore; });
+      expect(thread(tree)!.root.replies.map(reply => reply.id)).toEqual(replies.slice(0, 10).map(reply => reply.id));
+      expect(thread(tree)!.root.replyCount).toBe(11);
+      thread(tree)!.onMore();
+    }
+    await vi.waitUntil(() => {
+      tree = render();
+      return !thread(tree)!.loadingMore && thread(tree)!.root.replies.some(reply => reply.id === "r11");
+    });
+    const refreshed = thread(tree)!.root;
+    expect.soft(refreshed.replies.map(reply => reply.id)).toEqual(replies.slice(0, 20).map(reply => reply.id));
+    expect.soft(refreshed.replies.some(reply => reply.id === `r${deleted}`)).toBe(false);
+    expect.soft(refreshed.replies[0].likes).toBe(5);
+    expect(refreshed.replyCount).toBe(replies.length);
+    expect(state.request.mock.calls.filter(([path]) => path.includes("/replies?"))).toHaveLength(retry ? 3 : 2);
+  } finally { finishPost({ data: answer }); await posting; }
 });
