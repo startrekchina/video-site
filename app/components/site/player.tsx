@@ -130,6 +130,9 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
     const timer = setInterval(() => report(), progress.interval * 1000);
     const hidden = () => { if (document.visibilityState === "hidden") report(true); }, leave = () => report(true);
     document.addEventListener("visibilitychange", hidden); window.addEventListener("pagehide", leave);
+    // ArtPlayer updates its focus only on clicks, so after a click on the video it would keep taking Space and the arrows from page controls reached with Tab.
+    const blur = (event: FocusEvent) => { if (art && !art.template.$player.contains(event.target as Node)) (art as { isFocus: boolean }).isFocus = false; };
+    document.addEventListener("focusin", blur);
     // The recovery canplay handler below restores the position and the play state.
     retry.current = () => { if (art && !disposed) { failed = false; restoreTo = position; show(null); art.url = absolute(quality.url); } };
     // Serialize reloads so the next switch snapshots the restored position, play state and rate.
@@ -231,7 +234,7 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
       void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕。", "subtitle"));
     }).catch(() => say("播放器加载失败，请刷新页面。"));
     return () => {
-      report(true); clearInterval(timer); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("pagehide", leave);
+      report(true); clearInterval(timer); document.removeEventListener("visibilitychange", hidden); document.removeEventListener("focusin", blur); window.removeEventListener("pagehide", leave);
       disposed = true; offDanmaku(); art?.destroy(false);
     };
   }, [unitId]);

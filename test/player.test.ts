@@ -15,7 +15,7 @@ const state = vi.hoisted(() => ({
   location: { state: null as unknown }, navigation: "POP", danmaku: null as unknown,
   art: { currentTime: 1234, duration: 4000, seek: 0, url: "", destroy: vi.fn(), hotkey: { add: vi.fn() },
     on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() }, notice: { show: "" },
-    width: 1200, fullscreen: false, fullscreenWeb: false, template: { $controlsCenter: { name: "controls-center" } },
+    width: 1200, fullscreen: false, fullscreenWeb: false, isFocus: false, template: { $controlsCenter: { name: "controls-center" }, $player: { contains: vi.fn((_node: unknown) => false) } },
     plugins: { artplayerPluginDanmuku: { reset: vi.fn(), mount: vi.fn(), option: {} as Record<string, unknown>, isHide: false } } },
 }));
 // Run the real effects and player wiring with only the browser/ArtPlayer boundary replaced.
@@ -547,6 +547,16 @@ it("restores valid danmaku settings saved in this browser and saves them on ever
     store.delete("player-danmaku"); await emit(event);
     expect(JSON.parse(store.get("player-danmaku")!), event).toEqual({ ...option, visible: false, maxLength: undefined });
   }
+});
+
+it("hands Space and the arrows back to page controls reached with Tab after a click on the video", async () => {
+  await mount();
+  const control = { name: "player control" }, button = { name: "page button" };
+  state.art.template.$player.contains.mockImplementation(node => node === control);
+  const focusin = page.listeners.get("focusin") as unknown as (event: { target: unknown }) => void;
+  state.art.isFocus = true;
+  focusin({ target: control }); expect(state.art.isFocus).toBe(true);
+  focusin({ target: button }); expect(state.art.isFocus).toBe(false);
 });
 
 it("moves the danmaku emitter below the video when the control bar is too narrow, but not in fullscreen", async () => {
