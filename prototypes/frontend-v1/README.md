@@ -25,10 +25,10 @@
 
 ## 原型复核（PR #45）
 
-- 本地 `pnpm test` 覆盖既有 22 项素材基线及 7 项定向回归：北京时间调度与间隔锚点、模拟过期保留、堆叠坐标轴、触摸结束/取消收尾和实际安装的弹幕插件补丁。`pnpm check-types`、29 项测试和 `pnpm build` 通过；构建仍有单个约 2.4 MB 脚本的告警。
+- 本地 `pnpm test` 覆盖既有 22 项素材基线及 8 项定向回归：北京时间调度与间隔锚点、模拟过期保留、堆叠坐标轴、触摸结束/取消收尾和实际安装的弹幕插件补丁。过期删除要求对应端存在严格更新的可信保护点；没有认证密钥记录的唯一 S3 副本保留，更旧或同时间保护点不授权删除。`pnpm check-types`、30 项测试和 `pnpm build` 通过；构建仍有单个约 2.4 MB 脚本的告警。
 - `node --test scripts/review-45.e2e.mjs` 是显式运行的 Kimi WebBridge 浏览器自检，需要已连接扩展与当前源码的开发服务器，默认 `PROTO_URL=http://127.0.0.1:6120`。10 个独立场景分批通过：SPA 搜索、Tab 与方向键实际切换字幕、图表纵向触摸滚动、抬手后的刷新、reduced-motion、320px 标志墙、网页全屏、备份时间显示、暂停弹幕筛选和模拟私有队列。搜索与筛选在旧原型上仍分别检出旧查询和无关弹幕消失。它不接入 `pnpm test` 或 CI，不代替正式工程的 E2E1。
 - 原型弹幕使用仓库根目录 `patches/artplayer-plugin-danmuku@5.3.0.patch`，与正式工程共用安装补丁而非互相导入运行时代码；筛选只重新判断活动节点，不重置其位置和剩余时间。
-- 备份页只根据虚构任务的完成、下载与密钥记录模拟保留，不连接 R2、WebDAV、S3 或真实 keyring；私有片单检查同样只是演示界面规则，不构成服务端授权证据。上述自检不改变 staging、真实手机、正式功能验收或 production 发布状态。
+- 备份页只根据虚构任务的完成、下载与密钥记录模拟保留，不连接 R2、WebDAV、S3 或真实 keyring；本地构建的默认演示数据已实际点击“立即清理”，9 月 20 日的唯一 S3 副本仍显示成功，提示没有需要清理的过期备份。该场景为 2026-10-24 补验，上述 10 个浏览器场景未重复执行。私有片单检查同样只是演示界面规则，不构成服务端授权证据。上述自检不改变 staging、真实手机、正式功能验收或 production 发布状态。
 
 ## 要验证的问题
 
@@ -204,7 +204,7 @@ node scripts/fetch-episode-stills.mjs --compress  # 使用来源缓存下载、�
 
 图表用 [bklit](https://bklit.com/)（shadcn 注册表 `@bklit`，见 `components.json`），源码装在 `src/components/charts/`，依赖 visx 和 motion，MIT 通知见 [LICENSE](src/components/charts/LICENSE)，patterns 中的 visx 通知独立保留。它的 `--chart-*` 变量在 `globals.css` 里映射到站点的 foreground / muted / border 等令牌，所以保持单色并跟随主题，不另设 `.dark` 值。系统开启“减少动态效果”时，图表入场、曲线更新、坐标标签、背景、悬停高亮、浮层和日期标签均直接更新，不淡入或缓动；状态点不闪烁。图表允许纵向滑动页面，横向触摸仍能查看数据；抬手或取消触摸后，数据刷新不恢复浮层。堆叠柱与坐标轴按同桶合计值取值域。
 
-bklit 的部分文件按站点约定改过，重新执行 `shadcn add` 会覆盖：`chart-formatters.ts`（北京时间、`MM-DD` / `HH:mm`）、`chart-loading-label.tsx`（改为引用 `@/components/ui/shimmering-text`）。CLI 每次 `add` 还会往 `globals.css` 注入一组英文默认色和写错的 `var(----chart-*)`，需要删掉。
+`src/components/charts/` 含本地定制，不仅是 `chart-formatters.ts` 的北京时间和 `chart-loading-label.tsx` 的站点 shimmering-text 引用，还包括减少动态效果、触摸收尾及堆叠值域。重新执行 `shadcn add` 会覆盖这些源码；执行前后须逐项核对并保留本地差异，不以注册表原版替换整个目录。CLI 每次 `add` 还会往 `globals.css` 注入一组英文默认色和写错的 `var(----chart-*)`，需要删掉。
 
 数据对应的 Cloudflare GraphQL Analytics 数据集：
 

@@ -142,3 +142,31 @@ it("accepts an independent new authentication secret for both cleanup and verifi
     expect(await response.json()).toMatchObject({ credentialsCleared: true, authKeyId: backupKeyId(config.RESTORE_NEW_AUTH_SECRET) });
   }
 });
+it.each([false, true])("keeps the restore lease until an interrupted credential write settles (reject=%s)", async rejected => {
+  await applyD1Migrations(env.TEST_RESTORE_DB, env.TEST_MIGRATIONS);
+  let entered!: () => void, resume!: () => void;
+  const writing = new Promise<void>(resolve => { entered = resolve; }), blocked = new Promise<void>(resolve => { resume = resolve; });
+  const batch = env.TEST_RESTORE_DB.batch.bind(env.TEST_RESTORE_DB);
+  vi.spyOn(env.TEST_RESTORE_DB, "batch").mockImplementation(async statements => {
+    entered(); await blocked;
+    if (rejected) throw new Error("fictional-write-failure");
+    return batch(statements);
+  });
+  const controller = new AbortController(), ctx = createExecutionContext();
+  const pending = recoveryWorker.fetch(new Request("https://recovery.example.test/operate", { method: "POST", signal: controller.signal,
+    headers: { Authorization: "Bearer " + bindings.RESTORE_OPERATOR_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "sanitize", maintenanceConfirmed: true, authKeyId: backupKeyId(bindings.BETTER_AUTH_SECRET) }) }), bindings, ctx);
+  try {
+    await writing; controller.abort();
+    let finished = false;
+    const background = waitOnExecutionContext(ctx).then(() => { finished = true; });
+    // Let the same-key release interval expire while the D1 write remains blocked.
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    expect.soft(finished).toBe(false);
+    expect.soft((await (await env.MEDIA_BUCKET.get(key))!.json<{ deadline: number }>()).deadline).toBeGreaterThan(Date.now());
+    expect.soft((await send({ action: "review" })).status).toBe(409);
+    resume(); expect((await pending).status).toBe(rejected ? 500 : 200); await background;
+    expect(await (await env.MEDIA_BUCKET.get(key))!.json()).toMatchObject({ deadline: 0 });
+    expect((await send({ action: "review" })).status).toBe(200);
+  } finally { resume(); await pending; await waitOnExecutionContext(ctx); }
+}, 10000);

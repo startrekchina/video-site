@@ -59,5 +59,10 @@ export function expiredJobs(jobs: Job[], now: number): Job[] {
     const current = protectedJobs.get(job.target)
     if (!current || current.createdAt < job.createdAt) protectedJobs.set(job.target, job)
   }
-  return jobs.filter((job) => job.status !== "running" && !job.deleted && job.createdAt < now - 30 * DAY && protectedJobs.get(job.target) !== job && latestDownload !== job)
+  return jobs.filter((job) => {
+    const external = protectedJobs.get(job.target)
+    return job.status !== "running" && !job.deleted && job.createdAt < now - 30 * DAY && external !== job && latestDownload !== job
+      && (job.r2Deleted || latestDownload && latestDownload.createdAt > job.createdAt)
+      && (job.target === "download" || external && external.createdAt > job.createdAt)
+  })
 }

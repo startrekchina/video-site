@@ -64,6 +64,18 @@ test("cleanup keeps the latest complete usable copy per target even when all cop
   assert.deepEqual(expiredJobs([fallback], at("2026-10-23T12:00")), [], "a verified download remains the last R2 copy even when its upload failed")
 })
 
+test("cleanup requires a strictly newer recoverable protection point for each stored copy", () => {
+  const now = at("2026-10-24T12:00")
+  for (const target of ["s3", "download"]) {
+    const unverified = { id: `only-${target}`, target, createdAt: at("2026-09-20T03:00"), status: "complete", downloadReady: target === "download", r2Deleted: target !== "download", keyId: "fictional-backup" }
+    const verified = (createdAt) => ({ ...unverified, id: `verified-${target}`, createdAt: at(createdAt), authKeyId: "fictional-auth" })
+    assert.deepEqual(expiredJobs([unverified], now), [], "an unknown key cannot authorize deleting the sole copy")
+    assert.deepEqual(expiredJobs([unverified, verified("2026-09-19T03:00")], now), [], "an older fallback does not protect a newer recovery option")
+    assert.deepEqual(expiredJobs([unverified, verified("2026-09-20T03:00")], now), [], "equal timestamps are not a newer protection point")
+    assert.deepEqual(expiredJobs([unverified, verified("2026-09-21T03:00")], now).map(job => job.id), [unverified.id])
+  }
+})
+
 test("stacked bars and their real y-scale contain each bucket's total", () => {
   const { buildYScalesForLines, getBarMax } = load("src/components/charts/y-axis-scales.ts")
   const data = [{ reads: 12682, writes: 1504 }, { reads: 12000, writes: 2000 }]

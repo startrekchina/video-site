@@ -21,8 +21,10 @@ export default {
     const signal = AbortSignal.any([request.signal, timeout.signal]);
     let locked: { key: string; etag: string; updatedAt: number; plaintextKey?: string } | undefined;
     let claiming: Promise<R2Object | null> | undefined, releasing: Promise<void> | undefined;
+    let credentialWork: Promise<unknown> | undefined;
     const release = () => releasing ??= (async () => {
       await claiming?.catch(() => {});
+      await credentialWork?.catch(() => {});
       if (!locked) return;
       const lock = locked;
       await delay(Math.max(0, lock.updatedAt + 1100 - Date.now()));
@@ -65,8 +67,9 @@ export default {
       if ((body.action === "sanitize" && body.maintenanceConfirmed === true || body.action === "credentials") && typeof body.authKeyId === "string") {
         const inventory = backupKeys(env), pair = inventory.find(pair => pair.authKeyId === body.authKeyId), newKeyId = backupKeyId(env.RESTORE_NEW_AUTH_SECRET);
         if (!pair || inventory.some(pair => pair.keyId === newKeyId || pair.authKeyId === newKeyId)) throw new Error("RESTORE_KEYS_INVALID");
-        return json(body.action === "sanitize" ? await sanitizeRestoredCredentials(target.db, pair.authSecret, env.RESTORE_NEW_AUTH_SECRET)
-          : await verifyRestoredCredentials(target.db, env.RESTORE_NEW_AUTH_SECRET));
+        credentialWork = body.action === "sanitize" ? sanitizeRestoredCredentials(target.db, pair.authSecret, env.RESTORE_NEW_AUTH_SECRET)
+          : verifyRestoredCredentials(target.db, env.RESTORE_NEW_AUTH_SECRET);
+        return json(await credentialWork);
       }
       if (body.action === "validate" && typeof body.schemaVersion === "string") return json(await validateRestoredDatabase(target.db, env.MEDIA_BUCKET, body.schemaVersion, signal));
       if (body.action === "review" && (body.after === undefined || typeof body.after === "string" && body.after.length <= 128)) {
