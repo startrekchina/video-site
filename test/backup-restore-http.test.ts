@@ -84,6 +84,44 @@ it.each([false, true])("clears restore plaintext without resuming the request an
     expect(await env.MEDIA_BUCKET.head(`backups/staging/${scope.id}/${file.file}.bin`)).not.toBeNull();
   } finally { resume(); await pending; await waitOnExecutionContext(ctx); vi.unstubAllGlobals(); }
 }, 10000);
+it.each(["head", "delete"] as const)("retains plaintext cleanup when disconnected during its %s call", async phase => {
+  const scope = { environment: "staging" as const, id: crypto.randomUUID() }, sql = "CREATE TABLE fictional (value TEXT);", signal = new AbortController().signal;
+  await stageBackup(env.MEDIA_BUCKET, { ...scope, createdAt: Date.now(), schemaVersion: "fictional", bookmark: "fictional-bookmark", authKeyId: backupKeyId(env.BETTER_AUTH_SECRET) },
+    new Response(sql).body!, sql.length, signal);
+  const file = await encryptBackup(env.MEDIA_BUCKET, scope, env.BACKUP_ENCRYPTION_KEY, signal);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: false })));
+  let entered!: () => void, resume!: () => void, deleted = false;
+  const cleaning = new Promise<void>(resolve => { entered = resolve; }), blocked = new Promise<void>(resolve => { resume = resolve; });
+  const head = env.MEDIA_BUCKET.head.bind(env.MEDIA_BUCKET), remove = env.MEDIA_BUCKET.delete.bind(env.MEDIA_BUCKET);
+  vi.spyOn(env.MEDIA_BUCKET, "head").mockImplementation(async name => {
+    if (phase === "head" && name.startsWith("backup-restore/")) { entered(); await blocked; }
+    return head(name);
+  });
+  vi.spyOn(env.MEDIA_BUCKET, "delete").mockImplementation(async names => {
+    if (typeof names === "string" && names.startsWith("backup-restore/")) {
+      if (phase === "delete") { entered(); await blocked; }
+      await remove(names); deleted = true;
+    } else await remove(names);
+  });
+  const controller = new AbortController(), ctx = createExecutionContext(), retained = vi.spyOn(ctx, "waitUntil"), config = { ...bindings, APP_ENV: "staging" };
+  const pending = recoveryWorker.fetch(new Request("https://recovery.example.test/operate", { method: "POST", signal: controller.signal,
+    headers: { Authorization: "Bearer " + config.RESTORE_OPERATOR_TOKEN, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "restore", id: scope.id, file: file.file, keyId: file.keyId, authKeyId: file.source.authKeyId }) }), config, ctx);
+  try {
+    await cleaning; controller.abort();
+    let finished = false;
+    const background = waitOnExecutionContext(ctx).then(() => { finished = true; });
+    // The outer abort handler registers lease release first; let it settle while deletion stays blocked.
+    await retained.mock.calls[0][0];
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect.soft(finished).toBe(false);
+    expect.soft(await (await env.MEDIA_BUCKET.get(key.replace("/test/", "/staging/")))!.json()).toMatchObject({ deadline: 0 });
+    resume(); await background;
+    expect.soft(deleted).toBe(true);
+    expect.soft((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
+    expect(await env.MEDIA_BUCKET.head(`backups/staging/${scope.id}/${file.file}.bin`)).not.toBeNull();
+  } finally { resume(); await pending; await waitOnExecutionContext(ctx); vi.unstubAllGlobals(); }
+}, 10000);
 it.each(["sanitize", "credentials"].flatMap(action => [
   [action, "current authentication", bindings.BETTER_AUTH_SECRET], [action, "selected authentication", history[0].authSecret],
   [action, "other historical authentication", history[1].authSecret], [action, "current backup", bindings.BACKUP_ENCRYPTION_KEY],

@@ -98,8 +98,9 @@ export async function restoreBackup(env: RecoveryEnv, target: { db: D1Database; 
     const validation = await validateRestoredDatabase(target.db, env.MEDIA_BUCKET, decrypted.source.schemaVersion, signal);
     return { source: decrypted.source, keyId: decrypted.keyId, validation, credentialsCleared: false as const };
   } finally {
-    signal.removeEventListener("abort", interrupted);
-    await cleanup();
+    // A disconnect during cleanup must still register the pending deletion with waitUntil.
+    try { await cleanup(); }
+    finally { signal.removeEventListener("abort", interrupted); }
   }
 }
 

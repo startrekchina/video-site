@@ -33,7 +33,7 @@
 | 片库、搜索与资料导入 | 本地/staging 功能与设计复验通过，iPhone 实机输入与切季通过 | [catalog.md](docs/plan/catalog.md) |
 | 播放与媒体交付 | 第四阶段验收通过；T4.9 常规换档、中断后的进度及控制栏恢复均经 staging 定向自检，按开发者确认的定向范围交付，开发者于 2026-10-22 确认实机及最终验收通过 | [playback.md](docs/plan/playback.md) |
 | 进度、收藏、片单与讨论 | 第五阶段验收通过；T5.4 弹幕实现、本地与 staging 定向浏览器自检通过，开发者于 2026-10-22 确认实机及最终验收通过 | [community.md](docs/plan/community.md) |
-| 备份、恢复与发布 | 第六阶段实施中；staging 的 S3 手动/定时备份与隔离恢复演练通过，恢复导入外键问题已修复；恢复库真实登录与播放验收通过，原 staging 已恢复；媒体冷备、密钥独立副本与 production 发布待完成 | [operations.md](docs/plan/operations.md#t61-staging-备份与恢复演练) |
+| 备份、恢复与发布 | 第六阶段实施中；staging 的 S3 手动/定时备份与隔离恢复演练通过，恢复导入外键问题已修复；恢复库真实登录与播放验收通过，原 staging 已恢复；恢复清理期间断线的本地回归通过，staging 待复验；媒体冷备、密钥独立副本与 production 发布待完成 | [operations.md](docs/plan/operations.md#t61-staging-备份与恢复演练) |
 
 ## 优先级与里程碑
 
