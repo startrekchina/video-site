@@ -154,6 +154,20 @@ it("keeps one vote per member and target, counts likes only and refuses other un
   expect(root).toMatchObject({ likes: 1, vote: 1, replies: [{ id: "answer", likes: 1, vote: 1 }] });
 }, 60000);
 
+it("rejects null replacement votes without changing existing comment or reply feedback", async () => {
+  await env.DB.batch([comment("root", "nova", Date.now() - 2000), reply("answer", "root", "quinn", Date.now() - 1000)]);
+  for (const target of ["comments/root", "replies/answer"]) {
+    const path = `${unit}/${target}/vote`;
+    expect((await call("PUT", path, { value: 1 })).status).toBe(200);
+    const invalid = await call("PUT", path, { value: null });
+    expect(invalid.status).toBe(400);
+    expect((await json(invalid)).error?.code).toBe("INVALID_INPUT");
+    const root = (await page("sort=new")).items[0];
+    expect(target.startsWith("comments") ? root : root.replies[0]).toMatchObject({ likes: 1, vote: 1 });
+    expect((await json(await call("DELETE", path))).data).toEqual({ likes: 0, vote: 0 });
+  }
+});
+
 it("lets only admins delete a whole conversation or a single reply, leaving nothing behind", async () => {
   const now = Date.now();
   await env.DB.batch([comment("root", "nova", now - 5000), comment("kept", "quinn", now - 4000), reply("first", "root", "quinn", now - 3000), reply("second", "root", userId, now - 2000),

@@ -1,5 +1,5 @@
 diff --git a/dist/artplayer.mjs b/dist/artplayer.mjs
-index 24305d13a99657c908df49b5d1ade096083e2502..d37eafbc7f0c84d2cb1b1e72aea7f3bba97c445b 100644
+index 24305d13a99657c908df49b5d1ade096083e2502..f10ffa9ed0433681774f552ba658c19d4f9bfb3a 100644
 --- a/dist/artplayer.mjs
 +++ b/dist/artplayer.mjs
 @@ -1164,17 +1164,17 @@ function playAndPause(option) {
@@ -30,7 +30,17 @@ index 24305d13a99657c908df49b5d1ade096083e2502..d37eafbc7f0c84d2cb1b1e72aea7f3bb
      }
    });
  }
-@@ -3324,7 +3324,12 @@ function switchMix(art) {
+@@ -3306,7 +3306,8 @@ function switchMix(art) {
+         resolve();
+         return;
+       }
+-      const { playing, aspectRatio: aspectRatio2, playbackRate: playbackRate2 } = art;
++      const { aspectRatio: aspectRatio2, playbackRate: playbackRate2 } = art;
++      const playing = !art.video.paused;
+       art.pause();
+       art.url = url;
+       art.notice.show = "";
+@@ -3324,7 +3325,12 @@ function switchMix(art) {
          art.playbackRate = playbackRate2;
          art.aspectRatio = aspectRatio2;
          if (playing) {

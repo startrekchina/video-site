@@ -1,6 +1,6 @@
 "use client";
 
-import { useSpring } from "motion/react";
+import { useReducedMotion, useSpring } from "motion/react";
 import { useMemo, useRef } from "react";
 import { useChartConfig } from "./chart-config-context";
 import { useChartHover, useChartStable } from "./chart-context";
@@ -30,6 +30,7 @@ export function useHighlightSegment({
 }: {
   enabled?: boolean;
 } = {}): HighlightSegmentResult {
+  const reduced = useReducedMotion();
   const { data, xScale, xAccessor } = useChartStable();
   const { tooltipData, selection } = useChartHover();
   const { highlightSpring } = useChartConfig();
@@ -48,7 +49,7 @@ export function useHighlightSegment({
   // Jump on inactive→active so the band appears at the hovered point instead
   // of sliding in from x=0; ease on subsequent moves.
   const wasActive = useRef(false);
-  if (bounds.isActive && !wasActive.current) {
+  if (reduced || (bounds.isActive && !wasActive.current)) {
     xSpring.jump(bounds.x);
     widthSpring.jump(bounds.width);
   } else {

@@ -211,9 +211,8 @@ export function Player({
     art.on("artplayerPluginDanmuku:config", saveDanmakuSettings)
     art.on("artplayerPluginDanmuku:show", saveDanmakuSettings)
     art.on("artplayerPluginDanmuku:hide", saveDanmakuSettings)
-    // Danmaku already on screen skip beforeVisible, so clear them; the rest re-enter at their times.
-    const offRemoved = danmakuActions.onRemoved((id) => id === unitKey && danmaku.reset())
-    const offBlocked = subscribeBlockedWords(() => danmaku.reset())
+    const offRemoved = danmakuActions.onRemoved((id) => id === unitKey && danmaku.reset(true))
+    const offBlocked = subscribeBlockedWords(() => danmaku.reset(true))
 
     // The plugin's own narrow fallback hangs the input below the player, outside our fixed-height box.
     const placeEmitter = () => {

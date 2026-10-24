@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import { setTimeout as delay } from "node:timers/promises";
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
 import { backupKeyId, backupKeys } from "./backup-keys.server";
-import { backupFingerprint, decryptBackupForRestore, type BackupScope } from "./backup-storage.server";
+import { backupFingerprint, decryptBackupForRestore, restorePlaintextKey, type BackupScope } from "./backup-storage.server";
 
 const requireValid = (value: unknown) => { if (!value) throw new Error("RESTORE_VALIDATION_FAILED"); };
 // D1 import fails with D1_RESET_DO when an export inserts child rows before a rebuilt parent table, despite its
@@ -42,7 +42,7 @@ function uploadUrl(value: string | undefined) {
 }
 
 export async function restoreBackup(env: RecoveryEnv, target: { db: D1Database; id: string }, scope: BackupScope, file: string,
-  keys: { keyId: string; authKeyId: string }, signal: AbortSignal) {
+  keys: { keyId: string; authKeyId: string }, signal: AbortSignal, operation?: { id: string; ctx: ExecutionContext }) {
   requireValid(scope.environment === env.APP_ENV && target.id !== env.BACKUP_DATABASE_ID
     && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(target.id));
   const inventory = backupKeys(env), encryption = inventory.find(pair => pair.keyId === keys.keyId), authentication = inventory.find(pair => pair.authKeyId === keys.authKeyId);
@@ -50,8 +50,23 @@ export async function restoreBackup(env: RecoveryEnv, target: { db: D1Database; 
   // Only a new, isolated database is eligible. Never drop tables to make an existing target look empty.
   const tables = await target.db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all();
   requireValid(tables.results.length === 0);
-  const decrypted = await decryptBackupForRestore(env.MEDIA_BUCKET, scope, file, encryption!.backupKey, signal);
+  const restoreId = operation?.id ?? crypto.randomUUID(), sqlKey = restorePlaintextKey(scope.environment, restoreId);
+  let decrypting: ReturnType<typeof decryptBackupForRestore> | undefined, removing: Promise<void> | undefined;
+  // Wait for an in-flight R2 write before deletion so cancellation cannot leave a late plaintext object behind.
+  const cleanup = () => removing ??= (async () => {
+    await decrypting?.catch(() => {});
+    const plaintext = await env.MEDIA_BUCKET.head(sqlKey);
+    if (plaintext) {
+      await delay(Math.max(0, plaintext.uploaded.getTime() + 1100 - Date.now()));
+      await env.MEDIA_BUCKET.delete(sqlKey);
+    }
+  })();
+  const interrupted = () => operation!.ctx.waitUntil(cleanup().catch(() => { console.error("restore_plaintext_cleanup_failed"); }));
+  if (operation) signal.addEventListener("abort", interrupted, { once: true });
   try {
+    signal.throwIfAborted();
+    decrypting = decryptBackupForRestore(env.MEDIA_BUCKET, scope, file, encryption!.backupKey, signal, restoreId);
+    const decrypted = await decrypting;
     requireValid(decrypted.source.authKeyId === authentication!.authKeyId);
     const endpoint = `https://api.cloudflare.com/client/v4/accounts/${env.BACKUP_ACCOUNT_ID}/d1/database/${target.id}/import`;
     const call = async (body: object) => metadata(await fetch(endpoint, { method: "POST", redirect: "manual", signal,
@@ -83,8 +98,9 @@ export async function restoreBackup(env: RecoveryEnv, target: { db: D1Database; 
     const validation = await validateRestoredDatabase(target.db, env.MEDIA_BUCKET, decrypted.source.schemaVersion, signal);
     return { source: decrypted.source, keyId: decrypted.keyId, validation, credentialsCleared: false as const };
   } finally {
-    // The authenticated encrypted source remains intact. Recovery plaintext never leaves Cloudflare.
-    await env.MEDIA_BUCKET.delete(decrypted.sqlKey);
+    // A disconnect during cleanup must still register the pending deletion with waitUntil.
+    try { await cleanup(); }
+    finally { signal.removeEventListener("abort", interrupted); }
   }
 }
 

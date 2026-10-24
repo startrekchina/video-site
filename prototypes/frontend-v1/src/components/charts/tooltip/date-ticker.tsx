@@ -1,6 +1,6 @@
 "use client";
 
-import { type MotionValue, motion, useSpring } from "motion/react";
+import { type MotionValue, motion, useReducedMotion, useSpring } from "motion/react";
 import { memo, type RefObject, useLayoutEffect, useMemo, useRef } from "react";
 
 const TICKER_ITEM_HEIGHT = 24;
@@ -230,8 +230,13 @@ const DateTickerInner = memo(function DateTickerInner({
 });
 
 export function DateTicker({ currentIndex, labels, visible }: DateTickerProps) {
+  const reduced = useReducedMotion();
   if (!visible || labels.length === 0) {
     return null;
+  }
+
+  if (reduced) {
+    return <div className="rounded-full bg-zinc-900 px-4 py-1 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">{labels[currentIndex] ?? labels[0]}</div>;
   }
 
   if (labels.length > COMPACT_TICKER_THRESHOLD) {

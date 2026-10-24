@@ -89,7 +89,7 @@ function Meta({ item, now, author }: { item: Comment | Reply; now: number; autho
   )
 }
 
-/** 赞踩 | 回复, then 删除 for admins only (B 6.12.4). */
+/** Vote and reply actions, followed by delete for admins only (B 6.12.4). */
 function Actions({ root, item, ctx, onReply, className, children }: { root: Comment; item: Comment | Reply; ctx: Ctx; onReply: () => void; className?: string; children?: React.ReactNode }) {
   return (
     <div className={cn("-ml-1.5 flex flex-wrap items-center gap-1", className)}>
@@ -295,12 +295,15 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   const [unavailable, setUnavailable] = useState(false)
   const [limits, setLimits] = useState({ pageSize: 10, maxLength: 1000 })
   const [comments, setComments] = useState<Record<string, Comment>>({})
+  const [readIds, setReadIds] = useState<string[]>([])
   // Your own new comments, pinned to the top of page one whatever the sort. Kept apart from the order, so a sort
   // answered after a post cannot drop it.
   const [fresh, setFresh] = useState<string[]>([])
   // Comments found deleted here, kept for the same reason: a late sort answer must not bring them back.
   const [removed, setRemoved] = useState<string[]>([])
   const [page, setPage] = useState(1)
+  const [pageError, setPageError] = useState<string | null>(null)
+  const [pageRetry, setPageRetry] = useState(0)
   const [picked, setPicked] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [targets, setTargets] = useState<Record<string, Target | null>>({})
@@ -314,6 +317,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   const list = useRef<HTMLOListElement>(null)
   const replyBox = useRef<ComposerHandle>(null)
   const latest = useRef(0)
+  const reading = useRef<string | null>(null)
   // Async steps read the conversation as it is now, not as it was when they started.
   const known = useRef(comments)
   known.current = comments
@@ -323,6 +327,9 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   // The newest load of each conversation while it runs, the only one whose answers count: an older one still on its
   // way would add what is left after its own cursor to replies already read past it.
   const loads = useRef(new Map<string, object>())
+  // Conversations with a reply on its way, whose load to the end starts only once it is sent.
+  const posting = useRef(new Set<string>())
+  const replyBusy = (id: string) => loads.current.has(id) || posting.current.has(id)
 
   const cache = (items: Comment[]) => setComments((c) => ({ ...c, ...Object.fromEntries(items.map((item) => [item.id, item])) }))
   const patch = (id: string, change: (c: Comment) => Comment) => {
@@ -345,13 +352,16 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     const newer = data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked)
     const loading = newer.filter((item) => loads.current.has(item.id)).map((item) => item.id)
     // Comments read before it that it does not carry are dropped, so their page reads them again; your pinned posts
-    // show at once and stay, and so does a conversation still loading, whose batch lands on what it has.
+    // show at once and stay, and so does a conversation still sending or loading, or changed here since: it is newer.
     const listed = data.items.map((item) => item.id)
-    const kept = (id: string) => listed.includes(id) || fresh.includes(id) || !before[id] || loads.current.has(id)
+    const kept = (id: string) => listed.includes(id) || fresh.includes(id) || !before[id] || replyBusy(id) || (changed.current.get(id) ?? 0) > asked
     setComments((c) => ({
       ...Object.fromEntries(Object.entries(c).filter(([id]) => kept(id))),
       ...Object.fromEntries(newer.map((item) => [item.id, loading.includes(item.id) ? { ...item, replies: c[item.id].replies, replyCount: c[item.id].replyCount } : item])),
     }))
+    // Preserved replies still need a fresh prefix once their send/load releases the conversation.
+    const waiting = new Set([...loads.current.keys(), ...posting.current])
+    setReadIds((ids) => [...new Set([...listed, ...ids.filter((id) => fresh.includes(id) || !before[id])].filter((id) => !waiting.has(id)))])
     // Your posts from before the request that it no longer lists were deleted elsewhere.
     setRemoved((r) => [...r, ...fresh.filter((id) => !data.order.includes(id))])
     setLimits({ pageSize: data.pageSize, maxLength: data.maxLength })
@@ -368,17 +378,32 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   const pageCount = Math.max(1, Math.ceil(all.length / limits.pageSize))
   const current = Math.min(page, pageCount)
   const visible = all.slice((current - 1) * limits.pageSize, current * limits.pageSize)
-  const missing = visible.filter((id) => !comments[id]).join(",")
+  // Finishing a send/load renders again, making its deferred page read eligible without polling.
+  const missing = visible.filter((id) => (!comments[id] || !readIds.includes(id)) && !replyBusy(id)).join(",")
   const items = visible.flatMap((id) => (comments[id] ? [comments[id]] : []))
 
   // A page beyond the first load reads its comments by ID, so it shows exactly what the fixed order says.
   useEffect(() => {
+    setPageError(null)
     if (!missing) return
     let live = true
+    const asked = changes.current
     void libraryRequest<{ items: Comment[] }>(`${base}/comments?ids=${missing}`, "GET").then((result) => {
       if (!live) return
-      if ("error" in result) return void failed(result.error.message, "评论未加载，请稍后重试。")
-      cache(result.data.items)
+      if ("error" in result) return setPageError(result.error.message ?? "评论未加载，请稍后重试。")
+      const refresh: Comment[] = []
+      const read = result.data.items.filter((item) => !replyBusy(item.id)).map((item) => item.id)
+      cache(result.data.items.filter((item) => (changed.current.get(item.id) ?? 0) <= asked).map((item) => {
+        const current = known.current[item.id]
+        if (current && replyBusy(item.id)) {
+          return { ...item, replies: current.replies, replyCount: Math.max(item.replyCount, current.replies.length) }
+        }
+        // Matching counts do not validate a cached tail: replies may have been deleted and replaced.
+        if (current && current.replies.length > item.replies.length && item.replyCount > item.replies.length) refresh.push(item)
+        return item
+      }))
+      for (const item of refresh) void more(item.id, false, item)
+      setReadIds((ids) => [...new Set([...ids, ...read])])
       // Comments deleted since the order was taken leave the list instead of a gap.
       const gone = missing.split(",").filter((id) => !result.data.items.some((item) => item.id === id))
       if (gone.length) setRemoved((r) => [...r, ...gone])
@@ -386,11 +411,13 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     return () => {
       live = false
     }
-  }, [missing])
+  }, [missing, pageRetry])
 
-  // Wide: a conversation is always open, by default the first on the page that is not your own fresh
-  // post, so posting does not swap out what you were reading. Narrow: an accordion, closed by default.
-  const open = items.find((c) => c.id === picked) ?? (wide ? (items.find((c) => !fresh.includes(c.id)) ?? items[0]) : undefined)
+  // Posting can move the open conversation off the page; keep reading it from the cache.
+  // Narrow layouts retain its row so the inline conversation stays available too.
+  const open = (picked && all.includes(picked) ? comments[picked] : undefined) ?? (wide ? (items.find((c) => !fresh.includes(c.id)) ?? items[0]) : undefined)
+  reading.current = open?.id ?? null
+  const rows = !wide && open && !visible.includes(open.id) ? [...items, open] : items
 
   const bind = (id: string) => ({
     value: drafts[id] ?? "",
@@ -409,17 +436,20 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   }
 
   // Loads the next batch of a conversation, or with `all` whatever is left of it. `all` asks the server at least
-  // once, since others may have replied since the count was read. False when no batch reached the server.
-  const more = async (id: string, all = false) => {
-    const root = known.current[id]
+  // once, since others may have replied since the count was read. A refreshed prefix reloads only to the previous
+  // reading depth; a failed batch leaves that confirmed prefix and a working load-more control.
+  // False when no batch reached the server.
+  const more = async (id: string, all = false, refreshed?: Comment) => {
+    const depth = refreshed ? known.current[id]?.replies.length ?? 0 : 0
+    const root = refreshed ?? known.current[id]
     if (!root) return true
     const mine = {}
     loads.current.set(id, mine)
     setLoadingMore((l) => ({ ...l, [id]: true }))
     try {
-      for (let last = root.replies.at(-1), wanted = all || root.replyCount > root.replies.length, reached = false; wanted; reached = true) {
+      for (let last = root.replies.at(-1), count = root.replies.length, wanted = all || root.replyCount > count, reached = false; wanted; reached = true) {
         const result = await libraryRequest<{ items: Reply[]; rest: number }>(`${base}/comments/${id}/replies?afterAt=${last?.createdAt ?? 0}&afterId=${last?.id ?? "0"}`, "GET")
-        // Taken over by a newer load, which reads to the end: 显示更多 waits while one runs, so only a posted reply starts one.
+        // Taken over by a newer load, which reads to the end: the load-more button waits while one runs, so only a posted reply starts one.
         if (loads.current.get(id) !== mine) return true
         if ("error" in result) {
           failed(result.error.message, "回复未加载，请稍后重试。")
@@ -432,7 +462,8 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
           return { ...c, replies, replyCount: replies.length + rest }
         })
         last = items.at(-1) ?? last
-        wanted = all && rest > 0
+        count += items.length
+        wanted = rest > 0 && (all || count < depth)
       }
       return true
     } finally {
@@ -450,7 +481,6 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
     setSending((s) => ({ ...s, [id]: true }))
     setAnnouncement("正在发送…")
     const result = await libraryRequest<T>(path, "POST", { bodyMarkdown: body, ...extra })
-    setSending((s) => ({ ...s, [id]: false }))
     if ("error" in result) {
       setAnnouncement("")
       failed(result.error.message, "未发送，请稍后重试。")
@@ -462,25 +492,36 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
   }
 
   const postRoot = async (body: string) => {
-    const c = await send<Comment>(NEW_DRAFT, body, `${base}/comments`)
-    if (!c) return false
-    cache([c])
-    setFresh((f) => [c.id, ...f])
-    setPage(1)
-    setAnnouncement("评论已发送")
-    return true
+    try {
+      const c = await send<Comment>(NEW_DRAFT, body, `${base}/comments`)
+      if (!c) return false
+      cache([c])
+      setReadIds((ids) => [...ids, c.id])
+      setPicked(reading.current)
+      setFresh((f) => [c.id, ...f])
+      setPage(1)
+      setAnnouncement("评论已发送")
+      return true
+    } finally { setSending((s) => ({ ...s, [NEW_DRAFT]: false })) }
   }
 
   const postReply = async (root: Comment, body: string) => {
-    const target = targets[root.id] ?? null
-    const r = await send<Reply>(root.id, body, `${base}/comments/${root.id}/replies`, target ? { replyTo: target.id } : {})
-    if (!r) return false
-    setTargets((t) => ((t[root.id] ?? null)?.id === target?.id ? { ...t, [root.id]: null } : t))
-    // The new reply ends the conversation: it loads with whatever came before it. If no batch gets through it is
-    // only counted, so 显示更多 still brings the rest in order instead of paging past it.
-    if (!(await more(root.id, true))) patch(root.id, (c) => ({ ...c, replyCount: c.replyCount + 1 }))
-    setAnnouncement("回复已发送")
-    return true
+    if (posting.current.has(root.id)) return false
+    posting.current.add(root.id)
+    try {
+      const target = targets[root.id] ?? null
+      const r = await send<Reply>(root.id, body, `${base}/comments/${root.id}/replies`, target ? { replyTo: target.id } : {})
+      if (!r) return false
+      setTargets((t) => ((t[root.id] ?? null)?.id === target?.id ? { ...t, [root.id]: null } : t))
+      // The new reply ends the conversation: it loads with whatever came before it. If no batch gets through it is
+      // only counted, so the load-more control still brings the rest in order instead of paging past it.
+      if (!(await more(root.id, true))) patch(root.id, (c) => ({ ...c, replyCount: c.replyCount + 1 }))
+      setAnnouncement("回复已发送")
+      return true
+    } finally {
+      posting.current.delete(root.id)
+      setSending((s) => ({ ...s, [root.id]: false }))
+    }
   }
 
   const vote = async (root: Comment, item: Comment | Reply, value: 1 | -1) => {
@@ -550,7 +591,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
           {kind === "episode" ? "本集讨论" : "本片讨论"}
           {all.length > 0 && <PanelTitleSup>({all.length})</PanelTitleSup>}
         </PanelTitle>
-        {all.length > 1 && <SortTabs value={sort} onChange={(s) => void load(s)} />}
+        {all.length > 1 && <SortTabs value={sort} onChange={(s) => { setPicked(null); void load(s) }} />}
       </PanelHeader>
 
       {unavailable ? (
@@ -587,18 +628,42 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
                 </EmptyHeader>
               </Empty>
             ) : (
-              <ol ref={list} aria-label="评论" aria-busy={!!missing} className="divide-y divide-line">
-                {items.map((c) => {
-                  const isOpen = c.id === open?.id
-                  return (
-                    <li key={c.id}>
-                      <CommentRow c={c} ctx={ctx} wide={wide} open={isOpen} pulse={pulse} onOpen={() => setPicked(!wide && isOpen ? null : c.id)} onReply={() => reply(c, null)}>
-                        {!wide && isOpen && <InlineThread thread={threadOf(c)} />}
-                      </CommentRow>
-                    </li>
-                  )
-                })}
-              </ol>
+              <>
+                <ol ref={list} aria-label="评论" aria-busy={!!missing && !pageError} className="divide-y divide-line">
+                  {rows.map((c) => {
+                    const isOpen = c.id === open?.id
+                    return (
+                      <li key={c.id}>
+                        <CommentRow c={c} ctx={ctx} wide={wide} open={isOpen} pulse={pulse} onOpen={() => setPicked(!wide && isOpen ? null : c.id)} onReply={() => reply(c, null)}>
+                          {!wide && isOpen && <InlineThread thread={threadOf(c)} />}
+                        </CommentRow>
+                      </li>
+                    )
+                  })}
+                </ol>
+                {missing && pageError && (
+                  <Empty role="alert" className="py-12">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <MessageSquareIcon />
+                      </EmptyMedia>
+                      <EmptyTitle>评论暂时无法加载</EmptyTitle>
+                      <EmptyDescription>{pageError}</EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setPageError(null)
+                          setPageRetry((n) => n + 1)
+                        }}
+                      >
+                        重试
+                      </Button>
+                    </EmptyContent>
+                  </Empty>
+                )}
+              </>
             )}
           </div>
           {wide && open && (
@@ -618,6 +683,7 @@ export default function DiscussionSection({ unitId, kind }: { unitId: string; ki
             page={current}
             count={pageCount}
             onChange={(p) => {
+              setPicked(null)
               setPage(p)
               setTimeout(() => revealTop(list.current))
             }}

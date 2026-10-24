@@ -51,14 +51,14 @@ export function TimeChart({
   const Chart = area ? AreaChart : LineChart
   return (
     <div role="img" aria-label={ariaLabel} className={cn("font-mono", className)}>
-      <Chart data={data} aspectRatio="" className="h-full" margin={PLOT_MARGIN} animationDuration={reduced ? 0 : 900}>
+      <Chart data={data} aspectRatio="" className="h-full" margin={PLOT_MARGIN} animationDuration={reduced ? 0 : 900} yDomainTween={!reduced}>
         {DOTS}
         {series.map((s) => {
           const tone = TONES[s.tone ?? "strong"]
           return area ? (
-            <Area key={s.key} dataKey={s.key} fill={tone.color} fillOpacity={0.14} strokeWidth={1.5} fadeEdges={false} />
+            <Area key={s.key} animate={!reduced} dataKey={s.key} fill={tone.color} fillOpacity={0.14} strokeWidth={1.5} fadeEdges={false} />
           ) : (
-            <Line key={s.key} dataKey={s.key} stroke={tone.color} strokeWidth={1.5} fadeEdges={false} curve={curveMonotoneX} dashFromIndex={tone.dashed ? 0 : undefined} dashArray="3,3" />
+            <Line key={s.key} animate={!reduced} dataKey={s.key} stroke={tone.color} strokeWidth={1.5} fadeEdges={false} curve={curveMonotoneX} dashFromIndex={tone.dashed ? 0 : undefined} dashArray="3,3" />
           )
         })}
         <YAxis numTicks={4} formatValue={tick(format)} />
@@ -93,7 +93,7 @@ export function Bars({
       <BarChart data={data} xDataKey={xKey} aspectRatio="" className="h-full" margin={PLOT_MARGIN} stacked={stacked} animationDuration={reduced ? 0 : 900}>
         {DOTS}
         {series.map((s) => (
-          <Bar key={s.key} dataKey={s.key} fill={TONES[s.tone ?? "strong"].color} lineCap="butt" />
+          <Bar key={s.key} animate={!reduced} dataKey={s.key} fill={TONES[s.tone ?? "strong"].color} lineCap="butt" />
         ))}
         <YAxis numTicks={4} formatValue={tick(format)} />
         <BarXAxis maxLabels={4} />

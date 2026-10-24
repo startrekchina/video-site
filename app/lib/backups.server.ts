@@ -332,21 +332,21 @@ async function cleanupBackups(env: Env, current: Job | undefined, signal: AbortS
       } catch { signal.throwIfAborted(); }
     }
   }
-  for await (const { value: job } of allJobs(env)) if (job.id !== current?.id && job.status !== "running") await protect(job);
+  for await (const { value: job } of allJobs(env)) if (job.status !== "running") await protect(job);
   let deleted = 0, failed = false;
   for await (const stored of allJobs(env)) {
     signal.throwIfAborted(); const job = stored.value;
     if (job.deleted || job.id === current?.id || job.status === "running" && job.deadline > Date.now()
       || (job.result?.source.createdAt ?? job.createdAt) >= Date.now() - settings.backupRetention * 1000) continue;
-    const remote = job.receipt ?? job.pendingReceipt;
+    const remote = job.receipt ?? job.pendingReceipt, time = job.result?.source.createdAt ?? job.createdAt;
     let changed = false;
     if ((!job.r2Deleted && !protectedR2.id) || (remote && !job.externalDeleted && !protectedExternal.has(remote.destinationId))) failed = true;
-    // Protect each endpoint independently. An unavailable/unknown-key endpoint cannot authorize its own deletion.
-    if (remote && !job.externalDeleted && protectedExternal.has(remote.destinationId) && protectedExternal.get(remote.destinationId)!.id !== job.id) {
+    // A fallback protection point only authorizes deleting older copies, never a newer unverified recovery option.
+    if (remote && !job.externalDeleted && (protectedExternal.get(remote.destinationId)?.time ?? 0) > time) {
       try { await deleteExternalBackup(env, remote, signal); job.externalDeleted = true; changed = true; }
       catch { failed = true; signal.throwIfAborted(); }
     }
-    if (!job.r2Deleted && protectedR2.id && protectedR2.id !== job.id) {
+    if (!job.r2Deleted && protectedR2.time > time) {
       try {
         await deleteSource(env, job.sourceId, signal);
         job.r2Deleted = true; changed = true;
@@ -405,7 +405,7 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
     environment: environment(env), createdAt: previous?.createdAt ?? now, startedAt: now, updatedAt: now,
     deadline: now + settings.backupTaskTimeout * 1000, attempt: crypto.randomUUID(),
     sourceId: reused ? previous!.sourceId : crypto.randomUUID(), target, status: "running",
-    ...(reused && previous?.result ? { result: previous.result, pendingReceipt: previous.pendingReceipt } : {}) };
+    ...(reused && previous?.result ? { result: previous.result, receipt: previous.receipt, pendingReceipt: previous.pendingReceipt } : {}) };
   const lease = await acquire(env, job);
   const timeout = new AbortController(), timer = setTimeout(() => timeout.abort(), Math.max(0, job.deadline - Date.now()));
   const signal = AbortSignal.any([requestSignal, timeout.signal]);
@@ -450,7 +450,8 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
       if (target !== "download") {
         phase = "BACKUP_TARGET_FAILED";
         const intended = backupDestinationReceipt(env, target, job.result);
-        if (job.pendingReceipt && job.pendingReceipt.destinationId !== intended.destinationId) throw new Error("BACKUP_TARGET_CHANGED");
+        const previousReceipt = job.receipt ?? job.pendingReceipt;
+        if (previousReceipt && previousReceipt.destinationId !== intended.destinationId) throw new Error("BACKUP_TARGET_CHANGED");
         job.pendingReceipt = intended;
         // Publish the immutable encrypted artifact and intended remote object before the first external write.
         await save();
@@ -475,10 +476,16 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
 }
 
 export async function runScheduledBackup(env: Env, ctx: ExecutionContext, now = Date.now()) {
-  const current = await readSchedule(env);
-  if (!current?.value.enabled || current.value.nextRunAt === null || current.value.nextRunAt > now) {
+  const busy = async () => {
     const lease = await record<Lease>(env.MEDIA_BUCKET, `${control(env)}lease.json`);
-    if (lease && lease.value.deadline > Date.now()) return { status: "busy" as const };
+    if (lease && (!Number.isSafeInteger(lease.value?.deadline) || lease.value.deadline < 0)) throw new Error("BACKUP_RECORD_INVALID");
+    return !!lease && lease.value.deadline > Date.now();
+  };
+  let current: Awaited<ReturnType<typeof readSchedule>>;
+  try { current = await readSchedule(env); }
+  catch (error) { return { status: "schedule_failed" as const, error, busy: await busy() }; }
+  if (!current?.value.enabled || current.value.nextRunAt === null || current.value.nextRunAt > now) {
+    if (await busy()) return { status: "busy" as const };
     return { status: "not_due" as const };
   }
   const available = configured(env) && backupTargetAvailability(env)[current.value.target];

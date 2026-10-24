@@ -258,7 +258,7 @@ export function LineChart({
       ref={containerRef}
       style={{
         ...(aspectRatio ? { aspectRatio } : undefined),
-        touchAction: "none",
+        touchAction: "pan-y pinch-zoom",
         ...style,
       }}
     >

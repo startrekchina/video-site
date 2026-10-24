@@ -36,6 +36,10 @@ export default {
     if (controller.cron === mediaSyncCron) {
       // D1 export can suspend queries. Do not start media scanning in the same backup tick.
       const backup = await runScheduledBackup(env, ctx);
+      if (backup.status === "schedule_failed") {
+        if (!backup.busy) await syncMedia(env);
+        throw backup.error;
+      }
       if (backup.status === "not_due") await syncMedia(env);
     }
   },
