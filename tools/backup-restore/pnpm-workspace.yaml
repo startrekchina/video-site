@@ -1,3 +1,7 @@
 allowBuilds:
   esbuild: true
   workerd: true
+overrides:
+  sharp: 0.35.5
+  '@cloudflare/config>zod': 4.6.7
+  miniflare>undici: 7.30.1
