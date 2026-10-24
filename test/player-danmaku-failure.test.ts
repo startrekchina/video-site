@@ -20,8 +20,7 @@ it("starts video, resume and controls even when the optional danmaku module fail
   state.art.once.mockImplementation((name: string, handler: () => void) => { state.listeners.set(name, handler); });
   Player({ unitId: "test", source: { url: "/media/test", qualities: [{ label: "原画", url: "/media/test" }], tracks: [] },
     startSeconds: 30, autoplay: true, progress: { revision: { current: 0 }, interval: 15, duration: 100, onSaved() {} },
-    danmaku: { maxLength: 50, lockTime: 5, colors: ["#FFFFFF"], blockWordLimit: 20, blockWordMaxLength: 20 },
-    subtitle: "off", onSubtitleChange() {}, onTracksChange() {} });
+    danmaku: { maxLength: 50, lockTime: 5, colors: ["#FFFFFF"], blockWordLimit: 20, blockWordMaxLength: 20 } });
   state.refs[0].current = {};
   cleanups = state.effects.map(effect => effect());
   await vi.dynamicImportSettled(); await new Promise(resolve => setTimeout(resolve, 0));

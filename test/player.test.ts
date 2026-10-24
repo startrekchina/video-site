@@ -67,14 +67,14 @@ beforeEach(() => {
 afterEach(() => { cleanups.forEach(cleanup => cleanup?.()); cleanups = []; vi.unstubAllGlobals(); });
 
 async function mount(props: Partial<Parameters<typeof Player>[0]> = {}) {
-  const callbacks = { onSubtitleChange: vi.fn(), onTracksChange: vi.fn() };
-  Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() }, danmaku, subtitle: "en", ...callbacks, ...props });
+  Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() }, danmaku, ...props });
   state.refs[0].current = {};
   cleanups = state.effects.map(effect => effect());
   await vi.dynamicImportSettled(); await new Promise(resolve => setTimeout(resolve, 0));
   if (!props.startSeconds) await emit("ready");
-  return callbacks;
 }
+// Subtitles are chosen only in the player's own settings menu.
+const choose = (id: string) => (state.options as { settings: { onSelect(item: { id: string; html: string }): string }[] }).settings[0].onSelect({ id, html: id });
 function elements(node: ReactNode, type: unknown): ReactElement<Record<string, unknown>>[] {
   if (Array.isArray(node)) return node.flatMap(child => elements(child, type));
   if (!isValidElement<Record<string, unknown>>(node)) return [];
@@ -93,17 +93,13 @@ it("plays the fixed session-authorized source and loads the chosen subtitle from
 
 it("removes a missing subtitle from the menu but keeps a transient failure selectable", async () => {
   fetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
-  let callbacks = await mount();
-  expect(callbacks.onTracksChange).toHaveBeenCalledExactlyOnceWith([]);
-  expect(callbacks.onSubtitleChange).toHaveBeenCalledExactlyOnceWith("off");
+  await mount();
   expect(state.art.subtitle.switch).not.toHaveBeenCalled(); expect(state.art.subtitle.show).toBe(false);
   expect(state.art.setting.update).toHaveBeenLastCalledWith({ name: "subtitle-lang", html: "字幕", selector: [{ html: "关闭", id: "off", default: true }] });
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("已从字幕选项中移除"), reconnect: false });
   cleanups.forEach(cleanup => cleanup?.()); state.effects.length = 0; state.refs.length = 0; state.refIndex = 0; vi.clearAllMocks();
   fetch.mockResolvedValueOnce(new Response(null, { status: 503 }));
-  callbacks = await mount();
-  expect(callbacks.onTracksChange).not.toHaveBeenCalled();
-  expect(callbacks.onSubtitleChange).toHaveBeenCalledExactlyOnceWith("off");
+  await mount();
   expect(state.art.setting.update).toHaveBeenLastCalledWith({ name: "subtitle-lang", html: "字幕", selector: [{ html: "English", id: "en", default: false }, { html: "关闭", id: "off", default: true }] });
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请再次选择该字幕"), reconnect: false });
 });
@@ -149,9 +145,8 @@ it("reconnects once to the last position and play state, and offers reconnecting
 it("never lets subtitle or late autoplay notices replace a video failure's reconnect", async () => {
   await mount(); state.message.mockClear();
   fetch.mockResolvedValueOnce(new Response(null, { status: 401 })); await emit("video:error");
-  const select = state.refs[3].current as (id: string) => void;
   fetch.mockResolvedValueOnce(new Response(null, { status: 401 }));
-  select("off"); select("en"); await new Promise(resolve => setTimeout(resolve, 0)); await new Promise(resolve => setTimeout(resolve, 0));
+  choose("off"); choose("en"); await new Promise(resolve => setTimeout(resolve, 0)); await new Promise(resolve => setTimeout(resolve, 0));
   expect(state.message).toHaveBeenCalledTimes(1);
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("登录已失效"), reconnect: false, login: true });
   // A resume attempt that rejects only after the restored range has failed again stays silent.
@@ -167,10 +162,10 @@ it("never lets subtitle or late autoplay notices replace a video failure's recon
 it("clears a subtitle notice after choosing the track again succeeds and keeps a deliberate seek to zero", async () => {
   // ArtPlayer itself failing to load the checked VTT also turns subtitles off so the same track can be chosen again.
   state.art.subtitle.switch.mockRejectedValueOnce(new Error("Fictional subtitle parse failure"));
-  const callbacks = await mount();
-  expect(callbacks.onSubtitleChange).toHaveBeenCalledExactlyOnceWith("off"); expect(state.art.subtitle.show).toBe(false);
+  await mount();
+  expect(state.art.subtitle.show).toBe(false);
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请再次选择该字幕"), reconnect: false });
-  (state.refs[3].current as (id: string) => void)("en"); await new Promise(resolve => setTimeout(resolve, 0)); await new Promise(resolve => setTimeout(resolve, 0));
+  choose("en"); await new Promise(resolve => setTimeout(resolve, 0)); await new Promise(resolve => setTimeout(resolve, 0));
   expect(state.art.subtitle.switch).toHaveBeenCalledTimes(2); expect(state.art.subtitle.show).toBe(true);
   expect(state.message).toHaveBeenLastCalledWith(null);
   await emit("video:timeupdate"); state.art.currentTime = 0; await emit("video:timeupdate");
@@ -328,7 +323,7 @@ it("keeps a quality failure's recovery notice when its resume also rejects", asy
   expect(state.message).toHaveBeenCalledExactlyOnceWith({ text: expect.stringContaining("片源暂时无法播放"), reconnect: true });
 });
 
-it("keeps watch page subtitle choices in step with a removed track without restarting the player", async () => {
+it("leaves subtitle choice to the player's own menu, which starts on a Chinese track", async () => {
   const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "测试片", titleEn: "Test",
     overviewZh: null, overviewEn: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true,
     positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 };
@@ -340,24 +335,15 @@ it("keeps watch page subtitle choices in step with a removed track without resta
     { id: "root", params: {}, pathname: "/", data: { member: null, catalog: null }, loaderData: { member: null, catalog: null }, handle: undefined },
     { id: "routes/watch", params: { id: unit.id }, pathname: `/watch/${unit.id}`, data: loaderData, loaderData, handle: undefined },
   ] });
-  const render = () => {
-    state.pageIndex = 0;
-    const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
-    state.pageIndex = null;
-    return { player: elements(tree, Player)[0].props as Parameters<typeof Player>[0], choices: elements(tree, "option") };
-  };
-  let view = render();
-  expect(view.choices.map(choice => choice.props.value)).toEqual(["en", "off"]);
-  expect(view.player.source).toBe(source);
-  fetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
+  state.pageIndex = 0;
+  const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
+  state.pageIndex = null;
+  // ArtPlayer keeps its hotkeys after a click even when Tab moves focus on, so a page control would lose its keys.
+  expect(elements(tree, "select")).toEqual([]);
+  expect((elements(tree, Player)[0].props as Parameters<typeof Player>[0]).source).toBe(source);
   state.effects.length = 0; state.refs.length = 0; state.refIndex = 0;
-  Player(view.player); state.refs[0].current = {};
-  cleanups = state.effects.map(effect => effect());
-  await vi.dynamicImportSettled(); await new Promise(resolve => setTimeout(resolve, 0));
-  view = render();
-  expect(view.choices.map(choice => choice.props.value)).toEqual(["off"]);
-  expect(view.player.subtitle).toBe("off");
-  expect(state.art.destroy).not.toHaveBeenCalled();
+  await mount({ source: { ...source, tracks: [...source.tracks, { id: "zh", language: "zh-CN", displayName: "简中", url: "/subtitles/zh" }] } });
+  expect(fetch).toHaveBeenCalledExactlyOnceWith("http://localhost:6120/subtitles/zh", { credentials: "same-origin", cache: "no-store" });
 });
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -566,7 +552,7 @@ it("restores valid danmaku settings saved in this browser and saves them on ever
 it("moves the danmaku emitter below the video when the control bar is too narrow, but not in fullscreen", async () => {
   await mount();
   const slot = { name: "slot" };
-  state.refs[4].current = slot;
+  state.refs[3].current = slot;
   await emit("resize"); await emit("resize");
   expect(plugin().mount).toHaveBeenCalledExactlyOnceWith(state.art.template.$controlsCenter);
   state.art.width = 819; await emit("resize");
@@ -604,10 +590,10 @@ it("refuses danmaku before resume, during a quality switch and while reconnectin
 
 it("places the narrow emitter before the first media event", async () => {
   Player({ unitId: "episode-unit", source, startSeconds: 600, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() },
-    danmaku, subtitle: "off", onSubtitleChange: vi.fn(), onTracksChange: vi.fn() });
+    danmaku });
   state.refs[0].current = {};
   const slot = { name: "slot" };
-  state.refs[4].current = slot; state.art.width = 700;
+  state.refs[3].current = slot; state.art.width = 700;
   cleanups = state.effects.map(effect => effect());
   await vi.dynamicImportSettled(); await settle();
   expect(plugin().mount).toHaveBeenCalledExactlyOnceWith(slot);
@@ -630,9 +616,9 @@ it("reserves the measured external emitter height and observes it as fullscreen 
   vi.stubGlobal("ResizeObserver", class { constructor(callback: () => void) { measure = callback; } observe(value: unknown) { observed.push(value); } disconnect() {} });
   vi.stubGlobal("window", { scrollY: 0, addEventListener() {}, removeEventListener() {} });
   Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() },
-    danmaku, subtitle: "off", onSubtitleChange: vi.fn(), onTracksChange: vi.fn() });
+    danmaku });
   state.refs[2].current = { style: { setProperty }, parentElement, getBoundingClientRect: () => ({ top: 112 }) };
-  state.refs[4].current = slot;
+  state.refs[3].current = slot;
   const cleanup = state.effects[1]();
   expect(observed).toEqual([parentElement, slot]);
   expect(setProperty).toHaveBeenCalledWith("--player-emitter", "40px");
