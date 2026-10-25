@@ -52,7 +52,7 @@ function BottomNav({ member, onSearch }: { member: Member; onSearch: () => void 
   </div>;
 }
 
-export function SiteShell({ children, member, catalog }: { children: ReactNode; member?: Member | null; catalog?: { works: SearchWork[]; stats: { series: number; seasons: number; episodes: number; movies: number } } | null }) {
+export function SiteShell({ children, member, catalog }: { children: ReactNode; member?: Member | null; catalog?: { works: SearchWork[] } | null }) {
   const theme = useTheme(), tone = useHeaderTone(), [searchOpen, setSearchOpen] = useState(false), { pathname } = useLocation();
   useHotkey("d", toggleTheme);
   useHotkey("k", () => setSearchOpen(open => !open), { mod: true, enabled: Boolean(member) });
@@ -72,7 +72,7 @@ export function SiteShell({ children, member, catalog }: { children: ReactNode; 
       </div>
     </header>
     <main id="main-content" className="max-w-screen overflow-x-clip px-2 group-has-data-[slot=auth-frame]/layout:flex group-has-data-[slot=auth-frame]/layout:flex-1 group-has-data-[slot=auth-frame]/layout:flex-col">{children}</main>
-    <SiteFooter stats={member && !authPage ? catalog?.stats : undefined} />
+    <SiteFooter minimal={!member || authPage} />
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40" aria-hidden><div className="h-(--fade-bottom-height) bg-linear-to-b from-transparent to-background mask-linear-[to_top,var(--background)_25%,transparent] backdrop-blur-[1px]" /><div className="bg-background pb-[env(safe-area-inset-bottom,0px)]" /><BottomRuler /></div>
     {member && <><BottomNav member={member} onSearch={() => setSearchOpen(true)} /><CommandMenu open={searchOpen} onOpenChange={setSearchOpen} works={catalog?.works ?? []} /></>}
     <ScrollToTop />

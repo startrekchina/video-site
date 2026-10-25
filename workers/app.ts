@@ -17,6 +17,8 @@ declare module "react-router" {
   export interface AppLoadContext {
     cloudflare: { env: Env; ctx: ExecutionContext };
     identity: RequestIdentity;
+    ray?: string;
+    colo?: string;
   }
 }
 
@@ -70,7 +72,7 @@ export default {
         : progress ? await progressHttp(input, env, identity) : library ? await libraryHttp(input, env, identity) : discussion ? await discussionHttp(input, env, identity)
         : danmaku ? await danmakuHttp(input, env, identity)
         : backup ? await backupsHttp(input, env, ctx, identity)
-        : await requestHandler(request, { cloudflare: { env, ctx }, identity });
+        : await requestHandler(request, { cloudflare: { env, ctx }, identity, ray: request.headers.get("cf-ray")?.split("-")[0] || undefined, colo: request.cf?.colo as string | undefined });
     } catch (error) {
       const native = error instanceof APIError;
       code = native ? error.body?.code ?? "REQUEST_REJECTED" : "INTERNAL_ERROR";

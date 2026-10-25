@@ -8,7 +8,7 @@ import type { loader as rootLoader } from "@/root"
 import { useActiveSection } from "@/lib/use-active-section"
 import { pageTitle } from "@/lib/site"
 import { Page, PageHeading, PageHeadingTagline, PageHeadingTitle, Panel, PanelHeader, PanelTitle, Separator } from "@/components/site/panel"
-import { Field } from "@/components/site/site-footer"
+import { ExternalLink, Field, REPO } from "@/components/site/site-footer"
 import { Button } from "@/components/ui/button"
 import { LineNav } from "@/components/ui/line-nav"
 
@@ -32,8 +32,6 @@ const KEPT = [
   { what: "登录设备", why: "包括设备信息、登录 IP 和最近活跃时间。你可以在账号页查看已登录的设备，并退出不认识的设备。" },
   { what: "邀请关系", why: "你可以查看自己发出的邀请，管理员可查看邀请关系。" },
 ]
-
-const REPO = "https://github.com/startrekchina/video-site"
 
 // Monochrome marks from Simple Icons (CC0).
 const STACK_LOGOS: [name: string, url: string, icon: SimpleIcon][] = [
@@ -67,14 +65,6 @@ function Section({ id, title, children }: { id: string; title: string; children:
 
 function Prose({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-col gap-3 p-4 text-pretty text-muted-foreground [&_strong]:font-medium [&_strong]:text-foreground">{children}</div>
-}
-
-function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <a className="link-underline" href={href} target="_blank" rel="noopener noreferrer">
-      {children}
-    </a>
-  )
 }
 
 /** What the project is built with; per-build facts belong to the footer's title block. */

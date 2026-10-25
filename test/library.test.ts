@@ -155,6 +155,40 @@ it("keeps the playlist queue on the episode step links", async () => {
   expect(await page("")).not.toContain("?playlist=");
 }, 60000);
 
+const watchPage = async (path: string, as = cookie) => (await exports.default.fetch(`http://localhost:6120${path}`, { headers: { Cookie: as } })).text();
+const segments = (html: string) => [...html.matchAll(/<li class="h-1 flex-1 ([^"]+)"/gu)].map(match => match[1]);
+
+it("shows the queue bar with the viewer's own place among all playable units, finished ones included", async () => {
+  const id = await create("members");
+  for (const item of [{ unitId: "episode-two" }, { workId: "series" }, { workId: "movie" }]) await add(id, item);
+  await watched(userId, "episode-two");
+  await env.DB.prepare("UPDATE works SET year = 1996 WHERE id = 'movie'").run();
+  // Queue E2, E1, movie: the finished E2 still counts, and another member sees only their own progress.
+  expect(await playlistQueue(env.DB, userId, id, "episode-two")).toMatchObject({ position: 0, watched: [true, false, false], next: { id: "episode-unit" } });
+  expect(await playlistQueue(env.DB, userId, id, "episode-unit")).toMatchObject({ position: 1, next: { id: "movie-unit", label: "电影", year: 1996 } });
+  expect(await playlistQueue(env.DB, otherId, id, "movie-unit")).toMatchObject({ position: 2, watched: [false, false, false], next: null });
+  let html = await watchPage(`/watch/episode-unit?playlist=${id}`);
+  expect(html).toContain("按顺序播放 · 02 / 03"); expect(segments(html)).toEqual(["bg-foreground/40", "bg-foreground", "bg-foreground/10"]);
+  expect(html).toContain(`href="/watch/movie-unit?playlist=${id}"`); expect(html).toContain("下一项 · 电影 · 1996"); expect(html).toContain("测试信号");
+  html = await watchPage(`/watch/movie-unit?playlist=${id}`);
+  expect(html).toContain("按顺序播放 · 03 / 03 · 最后一项"); expect(html).not.toContain("下一项 ·");
+  // Outside queue mode, or when the playlist is not readable, the page has no queue bar.
+  expect(await watchPage("/watch/episode-unit")).not.toContain("按顺序播放");
+  await call("PATCH", `/me/playlists/${id}`, { visibility: "private" });
+  expect(await watchPage(`/watch/episode-unit?playlist=${id}`, other)).not.toContain("按顺序播放");
+}, 60000);
+
+it("shows a plain progress bar instead of segments for queues over 24 units", async () => {
+  await env.DB.batch(Array.from({ length: 23 }, (_, index) => [`extra-${index + 4}`, index + 4] as const).flatMap(([unit, number]) => [
+    env.DB.prepare(`INSERT INTO playable_units (id, kind, work_id, season_id, episode_number, tmdb_id, duration_seconds) VALUES (?, 'episode', 'series', 'season', ?, ?, 4)`)
+      .bind(unit, number, 930100 + number),
+    env.DB.prepare("INSERT INTO media_files VALUES (?, ?, 'mp4', 'original', ?, 4, 'hash', 4, 'h264', 'aac', 100, 'fictional-version')").bind(`media-${unit}`, unit, `fictional-private-${unit}`)]));
+  const id = await create(); await add(id, { workId: "series" });
+  // E1, E2 and the 23 extra episodes play; E3 has no source and does not count.
+  const html = await watchPage(`/watch/episode-unit?playlist=${id}`);
+  expect(html).toContain("按顺序播放 · 01 / 25"); expect(html).toContain('aria-valuenow="4"'); expect(segments(html)).toEqual([]);
+}, 60000);
+
 it("offers the add menu on the watch page of an episode without a source", async () => {
   const html = await (await exports.default.fetch("http://localhost:6120/watch/episode-three", { headers: { Cookie: cookie } })).text();
   expect(html).toContain("这一集片源暂缺"); expect(html).toContain("加入片单");

@@ -7,7 +7,9 @@ import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
 import { backupKeyId } from "@/lib/backup-keys.server";
 import { decryptBackupForRestore, encryptBackup, stageBackup } from "@/lib/backup-storage.server";
 import { restoreBackup, restoredBusinessSummary, sanitizeRestoredCredentials, validateRestoredDatabase, verifyRestoredCredentials } from "@/lib/backup-restore.server";
+import { syncMedia } from "@/lib/media-sync.server";
 import { login, member } from "./fixtures/auth";
+import { seedCatalog } from "./fixtures/catalog";
 
 const signal = () => new AbortController().signal;
 const runtime = { ...env, APP_ENV: "test", BACKUP_ACCOUNT_ID: "a".repeat(32), BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", D1_IMPORT_TOKEN: "fictional-import-token" };
@@ -163,6 +165,27 @@ it("fails validation on missing media or a mismatched schema", async () => {
     env.DB.prepare("INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256) VALUES ('fictional', 'fictional', 'en', 'vtt', 'English', 'en.main', 'library/missing.vtt', 10, ?)").bind("a".repeat(64)),
   ]);
   await expect(validateRestoredDatabase(env.DB, env.MEDIA_BUCKET, file.source.schemaVersion, signal())).rejects.toThrow();
+});
+it("leaves media whose R2 version differs from the restore point to the media scan without reading it", async () => {
+  const file = await artifact(); await seedCatalog(env.DB);
+  const video = Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0)), vtt = "WEBVTT\n\n00:00.000 --> 00:03.000\nA fictional signal.\n";
+  const movie = "library/movie/910001/movie.mp4", episode = "library/series/920001/S01/E01.mp4", track = "library/series/920001/S01/E01.zh-CN.main.vtt";
+  for (const key of [movie, episode]) await env.MEDIA_BUCKET.put(key, video);
+  await env.MEDIA_BUCKET.put(track, vtt);
+  expect(await syncMedia(env)).toMatchObject({ linked: 3 });
+  // The restore point recorded an earlier version of the episode's identical bytes; the subtitle was replaced after it.
+  await env.DB.prepare("UPDATE media_files SET r2_etag = 'fictional-earlier-version' WHERE object_key = ?").bind(episode).run();
+  await env.MEDIA_BUCKET.put(track, vtt.replace("fictional", "different"));
+  const get = vi.spyOn(env.MEDIA_BUCKET, "get");
+  for (let run = 0; run < 2; run++) {
+    expect(await validateRestoredDatabase(env.DB, env.MEDIA_BUCKET, file.source.schemaVersion, signal())).toMatchObject({ mediaVerified: true, mediaPending: 2 });
+  }
+  expect(get).not.toHaveBeenCalled();
+  const versions = async () => (await env.DB.prepare("SELECT object_key, r2_etag FROM media_files UNION ALL SELECT object_key, r2_etag FROM subtitle_tracks ORDER BY object_key")
+    .all<{ object_key: string; r2_etag: string | null }>()).results;
+  expect(await versions()).toEqual([{ object_key: movie, r2_etag: (await env.MEDIA_BUCKET.head(movie))!.etag }, { object_key: episode, r2_etag: null }, { object_key: track, r2_etag: null }]);
+  expect(await syncMedia(env)).toMatchObject({ linked: 0, skipped: 2, replaced: 1, failed: 0 });
+  for (const row of await versions()) expect(row.r2_etag).toBe((await env.MEDIA_BUCKET.head(row.object_key))!.etag);
 });
 it("preserves TOTP/passwords/devices/used quota and discussions while revoking sessions, challenges, unused invites and backup codes", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));

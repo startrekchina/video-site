@@ -16,7 +16,7 @@ const STEPS = [
 ]
 
 const FEATURES = [
-  { icon: <SubtitlesIcon />, title: "中英字幕随时切换", body: "中文、英文、关闭，播放时一键切换。" },
+  { icon: <SubtitlesIcon />, title: "简繁字幕随时切换", body: "简中、简英、繁中、繁英，以各集已有的为准，播放时一键切换。" },
   { icon: <MonitorSmartphoneIcon />, title: "进度跨设备同步", body: "手机上看到一半，换到电脑上从同一处接着看。" },
   { icon: <ListVideoIcon />, title: "收藏和片单", body: "整理自己的片单，也可以公开给站内其他成员。" },
   { icon: <ShieldCheckIcon />, title: "账号安全", body: "通行密钥、二步验证和备用码，按需开启。" },

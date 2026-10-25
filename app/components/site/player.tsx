@@ -54,7 +54,7 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
     return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
   }, [unitId]);
   useEffect(() => {
-    let art: Artplayer | undefined, tracks = source.tracks, selected = source.tracks.find(track => track.language.startsWith("zh"))?.id ?? source.tracks[0]?.id ?? "off";
+    let art: Artplayer | undefined, tracks = source.tracks, selected = source.tracks[0]?.id ?? "off";
     // Failure checks and reconnects stay on the current quality; a remembered quality this unit lacks falls back to the original.
     let quality = source.qualities.find(item => item.label === rememberedQuality()) ?? source.qualities[0];
     // failed latches one HEAD per failure; restoreTo holds the position a reconnect returns to once.

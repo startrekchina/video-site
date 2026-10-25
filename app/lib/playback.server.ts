@@ -17,15 +17,17 @@ async function storage<T>(read: () => Promise<T>) {
 
 // Verified sources come from D1 only; every media request checks the current R2 version itself.
 export async function playbackSource(db: D1Reader, unitId: string): Promise<PlaybackSource | null> {
-  const [files, tracks] = await db.batch<{ id: string; variant: string; language: string; display_name: string }>([
-    db.prepare("SELECT id, variant FROM media_files WHERE playable_unit_id = ? AND format = 'mp4' AND r2_etag IS NOT NULL AND r2_etag <> ''").bind(unitId),
+  const [files, tracks] = await db.batch<{ id: string; variant: string; duration_seconds: number; language: string; display_name: string }>([
+    db.prepare("SELECT id, variant, duration_seconds FROM media_files WHERE playable_unit_id = ? AND format = 'mp4' AND r2_etag IS NOT NULL AND r2_etag <> ''").bind(unitId),
+    // B 6.6 order: 简中, 简英, 繁中, 繁英; extra tracks follow their kind.
     db.prepare(`SELECT id, language, display_name FROM subtitle_tracks WHERE playable_unit_id = ? AND format = 'vtt'
-      AND r2_etag IS NOT NULL AND r2_etag <> '' ORDER BY language, track_key`).bind(unitId),
+      AND r2_etag IS NOT NULL AND r2_etag <> '' ORDER BY language, track_key GLOB language || '.bilingual*', track_key`).bind(unitId),
   ]);
   const linked = files.results.filter(file => variants.includes(file.variant)).sort((a, b) => variants.indexOf(a.variant) - variants.indexOf(b.variant));
   // Tiers never stand in for a missing original.
   if (linked[0]?.variant !== "original") return null;
-  const qualities = linked.map(file => ({ label: file.variant === "original" ? "原画" : file.variant, url: `/media/${file.id}` }));
+  // After the original is replaced, a tier of another duration stays hidden until its own replacement passes the scan.
+  const qualities = linked.filter(file => Math.abs(file.duration_seconds - linked[0].duration_seconds) <= settings.qualityDurationTolerance).map(file => ({ label: file.variant === "original" ? "原画" : file.variant, url: `/media/${file.id}` }));
   return { url: qualities[0].url, qualities, tracks: tracks.results.map(track => ({ id: track.id, language: track.language, displayName: track.display_name, url: `/subtitles/${track.id}` })) };
 }
 

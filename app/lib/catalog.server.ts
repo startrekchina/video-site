@@ -17,12 +17,8 @@ const stills = new Map(stillManifest.episodes.map(item => [`${item.tmdbId}:${ite
 
 // Called only after membership validation; no storage identifiers enter the global UI.
 export async function catalogSummary(db: D1Reader) {
-  const [works, counts] = await db.batch<Record<string, unknown>>([
-    db.prepare("SELECT id, kind, tmdb_id, title_zh, title_en, year FROM works ORDER BY year, tmdb_id, id"),
-    db.prepare("SELECT (SELECT count(*) FROM seasons) AS seasons, (SELECT count(*) FROM playable_units WHERE season_id IS NOT NULL) AS episodes"),
-  ]);
-  return { works: works.results.map(row => ({ slug: String(row.id), kind: row.kind as "series" | "movie", titleZh: String(row.title_zh || row.title_en || "标题暂缺"), titleEn: String(row.title_en || ""), code: codes[Number(row.tmdb_id)] ?? "", year: row.year as number | null })),
-    stats: { series: works.results.filter(row => row.kind === "series").length, movies: works.results.filter(row => row.kind === "movie").length, seasons: Number(counts.results[0].seasons), episodes: Number(counts.results[0].episodes) } };
+  const [works] = await db.batch<Record<string, unknown>>([db.prepare("SELECT id, kind, tmdb_id, title_zh, title_en, year FROM works ORDER BY year, tmdb_id, id")]);
+  return { works: works.results.map(row => ({ slug: String(row.id), kind: row.kind as "series" | "movie", titleZh: String(row.title_zh || row.title_en || "标题暂缺"), titleEn: String(row.title_en || ""), code: codes[Number(row.tmdb_id)] ?? "", year: row.year as number | null })) };
 }
 
 export function singleParameter(url: URL, name: string) {
@@ -31,7 +27,7 @@ export function singleParameter(url: URL, name: string) {
 }
 type WorkRow = { id: string; kind: "movie" | "series"; tmdb_id: number; title_zh: string | null; title_en: string | null; overview_zh: string | null; overview_en: string | null; year: number | null; poster_asset: string | null; favorite: number; episode_count?: number; watched_count?: number };
 type SeasonRow = { id: string; work_id: string; season_number: number };
-type UnitRow = { id: string; work_id: string; season_id: string | null; episode_number: number | null; tmdb_id: number; title_zh: string | null; title_en: string | null; overview_zh: string | null; overview_en: string | null; duration_seconds: number | null; playable: number; position_seconds: number | null; completed: number | null; updated_at: number | null; revision: number | null };
+type UnitRow = { id: string; work_id: string; season_id: string | null; episode_number: number | null; tmdb_id: number; title_zh: string | null; title_en: string | null; overview_zh: string | null; overview_en: string | null; air_date: string | null; duration_seconds: number | null; playable: number; position_seconds: number | null; completed: number | null; updated_at: number | null; revision: number | null };
 function searchQuery(query: string) {
   if (query.length > 100) throw Response.json({ code: "INVALID_INPUT", message: "搜索最多 100 个字符。" }, { status: 400 });
   return query.trim();
@@ -81,7 +77,7 @@ export async function catalog(db: D1Reader, userId: string, query = "", target?:
       (SELECT count(*) FROM playable_units u JOIN watch_progress p ON p.playable_unit_id = u.id WHERE u.work_id = w.id AND p.user_id = ? AND p.completed = 1) AS watched_count` : ""}
     FROM works w WHERE w.id IN (${matching}) ORDER BY w.year, w.tmdb_id, w.id`).bind(userId, ...(home ? [userId] : []), ...parameters),
     db.prepare(`SELECT id, work_id, season_number FROM seasons WHERE work_id IN (${matching}) ORDER BY season_number, id`).bind(...parameters),
-    db.prepare(`SELECT u.id, u.work_id, u.season_id, u.episode_number, u.tmdb_id, u.title_zh, u.title_en, u.overview_zh, u.overview_en, u.duration_seconds,
+    db.prepare(`SELECT u.id, u.work_id, u.season_id, u.episode_number, u.tmdb_id, u.title_zh, u.title_en, u.overview_zh, u.overview_en, u.air_date, u.duration_seconds,
     EXISTS(${playableMedia}) AS playable,
     p.position_seconds, p.completed, p.updated_at, p.revision FROM playable_units u
     LEFT JOIN watch_progress p ON p.playable_unit_id = u.id AND p.user_id = ?
@@ -97,7 +93,7 @@ export async function catalog(db: D1Reader, userId: string, query = "", target?:
     const unitDto = (unit: UnitRow): Episode => {
       const season = seasons.find(season => season.id === unit.season_id)?.season_number ?? 0;
       return { id: unit.id, number: unit.episode_number ?? 0, seasonNumber: season, tmdbId: unit.tmdb_id,
-        titleZh: unit.title_zh, titleEn: unit.title_en, overviewZh: unit.overview_zh, overviewEn: unit.overview_en,
+        titleZh: unit.title_zh, titleEn: unit.title_en, overviewZh: unit.overview_zh, overviewEn: unit.overview_en, airDate: unit.air_date,
         durationSeconds: unit.duration_seconds, runtimeMin: unit.duration_seconds === null ? null : unit.duration_seconds / 60, playable: Boolean(unit.playable),
         still: stills.get(`${row.tmdb_id}:${season}:${unit.episode_number}`) ?? null,
         positionSeconds: unit.position_seconds ?? 0, completed: Boolean(unit.completed), updatedAt: unit.updated_at ?? 0, revision: unit.revision ?? 0 };

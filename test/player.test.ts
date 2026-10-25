@@ -323,16 +323,17 @@ it("keeps a quality failure's recovery notice when its resume also rejects", asy
   expect(state.message).toHaveBeenCalledExactlyOnceWith({ text: expect.stringContaining("片源暂时无法播放"), reconnect: true });
 });
 
-it("leaves subtitle choice to the player's own menu, which starts on a Chinese track", async () => {
+it("leaves subtitle choice to the player's own menu, which starts on the first listed track", async () => {
   const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "测试片", titleEn: "Test",
-    overviewZh: null, overviewEn: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true,
+    overviewZh: null, overviewEn: null, airDate: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true,
     positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 };
   const work: Work = { slug: "test", kind: "movie", tmdbId: 1, titleZh: "测试片", titleEn: "Test", overviewZh: null,
     overviewEn: null, year: 2026, poster: "", code: "", seasonCount: 0, episodeCount: 1, watchedCount: 0,
     favorite: false, seasons: [], units: [unit] };
   const loaderData = { work, unit, source, previous: "", next: "", reportInterval: 15 as const, danmaku, admin: false };
+  const root = { member: null, catalog: null, commit: "0123456789abcdef0123456789abcdef01234567", ray: null, colo: null };
   const page = Watch({ loaderData, params: { id: unit.id }, matches: [
-    { id: "root", params: {}, pathname: "/", data: { member: null, catalog: null }, loaderData: { member: null, catalog: null }, handle: undefined },
+    { id: "root", params: {}, pathname: "/", data: root, loaderData: root, handle: undefined },
     { id: "routes/watch", params: { id: unit.id }, pathname: `/watch/${unit.id}`, data: loaderData, loaderData, handle: undefined },
   ] });
   state.pageIndex = 0;
@@ -342,8 +343,10 @@ it("leaves subtitle choice to the player's own menu, which starts on a Chinese t
   expect(elements(tree, "select")).toEqual([]);
   expect((elements(tree, Player)[0].props as Parameters<typeof Player>[0]).source).toBe(source);
   state.effects.length = 0; state.refs.length = 0; state.refIndex = 0;
-  await mount({ source: { ...source, tracks: [...source.tracks, { id: "zh", language: "zh-CN", displayName: "简中", url: "/subtitles/zh" }] } });
+  await mount({ source: { ...source, tracks: [{ id: "zh", language: "zh-CN", displayName: "简中", url: "/subtitles/zh" }, { id: "zh-en", language: "zh-CN", displayName: "简英", url: "/subtitles/zh-en" }] } });
   expect(fetch).toHaveBeenCalledExactlyOnceWith("http://localhost:6120/subtitles/zh", { credentials: "same-origin", cache: "no-store" });
+  expect(state.art.setting.update).toHaveBeenLastCalledWith({ name: "subtitle-lang", html: "字幕", selector: [
+    { html: "简中", id: "zh", default: true }, { html: "简英", id: "zh-en", default: false }, { html: "关闭", id: "off", default: false }] });
 });
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -434,7 +437,7 @@ it("hands the end to the page after the final report and leaves fullscreen only 
 
 it("offers the next unit when playback ends and autoplays only after a fresh step from the prompt", () => {
   const episode = (id: string, number: number): Episode => ({ id, number, seasonNumber: 1, tmdbId: number, titleZh: `虚构第 ${number} 集`, titleEn: null,
-    overviewZh: null, overviewEn: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true, positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 });
+    overviewZh: null, overviewEn: null, airDate: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true, positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 });
   const first = episode("episode-unit", 1), second = episode("episode-two", 2);
   const work: Work = { slug: "series", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
     poster: "", code: "", seasonCount: 1, episodeCount: 2, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [first, second] }], units: [first, second] };
@@ -463,13 +466,13 @@ it("offers the next unit when playback ends and autoplays only after a fresh ste
 });
 
 it("lets a playlist queue decide what follows and end on the way back to the playlist", () => {
-  const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "虚构第 1 集", titleEn: null, overviewZh: null, overviewEn: null,
+  const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "虚构第 1 集", titleEn: null, overviewZh: null, overviewEn: null, airDate: null,
     runtimeMin: null, durationSeconds: 4, still: null, playable: true, positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 };
   const work: Work = { slug: "series", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
     poster: "", code: "", seasonCount: 1, episodeCount: 1, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [unit] }], units: [unit] };
-  const movie = { id: "movie-unit", completed: false, poster: "", label: "电影", title: "测试信号" };
+  const movie = { id: "movie-unit", completed: false, poster: "", label: "电影", year: null, title: "测试信号" };
   const view = (queue: { id: string; title: string; next: typeof movie | null }) => {
-    const loaderData = { work, unit, source, previous: undefined, next: undefined, reportInterval: 15 as const, danmaku, admin: false, queue };
+    const loaderData = { work, unit, source, previous: undefined, next: undefined, reportInterval: 15 as const, danmaku, admin: false, queue: { ...queue, position: 0, watched: [false, false] } };
     const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
     state.pageIndex = 0;
     const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);

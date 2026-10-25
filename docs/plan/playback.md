@@ -105,7 +105,7 @@ GET 与 Range 只做一次 R2 读取：`get()` 带 `onlyIf: { etagMatches: r2_et
 开发者 2026-10-18 确认纳入 v1，规则见 [B 6.6](../detailed-requirements.md#66-播放与媒体分发)与 6.8；原型 `prototypes/frontend-v1` 的播放页提供交互参考。
 
 - 存储复用 `media_files.variant`：原画为 `original`，档位为后缀本身（`2160p`/`1080p`/`720p`/`480p`）；逻辑唯一键 `(playable_unit_id, format, variant)` 已覆盖，不改表结构。
-- 扫描把 `E03.720p.mp4`、`movie.720p.mp4` 识别为同一单元的档位，校验与原画相同（[片库 6.8.1](catalog.md#681-资料占位固定命名与幂等扫描)），与原画时长差超过 1 秒时不挂接并在报告中列出。单元可播状态与 `duration_seconds` 只由原画决定。
+- 扫描把 `E03.720p.mp4`、`movie.720p.mp4` 识别为同一单元的档位，校验与原画相同（[片库 6.8.1](catalog.md#681-资料占位固定命名与幂等扫描)），与原画时长差超过 1 秒时不挂接并在报告中列出。单元可播状态与 `duration_seconds` 只由原画决定。原画被同名替换后，`playbackSource` 只列出与当前原画时长相差在容差内的档位；不符的档位记录保留但不提供，直到同名档位替换通过扫描（[REP1](catalog.md#rep1-同名替换)）。
 - loader 的 `source` 增加 `qualities: [{ label, url }]`，原画在前、档位按后缀从高到低；每个档位仍走 `/media/:mediaFileId` 逐请求鉴权，不新增路由，打开页面时仍不访问 R2。
 - 播放器用 ArtPlayer 自定义控件的 `selector` 与 `switchQuality`（保留位置、播放状态与倍速），只有一档时不挂控件；连续选择通过同一 Promise 链串行执行，下一次切源只在上一次恢复完成后读取状态，离开单元后不执行排队的选择。选择存 `localStorage`，单元没有该档位时回到原画。播放器宽度 480px 以下隐藏画中画、网页全屏与音量（手机保留系统音量），给清晰度控件留位置（开发者确认，2026-10-20）。出错时对当前档位地址发 HEAD，重新连接留在当前档位。
 - ArtPlayer 5.4.0 的 ESM 入口使用 pnpm 补丁 `patches/artplayer@5.4.0.patch`：切源前按原生 `video.paused` 保存播放意图，缓冲不等于主动暂停；换源自动续播拒绝时，外层 Promise 必须拒绝，确保页面在 `finally` 解除切换状态。播放/暂停按钮在 `canplay`、`playing` 与 `pause` 时按原生 `video.paused` 同步，覆盖换源取消旧暂停事件及延迟事件两种边界。浏览器拒绝续播时提示手动播放，主动暂停造成的 `AbortError` 不提示故障；媒体错误仍由 `video:error` 分类。补丁只覆盖当前浏览器动态导入使用的 ESM 入口，不引入未使用的 CommonJS/legacy 补丁。
@@ -135,7 +135,7 @@ GET 与 Range 只做一次 R2 读取：`get()` 带 `onlyIf: { etagMatches: r2_et
 
 | 入口与方法 | 权限 | 请求 / 响应 |
 | --- | --- | --- |
-| `/watch/:unitId` loader | 正常成员 | 与片库查询并行读取该单元已验证的原画与档位 MP4 及已验证 VTT 字幕轨（`playbackSource`），返回 `source: { url, qualities: [{ label, url }], tracks: [{ id, language, displayName, url }] } | null`，`url` 为原画，原画未验证时为 `null`；不访问 R2，不写入任何计数。 |
+| `/watch/:unitId` loader | 正常成员 | 与片库查询并行读取该单元已验证的原画与档位 MP4 及已验证 VTT 字幕轨（`playbackSource`），返回 `source: { url, qualities: [{ label, url }], tracks: [{ id, language, displayName, url }] } | null`，`url` 为原画，原画未验证时为 `null`；`tracks` 按简中、简英、繁中、繁英排列，同类附加轨道紧跟其后（[SUB1](catalog.md#sub1-字幕四类标记)），播放器默认加载第一条；不访问 R2，不写入任何计数。 |
 | `GET/HEAD /media/:mediaFileId`、`/subtitles/:subtitleTrackId` | 当前 Cookie 会话的正常成员 | 按 6.6.1 鉴权、6.6.2 返回字节流或脱敏错误；资源 ID 只在服务端映射 R2，不接受客户端对象路径。 |
 
 ArtPlayer 在浏览器懒加载，同源 MP4/VTT；切单元重建并读取目标起点。媒体地址固定且不按时间续期，成员选择另一清晰度时切换到对应档位地址。
@@ -148,7 +148,7 @@ ArtPlayer 在浏览器懒加载，同源 MP4/VTT；切单元重建并读取目�
 
 ## 播放验证方案
 
-- **自动化**：[Workers 用例](../../test/playback.test.ts)覆盖会话授权与撤销、元数据隐藏、版本/缺失/替换、存储故障、单次 R2 读取和完整 Range 语义；[组件用例](../../test/player.test.ts)覆盖固定地址、字幕检查与移出、出错分类和原地重连；[同步用例](../../test/media-sync.test.ts)覆盖删除后清除版本及重新验证后恢复。用例存在不等于本次已执行。
+- **自动化**：[Workers 用例](../../test/playback.test.ts)覆盖会话授权与撤销、元数据隐藏、版本/缺失/替换、存储故障、单次 R2 读取和完整 Range 语义；[组件用例](../../test/player.test.ts)覆盖固定地址、字幕检查与移出、出错分类和原地重连；[同步用例](../../test/media-sync.test.ts)覆盖删除后清除版本及重新验证后恢复、同名替换及档位按原画时长提供。用例存在不等于本次已执行。
 - **浏览器回归（待接入）**：由 [E2E1](foundation.md#浏览器验证方案)在隔离本地测试中驱动真实页面与媒体请求，检查播放、拖动、字幕切换和出错提示；只开页面或收到 200 不满足验收。
 - **长时播放**：触发条件以 [B 6.6.2](../detailed-requirements.md#662-媒体请求行为) 为准；会话契约下没有随时长到期的状态，播放器局部改动按实际风险定向回归。token 契约下的 121 分钟记录仅作历史基线。本次换档 Promise 收尾和按钮同步按开发者确认的范围验证，不要求两小时长播。
 

@@ -7,7 +7,7 @@ import { settings } from "./settings.server";
 
 type Target = { workId: string; unitId: null } | { workId: null; unitId: string };
 type HeadRow = { id: string; title: string; visibility: "private" | "members"; revision: number; updated_at: number; own: number; owner: string };
-type UnitRow = { item: string; id: string; kind: "movie" | "episode"; playable: number; completed: number; title_zh: string | null; title_en: string | null; poster_asset: string | null;
+type UnitRow = { item: string; id: string; kind: "movie" | "episode"; playable: number; completed: number; title_zh: string | null; title_en: string | null; year: number | null; poster_asset: string | null;
   tmdb_id: number; season_number: number | null; episode_number: number | null; unit_title_zh: string | null; unit_title_en: string | null };
 type ItemRow = { id: string; slug: string; kind: "movie" | "series"; title_zh: string | null; title_en: string | null; year: number | null; poster_asset: string | null; tmdb_id: number;
   season_count: number; unit_id: string | null; season_number: number | null; episode_number: number | null; unit_title_zh: string | null; unit_title_en: string | null };
@@ -40,17 +40,17 @@ const head = (db: D1Reader, userId: string, id: string) => db.prepare(`SELECT l.
     WHERE l.id = ?1 AND (l.owner_user_id = ?2 OR l.visibility = 'members')`).bind(id, userId);
 // Every item's units in stored order, a series in season and episode order, with the viewer's own progress (never the owner's).
 const expansion = (db: D1Reader, userId: string, id: string) => db.prepare(`SELECT e.item, u.id, u.kind, EXISTS(${playableMedia}) AS playable, coalesce(p.completed, 0) AS completed,
-    w.title_zh, w.title_en, w.poster_asset, w.tmdb_id, s.season_number, u.episode_number, u.title_zh AS unit_title_zh, u.title_en AS unit_title_en
+    w.title_zh, w.title_en, w.year, w.poster_asset, w.tmdb_id, s.season_number, u.episode_number, u.title_zh AS unit_title_zh, u.title_en AS unit_title_en
   FROM (SELECT id AS item, position, playable_unit_id AS unit FROM playlist_items WHERE playlist_id = ?1 AND playable_unit_id IS NOT NULL
     UNION ALL SELECT i.id, i.position, pu.id FROM playlist_items i JOIN playable_units pu ON pu.work_id = i.work_id WHERE i.playlist_id = ?1) e
   JOIN playable_units u ON u.id = e.unit JOIN works w ON w.id = u.work_id LEFT JOIN seasons s ON s.id = u.season_id
   LEFT JOIN watch_progress p ON p.playable_unit_id = u.id AND p.user_id = ?2
   ORDER BY e.position, s.season_number, u.episode_number, u.id`).bind(id, userId);
-// B 6.7.2: playable units keep their first appearance. Finished units stay so a watch page can find its place; callers skip them.
+// B 6.7.2: playable units keep their first appearance. Finished units stay so a watch page can find and show its place; playback skips them.
 function queue(rows: UnitRow[]) {
   const seen = new Set<string>();
   return rows.filter(row => row.playable && !seen.has(row.id) && seen.add(row.id)).map(row => ({ id: row.id, completed: Boolean(row.completed), poster: posterPath(row.poster_asset),
-    label: row.kind === "movie" ? "电影" : code(row), title: row.kind === "movie" ? workTitle(row) : displayTitle({ titleZh: row.unit_title_zh, titleEn: row.unit_title_en }) }));
+    label: row.kind === "movie" ? "电影" : code(row), year: row.kind === "movie" ? row.year : null, title: row.kind === "movie" ? workTitle(row) : displayTitle({ titleZh: row.unit_title_zh, titleEn: row.unit_title_en }) }));
 }
 
 export async function playlists(db: D1Reader, userId: string, scope: "mine" | "members") {
@@ -81,11 +81,12 @@ export async function playlistPage(db: D1Reader, userId: string, id: string) {
     // B 6.7.2: play from the first unfinished unit; when none is left the member stays on the playlist page.
     start: order.find(unit => !unit.completed)?.id ?? null, queued: order.length };
 }
-// A watch page's place in a playlist queue: the next unfinished playable unit after it, or null at the end.
+// A watch page's place among the playlist's playable units, each unit's watched state, and the next unfinished unit after it (null at the end).
 export async function playlistQueue(db: D1Reader, userId: string, id: string, unitId: string) {
   const [heads, units] = await db.batch([head(db, userId, id), expansion(db, userId, id)]);
-  const list = heads.results[0] as HeadRow | undefined, order = queue(units.results as UnitRow[]), at = order.findIndex(unit => unit.id === unitId);
-  return list && at >= 0 ? { id: list.id, title: list.title, next: order.slice(at + 1).find(unit => !unit.completed) ?? null } : null;
+  const list = heads.results[0] as HeadRow | undefined, order = queue(units.results as UnitRow[]), position = order.findIndex(unit => unit.id === unitId);
+  return list && position >= 0 ? { id: list.id, title: list.title, position, watched: order.map(unit => unit.completed),
+    next: order.slice(position + 1).find(unit => !unit.completed) ?? null } : null;
 }
 
 // Personal library writes: the member comes from the session, and only the owner can change a playlist.

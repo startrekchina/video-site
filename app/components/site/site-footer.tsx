@@ -1,10 +1,23 @@
 import type React from "react"
-import { Link } from "react-router"
+import { Link, useRouteLoaderData } from "react-router"
+import type { loader as rootLoader } from "@/root"
 
 import { cn } from "@/lib/utils"
 
+import { dependencies } from "../../../package.json"
 import { FooterArt } from "./footer-art"
 import { SiteMark } from "./site-mark"
+
+export const REPO = "https://github.com/startrekchina/video-site"
+const STACK = ["react-router", "react", "@base-ui/react"] as const
+
+export function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a className="link-underline" href={href} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  )
+}
 
 export function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
   return (
@@ -16,8 +29,9 @@ export function Field({ label, className, children }: { label: string; className
 }
 
 /** Footer laid out as the title block of a technical drawing, after chanhdai.com. */
-export function SiteFooter({ stats }: { stats?: { series: number; seasons: number; episodes: number; movies: number } }) {
-  const minimal = !stats
+export function SiteFooter({ minimal }: { minimal?: boolean }) {
+  // Edge node and Cloudflare Ray ID belong to the latest root loader request, not to every client-side navigation.
+  const root = useRouteLoaderData<typeof rootLoader>("root")
   return (
     <footer className="max-w-screen overflow-x-clip px-2">
       <div className="mx-auto border-x md:max-w-(--content-width)">
@@ -33,21 +47,42 @@ export function SiteFooter({ stats }: { stats?: { series: number; seasons: numbe
             </div>
 
             <dl className="grid grid-cols-2 gap-px bg-line font-mono md:grid-cols-4">
-              <Field label="剧集">{stats!.series} 部 · {stats!.seasons} 季</Field>
-              <Field label="单集">{stats!.episodes} 集</Field>
-              <Field label="电影">{stats!.movies} 部</Field>
-              <Field label="字幕">中文 / 英文 · VTT</Field>
-              <Field label="海报来源">
-                <a className="link-underline" href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer">
-                  TMDB
-                </a>
+              <Field label="维护">
+                <ExternalLink href="https://github.com/narwhrl">@narwhrl</ExternalLink>
               </Field>
-              <Field label="运行于">Cloudflare Workers</Field>
-              <Field label="播放器">ArtPlayer</Field>
-              <Field label="字体">Noto Sans SC · Geist Mono</Field>
+              <Field label="构建">
+                {root ? <ExternalLink href={`${REPO}/commit/${root.commit}`}>{root.commit.slice(0, 7)}</ExternalLink> : "—"}
+              </Field>
+              <Field label="边缘节点">{root?.colo ?? "—"}</Field>
+              <Field label="请求 ID">{root?.ray ?? "—"}</Field>
+              <Field label="部署于">Cloudflare Workers</Field>
+              <Field label="源代码">
+                <ExternalLink href={REPO}>GitHub</ExternalLink>
+              </Field>
+              <Field label="许可证">
+                <ExternalLink href={`${REPO}/blob/main/LICENSE`}>MIT License</ExternalLink>
+              </Field>
+              <Field label="数据库">Cloudflare D1</Field>
+              <Field className="col-span-2" label="技术栈">
+                <ul className="flex flex-col gap-0.5">
+                  {STACK.map((name) => (
+                    <li key={name}>{`${name}@${dependencies[name]}`}</li>
+                  ))}
+                </ul>
+              </Field>
+              <Field label="字体">
+                <ul className="flex flex-col gap-0.5">
+                  <li>Noto Sans SC</li>
+                  <li>Geist Mono</li>
+                </ul>
+              </Field>
+              <Field label="资料来源">
+                <ExternalLink href="https://www.themoviedb.org">TMDB</ExternalLink>
+              </Field>
               <Field className="col-span-2 md:col-span-4" label="版权说明">
                 <span className="font-sans text-muted-foreground">
-                  《星际迷航》及相关海报版权归 Paramount 及原权利人所有。本站仅对受邀成员开放，不被搜索引擎收录。
+                  《星际迷航》及相关海报版权归 Paramount 及原权利人所有。作品资料与海报来自 TMDB，本站使用 TMDB API，但未获 TMDB
+                  认可或认证。本站仅对受邀成员开放，不被搜索引擎收录。
                 </span>
               </Field>
             </dl>

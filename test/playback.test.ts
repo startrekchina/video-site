@@ -161,21 +161,20 @@ it.each(["video", "subtitle"])("rejects a %s replaced while the request is being
   } finally { get.mockRestore(); }
 });
 
-it("keeps legacy media unavailable after a scan conflict and restores it only after validation", async () => {
+it("serves a same-name replacement at the same address only after the scan validates it", async () => {
   const key = "library/series/920001/S01/E01.mp4";
   const original = Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0));
   await env.DB.prepare("UPDATE media_files SET object_key = ?, byte_length = ?, checksum_sha256 = ?, r2_etag = NULL WHERE id = 'source'")
     .bind(key, original.length, createHash("sha256").update(original).digest("hex")).run();
   const changed = original.slice(); changed[changed.length - 1] ^= 1;
-  await env.MEDIA_BUCKET.put(key, changed);
-  expect(await syncMedia(env)).toMatchObject({ linked: 0, conflicts: 1 });
-  expect(await env.DB.prepare("SELECT r2_etag FROM media_files WHERE id = 'source'").first("r2_etag")).toBeNull();
-  expect((await http(video)).status).toBe(404);
-  await env.MEDIA_BUCKET.put(key, original);
-  expect(await syncMedia(env)).toMatchObject({ conflicts: 0, failed: 0 });
-  const response = await http(video);
-  expect(response.status).toBe(200);
-  expect(new Uint8Array(await response.arrayBuffer())).toEqual(original);
+  for (const bytes of [changed, original]) {
+    await env.MEDIA_BUCKET.put(key, bytes);
+    expect((await http(video)).status).toBe(404);
+    expect(await syncMedia(env)).toMatchObject({ linked: 0, replaced: 1, failed: 0 });
+    const response = await http(video);
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+  }
 });
 
 it("lists only verified sources for a unit from D1 without touching R2", async () => {
@@ -208,6 +207,14 @@ it("lists linked quality tiers after the original, never without it, and authori
   // A tier never stands in for a missing original.
   await env.DB.prepare("UPDATE media_files SET r2_etag = NULL WHERE id = 'source'").run();
   expect(await playbackSource(env.DB, "episode-unit")).toBeNull();
+});
+
+it("offers only tiers within the duration tolerance of the current original", async () => {
+  const tier = await env.MEDIA_BUCKET.put("fictional-private-tier", "tier-bytes");
+  await env.DB.batch(([["p2160", "2160p", 5], ["p1080", "1080p", 4.9], ["p720", "720p", 5.5], ["p480", "480p", 2.9]] as const).map(([id, variant, duration]) => env.DB.prepare(
+    "INSERT INTO media_files VALUES (?,'episode-unit','mp4',?,?,10,'hash',?,'h264','aac',20,?)").bind(id, variant, `fictional-private-${id}`, duration, tier!.etag)));
+  expect((await playbackSource(env.DB, "episode-unit"))?.qualities).toEqual([{ label: "原画", url: video }, { label: "2160p", url: "/media/p2160" }, { label: "1080p", url: "/media/p1080" }]);
+  await expectHidden(await http("/media/p720", {}, ""), 401);
 });
 
 it("renders the watch page from D1 and leaves missing objects to the media request", async () => {

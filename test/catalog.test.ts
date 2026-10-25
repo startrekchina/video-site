@@ -291,3 +291,26 @@ it("links a watch page to the playable neighbours in episode order and labels th
     expect(blocked).toContain("S01E03 片源暂缺。"); expect(blocked).not.toContain("开始播放");
   } finally { vi.unstubAllGlobals(); }
 }, 60000);
+
+it("shows an episode's TMDB air date as stored on its watch page, omits it when missing and keeps the year for movies", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+  try {
+    await seedCatalog(env.DB);
+    await member("Kepler"); const cookie = await login("Kepler");
+    await env.DB.batch([
+      env.DB.prepare("UPDATE playable_units SET air_date = '1987-09-28' WHERE id = 'episode-unit'"),
+      env.DB.prepare("UPDATE works SET year = 1979 WHERE id = 'movie'"),
+      env.DB.prepare("INSERT INTO playable_units (id,kind,work_id,season_id,episode_number,tmdb_id,duration_seconds,title_en) VALUES ('episode-two','episode','series','season',2,930002,4,'Fictional Second Episode')"),
+    ]);
+    const page = async (path: string) => {
+      const response = await exports.default.fetch(`http://localhost:6120${path}`, { headers: { Cookie: cookie } });
+      expect(response.status).toBe(200); return response.text();
+    };
+    expect(await page("/watch/episode-unit")).toContain("A Fictional First Episode · 1987-09-28 首播 · 1 分钟");
+    expect(await page("/watch/episode-two")).not.toContain("首播");
+    const movie = await page("/watch/movie-unit");
+    expect(movie).toContain("Signal Test · 1979 年 · 1 分钟"); expect(movie).not.toContain("首播");
+    expect((await catalog(env.DB, "nova", "", { unitId: "episode-unit" }))[0].units.map(unit => [unit.id, unit.airDate])).toEqual([["episode-unit", "1987-09-28"], ["episode-two", null]]);
+    expect((await catalog(env.DB, "nova", "", { unitId: "movie-unit" }))[0].units[0].airDate).toBeNull();
+  } finally { vi.unstubAllGlobals(); }
+}, 60000);

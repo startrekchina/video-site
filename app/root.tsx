@@ -34,10 +34,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+declare const __BUILD_COMMIT__: string;
+// The commit travels only in loader data, so client chunks keep their hashes across deployments.
 export async function loader({ context }: Route.LoaderArgs) {
   const current = await context.identity.read(catalogSummary);
   return data({ member: current ? { username: current.member.displayUsername || current.member.username, role: current.member.role } : null,
-    catalog: current?.value ?? null }, { headers: current?.headers });
+    catalog: current?.value ?? null, commit: __BUILD_COMMIT__, ray: context.ray ?? null, colo: context.colo ?? null }, { headers: current?.headers });
 }
 export function shouldRevalidate(args: ShouldRevalidateFunctionArgs) {
   return !args.formMethod && presentationNavigation(args.currentUrl, args.nextUrl) ? false : args.defaultShouldRevalidate;

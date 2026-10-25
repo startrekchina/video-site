@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import { setTimeout as delay } from "node:timers/promises";
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
 import { backupKeyId, backupKeys } from "./backup-keys.server";
-import { backupFingerprint, decryptBackupForRestore, restorePlaintextKey, type BackupScope } from "./backup-storage.server";
+import { decryptBackupForRestore, restorePlaintextKey, type BackupScope } from "./backup-storage.server";
 
 const requireValid = (value: unknown) => { if (!value) throw new Error("RESTORE_VALIDATION_FAILED"); };
 // D1 import fails with D1_RESET_DO when an export inserts child rows before a rebuilt parent table, despite its
@@ -127,25 +127,25 @@ export async function validateRestoredDatabase(db: D1Database, bucket: R2Bucket,
   const integrity = await db.prepare("PRAGMA quick_check").all<Record<string, string>>();
   requireValid(integrity.results.length === 1 && Object.values(integrity.results[0])[0] === "ok");
   requireValid((await db.prepare("PRAGMA foreign_key_check").all()).results.length === 0);
+  let mediaPending = 0;
   for (const table of ["media_files", "subtitle_tracks"]) {
     let offset = 0;
     while (true) {
-      const page = await db.prepare(`SELECT id, object_key, byte_length, checksum_sha256, r2_etag FROM ${table} ORDER BY id LIMIT 25 OFFSET ?`).bind(offset)
-        .all<{ id: string; object_key: string; byte_length: number; checksum_sha256: string; r2_etag: string | null }>();
+      const page = await db.prepare(`SELECT id, object_key, byte_length, r2_etag FROM ${table} ORDER BY id LIMIT 25 OFFSET ?`).bind(offset)
+        .all<{ id: string; object_key: string; byte_length: number; r2_etag: string | null }>();
       for (const media of page.results) {
         signal.throwIfAborted(); requireValid(media.object_key.startsWith("library/") && !media.object_key.split("/").includes(".."));
-        const head = await bucket.head(media.object_key); requireValid(head && head.size === media.byte_length);
+        const head = await bucket.head(media.object_key); requireValid(head);
         // This exact version was fully hashed by media sync before its ETag entered the authenticated snapshot.
-        if (media.r2_etag && media.r2_etag === head!.etag) continue;
-        const object = await bucket.get(media.object_key, { onlyIf: { etagMatches: head!.etag } }); requireValid(object && "body" in object);
-        const result = await backupFingerprint((object as R2ObjectBody).body, signal, media.byte_length);
-        requireValid(result.sha256 === media.checksum_sha256 && result.byteLength === media.byte_length);
-        await db.prepare(`UPDATE ${table} SET r2_etag = ? WHERE id = ?`).bind(head!.etag, media.id).run();
+        if (media.r2_etag === head!.etag && media.byte_length === head!.size) continue;
+        // Any other version waits for the media scan after the switch, which validates it like a same-name replacement (B 6.8).
+        if (media.r2_etag) await db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE id = ?`).bind(media.id).run();
+        mediaPending++;
       }
       offset += page.results.length; if (page.results.length < 25) break;
     }
   }
-  return { schemaVersion, business: await restoredBusinessSummary(db), mediaVerified: true as const };
+  return { schemaVersion, business: await restoredBusinessSummary(db), mediaVerified: true as const, mediaPending };
 }
 
 export async function sanitizeRestoredCredentials(db: D1Database, oldSecret: string, newSecret: string) {
