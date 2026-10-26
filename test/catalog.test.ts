@@ -209,6 +209,20 @@ it.each([null, ""])("keeps a video with verified version %s out of play links an
   expect(homeStages(await catalog(env.DB, "nova", "", { home: true })).items.map(item => item.unit.id)).toEqual(["episode-unit"]);
 });
 
+it("sends guests to login before rejecting a repeated playlist parameter on a watch page", async () => {
+  await seedCatalog(env.DB);
+  const paths = ["/series/ld/s1/e1?playlist=a&playlist=b", "/series/zzz/s1/e1?playlist=a&playlist=b", "/movies/the-motion-picture/watch?playlist=a&playlist=b"];
+  for (const path of paths) {
+    const response = await exports.default.fetch(`http://localhost:6120${path}`, { redirect: "manual" });
+    expect(response.status, path).toBe(302); expect(response.headers.get("Location")).toContain("/login?next=");
+  }
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+  try {
+    await member("Kepler"); const cookie = await login("Kepler");
+    for (const path of paths) expect((await exports.default.fetch(`http://localhost:6120${path}`, { headers: { Cookie: cookie } })).status, path).toBe(400);
+  } finally { vi.unstubAllGlobals(); }
+});
+
 it("protects all catalog pages and their loader requests independently and keeps guest landing free of catalog data", async () => {
   await seedCatalog(env.DB);
   for (const path of ["/series", "/movies", "/search?q=Survey", "/series/ld", "/series/ld/s1/e1", "/movies/the-motion-picture", "/movies/the-motion-picture/watch", "/series.data", "/search.data?q=Survey",

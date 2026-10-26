@@ -21,9 +21,12 @@ import type { DanmakuLimits } from "@/lib/danmaku-client";
 import { DetailTop, Overview, StepLink } from "./title";
 import type { Route } from "./+types/watch";
 export async function loader({ request, params, context }: Route.LoaderArgs) {
-  const playlist = singleParameter(new URL(request.url), "playlist"), key = pathUnit(params);
-  const current = await pageRead(request, context.cloudflare.env, context.identity, async (db, userId) => key && Promise.all([catalog(db, userId, "", key), playbackSource(db, key),
-    playlist ? playlistQueue(db, userId, playlist, key) : null]));
+  const key = pathUnit(params);
+  // Query input is read inside pageRead so that guests are sent to login before any input error.
+  const current = await pageRead(request, context.cloudflare.env, context.identity, async (db, userId) => {
+    const playlist = singleParameter(new URL(request.url), "playlist");
+    return key && Promise.all([catalog(db, userId, "", key), playbackSource(db, key), playlist ? playlistQueue(db, userId, playlist, key) : null]);
+  });
   if (!current.value) throw new Response(null, { status: 404 });
   const [works, source, queue] = current.value;
   const work = works[0], unit = work?.units.find(unit => key?.kind !== "series" || (unit.seasonNumber === key.season && unit.number === key.episode));

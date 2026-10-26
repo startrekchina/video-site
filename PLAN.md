@@ -26,7 +26,7 @@
 | --- | --- | --- |
 | 工程基础与环境 | 已完成第二阶段；T4.7 业务写入来源校验与 T4.8 构建资源缓存本地自检通过，T4.8 响应头 staging 核对通过；UI3 成员页脚图签本地浏览器与 staging 核对通过，待开发者验收；保留 beta 工具链风险 | [foundation.md](docs/plan/foundation.md) |
 | 登录、账号、邀请与权限 | 第三阶段验收通过；T4.5.7 单次 D1 往返经开发者验收，尾延迟等性能缺口转为持续观察 | [authentication.md](docs/plan/authentication.md) |
-| 片库、搜索与资料导入 | URL1 可读页面地址本地自检与 6120 浏览器检查通过，待推送 staging；本地/staging 功能与设计复验通过，iPhone 实机输入与切季通过；SUB1 字幕四类标记、REP1 同名替换与 AIR1 单集首播日期已发布到 staging，AIR1 已回填首播日期；staging 以测试字幕验证了四类导入、菜单顺序、默认轨道及字幕的同名替换与非法替换，测试数据已清理；原画与档位替换只有自动化用例，替换后清晰度选项与片源暂缺的浏览器验证及 staging 实测待完成 | [catalog.md](docs/plan/catalog.md) |
+| 片库、搜索与资料导入 | URL1 可读页面地址已发布到 staging 并通过桌面浏览器验证，待开发者验收；本地/staging 功能与设计复验通过，iPhone 实机输入与切季通过；SUB1 字幕四类标记、REP1 同名替换与 AIR1 单集首播日期已发布到 staging，AIR1 已回填首播日期；staging 以测试字幕验证了四类导入、菜单顺序、默认轨道及字幕的同名替换与非法替换，测试数据已清理；原画与档位替换只有自动化用例，替换后清晰度选项与片源暂缺的浏览器验证及 staging 实测待完成 | [catalog.md](docs/plan/catalog.md) |
 | 播放与媒体交付 | 第四阶段验收通过；T4.9 常规换档、中断后的进度及控制栏恢复均经 staging 定向自检，按开发者确认的定向范围交付，开发者于 2026-10-22 确认实机及最终验收通过 | [playback.md](docs/plan/playback.md) |
 | 进度、收藏、片单与讨论 | 第五阶段验收通过；T5.4 弹幕实现、本地与 staging 定向浏览器自检通过，开发者于 2026-10-22 确认实机及最终验收通过；片单队列条本地与 staging 浏览器检查通过，待开发者验收 | [community.md](docs/plan/community.md) |
 | 备份、恢复与发布 | 第六阶段实施中；staging 的 S3 手动/定时备份与隔离恢复演练通过，恢复导入外键问题已修复；恢复库真实登录与播放验收通过，原 staging 已恢复；恢复清理期间断线的本地回归通过，staging 待复验；媒体冷备、密钥独立副本与 production 发布待完成 | [operations.md](docs/plan/operations.md#t61-staging-备份与恢复演练) |
