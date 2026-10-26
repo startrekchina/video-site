@@ -20,8 +20,7 @@ export const settings = {
   commentMaxLength: 1000,
   commentsPerPage: 10,
   repliesPerBatch: 10,
-  // Quality tiers from high to low (B 6.6); a tier links only when its duration is within the tolerance of the original.
-  qualityTiers: ["2160p", "1080p", "720p", "480p"],
+  // A lower quality tier links and is offered only within this many seconds of the unit's highest verified tier (B 6.6).
   qualityDurationTolerance: 1,
   // Colors must match the CHECK in migrations/0015_danmaku.sql.
   danmaku: {

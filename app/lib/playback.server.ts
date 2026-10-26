@@ -1,11 +1,17 @@
 import { APIError } from "better-auth/api";
 import type { UnitKey } from "./catalog.server";
+import { qualityTiers, type QualityTier } from "./media-format";
 import { createRequestIdentity, liveMemberSql, type D1Reader } from "./member.server";
 import { settings } from "./settings.server";
 
-// url is the original; qualities lists it first, then the linked tiers from high to low (B 6.6).
-export type PlaybackSource = { url: string; qualities: { label: string; url: string }[]; tracks: { id: string; language: string; displayName: string; url: string }[] };
-const variants: readonly string[] = ["original", ...settings.qualityTiers];
+// qualities run from the highest tier down (B 6.6); type lets the player find the highest one this browser can decode.
+export type PlaybackSource = { qualities: { label: string; url: string; type: string }[]; tracks: { id: string; language: string; displayName: string; url: string }[] };
+const variants = Object.keys(qualityTiers) as QualityTier[];
+// What each tier declares to canPlayType: VP9 profile 0 8-bit at the level its resolution needs, H.264 High 4.0, AAC-LC.
+const mediaTypes: Record<QualityTier, string> = {
+  "2160p": 'video/mp4; codecs="vp09.00.51.08, mp4a.40.2"', "1080p": 'video/mp4; codecs="vp09.00.41.08, mp4a.40.2"',
+  "720p": 'video/mp4; codecs="avc1.640028, mp4a.40.2"', "480p": 'video/mp4; codecs="avc1.640028, mp4a.40.2"',
+};
 type Resource = { id: string | null; object_key: string; byte_length: number; r2_etag: string | null };
 const fail = (status: "UNAUTHORIZED" | "BAD_REQUEST" | "NOT_FOUND" | "SERVICE_UNAVAILABLE", code: string, message: string): never => { throw new APIError(status, { code, message }); };
 const missing = (id: string | null): never => {
@@ -23,18 +29,18 @@ const unitId = `(SELECT u.id FROM playable_units u JOIN works w ON w.id = u.work
 // Verified sources come from D1 only; every media request checks the current R2 version itself.
 export async function playbackSource(db: D1Reader, unit: UnitKey): Promise<PlaybackSource | null> {
   const key = [unit.kind, unit.tmdbId, unit.kind === "series" ? unit.season : null, unit.kind === "series" ? unit.episode : null];
-  const [files, tracks] = await db.batch<{ id: string; variant: string; duration_seconds: number; language: string; display_name: string }>([
+  const [files, tracks] = await db.batch<{ id: string; variant: QualityTier; duration_seconds: number; language: string; display_name: string }>([
     db.prepare(`SELECT id, variant, duration_seconds FROM media_files WHERE playable_unit_id = ${unitId} AND format = 'mp4' AND r2_etag IS NOT NULL AND r2_etag <> ''`).bind(...key),
     // B 6.6 order: 简中, 简英, 繁中, 繁英; extra tracks follow their kind.
     db.prepare(`SELECT id, language, display_name FROM subtitle_tracks WHERE playable_unit_id = ${unitId} AND format = 'vtt'
       AND r2_etag IS NOT NULL AND r2_etag <> '' ORDER BY language, track_key GLOB language || '.bilingual*', track_key`).bind(...key),
   ]);
   const linked = files.results.filter(file => variants.includes(file.variant)).sort((a, b) => variants.indexOf(a.variant) - variants.indexOf(b.variant));
-  // Tiers never stand in for a missing original.
-  if (linked[0]?.variant !== "original") return null;
-  // After the original is replaced, a tier of another duration stays hidden until its own replacement passes the scan.
-  const qualities = linked.filter(file => Math.abs(file.duration_seconds - linked[0].duration_seconds) <= settings.qualityDurationTolerance).map(file => ({ label: file.variant === "original" ? "原画" : file.variant, url: `/media/${file.id}` }));
-  return { url: qualities[0].url, qualities, tracks: tracks.results.map(track => ({ id: track.id, language: track.language, displayName: track.display_name, url: `/subtitles/${track.id}` })) };
+  if (!linked.length) return null;
+  // The highest verified tier stands for the unit; a lower tier of another duration stays hidden until its own replacement passes the scan.
+  const qualities = linked.filter(file => Math.abs(file.duration_seconds - linked[0].duration_seconds) <= settings.qualityDurationTolerance)
+    .map(file => ({ label: file.variant, url: `/media/${file.id}`, type: mediaTypes[file.variant] }));
+  return { qualities, tracks: tracks.results.map(track => ({ id: track.id, language: track.language, displayName: track.display_name, url: `/subtitles/${track.id}` })) };
 }
 
 function rangeRequest(header: string, total: number) {

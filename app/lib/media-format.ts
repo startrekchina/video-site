@@ -65,6 +65,10 @@ export function validateVtt(bytes: Uint8Array, label = "字幕") {
   return { bytes: new TextEncoder().encode(text.endsWith("\n") ? text : `${text}\n`), cueCount };
 }
 
+// Quality tiers from high to low with the video codec each must use (B 6.6); the file suffix names the tier.
+export const qualityTiers = { "2160p": "vp9", "1080p": "vp9", "720p": "h264", "480p": "h264" } as const;
+export type QualityTier = keyof typeof qualityTiers;
+
 // SUB1 track keys: <zh-CN|zh-TW>.<main|bilingual>[.<suffix>]; an extra track of a kind adds only its suffix to the kind's label.
 const subtitleKinds: Record<string, string> = { "zh-CN.main": "简中", "zh-CN.bilingual": "简英", "zh-TW.main": "繁中", "zh-TW.bilingual": "繁英" };
 export function subtitleTrack(trackKey: string) {
@@ -110,7 +114,7 @@ export function mp4Metadata(bytes: Uint8Array, byteLength: number) {
   const scale = u32(scaleAt), duration = version === 1 ? Number(view.getBigUint64(durationAt)) : u32(durationAt);
   const durationSeconds = duration / scale;
   check(scale > 0 && Number.isSafeInteger(duration) && durationSeconds > 0 && Number.isFinite(durationSeconds), "MP4 duration is invalid");
-  let videoCount = 0, audioCount = 0;
+  let videoCount = 0, audioCount = 0, videoCodec: "h264" | "vp9" = "h264";
   const descriptor = (at: number, end: number) => {
     check(at < end, "AAC descriptor is missing"); const tag = bytes[at++]; let length = 0, count = 0, octet: number;
     do { check(at < end && ++count <= 4, "AAC descriptor length is invalid"); octet = bytes[at++]; length = length * 128 + (octet & 127); } while (octet & 128);
@@ -126,9 +130,18 @@ export function mp4Metadata(bytes: Uint8Array, byteLength: number) {
     const entry = children(description, 8); check(entry.length === 1, "MP4 sample entry is invalid");
     const samples = one(table, "stsz"); check(samples.body + 12 <= samples.end && u32(samples.body + 8) > 0, "MP4 track has no samples");
     if (kind === "vide") {
-      check(["avc1", "avc3"].includes(entry[0].type), "MP4 requires H.264 video");
-      const config = one(children(entry[0], 78), "avcC");
-      check(config.end - config.body >= 7 && bytes[config.body] === 1 && (bytes[config.body + 5] & 31) > 0, "H.264 configuration is invalid");
+      check(["avc1", "avc3", "vp09"].includes(entry[0].type), "MP4 video must be H.264 or VP9");
+      if (entry[0].type === "vp09") {
+        // Browsers decode VP9 profile 0: 8-bit 4:2:0 (vpcC record version 1).
+        const config = one(children(entry[0], 78), "vpcC");
+        check(config.end - config.body >= 12 && bytes[config.body] === 1 && bytes[config.body + 4] === 0 && bytes[config.body + 6] >> 4 === 8 && (bytes[config.body + 6] >> 1 & 7) <= 1, "VP9 must be profile 0, 8-bit 4:2:0");
+        videoCodec = "vp9";
+      } else {
+        // Baseline, Main, Extended and High are the 8-bit 4:2:0 profiles browsers decode; High 10/4:2:2/4:4:4 are not.
+        const config = one(children(entry[0], 78), "avcC");
+        check(config.end - config.body >= 7 && bytes[config.body] === 1 && (bytes[config.body + 5] & 31) > 0, "H.264 configuration is invalid");
+        check([66, 77, 88, 100].includes(bytes[config.body + 1]), "H.264 must be an 8-bit 4:2:0 profile");
+      }
       videoCount++;
     } else {
       check(entry[0].type === "mp4a" && entry[0].body + 28 <= entry[0].end, "MP4 requires AAC audio");
@@ -148,6 +161,7 @@ export function mp4Metadata(bytes: Uint8Array, byteLength: number) {
       check([1, 2, 3, 4, 5, 6, 17, 19, 20, 21, 22, 23, 29, 39].includes(audioType), "MP4 audio profile is not AAC"); audioCount++;
     }
   }
-  check(videoCount === 1 && audioCount > 0, "MP4 requires one H.264 video and AAC audio");
-  return { durationSeconds, bitrate: Math.max(1, Math.round(byteLength * 8 / durationSeconds)), videoCodec: "h264", audioCodec: "aac" };
+  // Browsers play only the first audio track, so a second one would be silent weight.
+  check(videoCount === 1 && audioCount === 1, "MP4 requires one video track and one AAC audio track");
+  return { durationSeconds, bitrate: Math.max(1, Math.round(byteLength * 8 / durationSeconds)), videoCodec, audioCodec: "aac" };
 }

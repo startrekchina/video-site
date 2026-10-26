@@ -46,7 +46,7 @@ staging 验证（2026-10-25，`c1c33f2`，开发者授权写入、删除 R2 测�
 
 - [x] 扫描同名替换、档位按当前原画时长提供、隔离恢复把版本不符的媒体交给扫描，同步[导入说明](../import-media.md)与运维说明；用例覆盖原画、档位和字幕替换，非法替换后不可播与恢复，字节相同只更新版本，ID 与成员数据不变，日志脱敏。
 - [ ] 播放页浏览器验证替换后的清晰度选项、字幕菜单与片源暂缺展示。
-- [ ] staging 定向验证：按同名上传替换原画（换时长）、档位和字幕及一个非法文件，核对扫描日志、播放页与进度（向 staging R2 写入须开发者授权）。
+- [ ] staging 定向验证：按同名上传替换最高档（换时长）、较低档位和字幕及一个非法文件，核对扫描日志、播放页与进度（向 staging R2 写入须开发者授权）。
 
 实现与本地自检（2026-10-25）：`pnpm typecheck` 通过；`test/media-sync`、`backup-restore`、`backup-restore-http`、`backup-schedule` 共 85 项通过，覆盖原画替换后单元时长与 ID、进度、讨论、弹幕不变，不符档位停止提供、同名重传后恢复，原画与档位同传需两轮，单独替换档位时长不符，字幕替换，非法替换后片源暂缺与恢复，相同字节只更新版本，日志脱敏，以及恢复校验不读取对象、版本不符的记录交给扫描。`test/playback.test.ts` 的 60 秒预热钩子在本机超时，只放宽超时的临时副本 14 项通过（含档位时长筛选和替换后同一地址返回新字节）。`tools/backup-restore` 以虚构资源映射执行 `pnpm build` 通过。合并后的全量结果见 AIR1 之后的集成自检。
 
@@ -129,7 +129,7 @@ staging 验证（2026-10-26，`cdb9e38`）：
 | 作品 `works` | `id, kind, tmdb_id, title_zh, title_en, overview_zh, overview_en, year, poster_asset`；`kind` 仅为 `movie` / `series`；唯一键 `(kind, tmdb_id)`，不能把电影和剧集的 TMDB 数字空间混为一谈。 |
 | 季 `seasons` | `id, work_id, season_number, tmdb_id`，另存双语资料和季海报；唯一键 `(work_id, season_number)`，外键指向剧集作品。manifest 的季海报 `tmdb_id` 是剧集 ID，不是季 ID；季的 TMDB ID 从 TMDB 季详情取得。 |
 | 可播放单元 `playable_units` | `id, kind, work_id, season_id, episode_number, tmdb_id, duration_seconds`，集另存双语资料和 TMDB 首播日期 `air_date`（`YYYY-MM-DD` 文本，是日历日期而非时间戳；电影及 TMDB 未给出时为 null）；未知时长可为 null，关联媒体后以实际时长为准。电影行无季号/集号，以 `work_id` 唯一；集行必须有季和集号，以 `(season_id, episode_number)` 唯一，且季属于同一作品。集记录即“集”对象，不再另建一份集表。 |
-| 媒体 `media_files` | `id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag`；外键关联单元，`object_key` 唯一，逻辑唯一键 `(playable_unit_id, format, variant)`。`r2_etag` 保存已验证的 R2 版本，历史未记录版本的行为不能作为新扫描验收依据。v1 每个单元一条 `variant = 'original'` 的原画 MP4，另可有 `variant` 为档位后缀的清晰度档位（[T4.9](playback.md#t49-多清晰度片源)）。 |
+| 媒体 `media_files` | `id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag`；外键关联单元，`object_key` 唯一，逻辑唯一键 `(playable_unit_id, format, variant)`。`r2_etag` 保存已验证的 R2 版本，历史未记录版本的行为不能作为新扫描验收依据。`variant` 为档位后缀（`2160p`/`1080p`/`720p`/`480p`），`video_codec` 为 `vp9` 或 `h264` 并与档位对应；v1 每个单元一至四条档位记录（[QT1](playback.md#qt1-档位编码与最高档基准)）。 |
 | 字幕 `subtitle_tracks` | `id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256, r2_etag`；逻辑唯一键 `(playable_unit_id, track_key)`，`object_key` 唯一。扫描轨道标识为 `language.trackKey`，版本字段保存已验证 ETag；v1 只发布简中、简英、繁中、繁英四类 VTT（SUB1）。 |
 | 媒体扫描 `media_sync_state` | 当前目录扫描的最后处理对象键、互斥租约及时间，仅在服务端保存；不向浏览器返回扫描位置或对象键。 |
 
@@ -141,7 +141,7 @@ staging 验证（2026-10-26，`cdb9e38`）：
 
 - 读取 manifest，建立作品和季的记录；
 - 按 TMDB ID 拉取作品、季和集的中英文资料；
-- 检查 MP4 的编码和 faststart 是否符合要求，不符合就报错，提示站长先在本地转码；
+- 用与服务器扫描相同的 MP4 检查核对各档位的编码、时长和 faststart，不符合就报错，提示站长先在本地转码；
 - 把字幕统一转成 VTT，其中 ASS 字幕会丢失样式；
 - 在 D1 建立 manifest 范围内全部作品、季和集的资料占位，即使尚无片源；保持逻辑身份和内部 ID 稳定。已存在的记录更新资料，不重建 ID，不丢弃观看进度或讨论。
 
@@ -153,15 +153,15 @@ staging 验证（2026-10-26，`cdb9e38`）：
 
 - 初始化输入为明确的 `environment`（仅 `staging` / `prod`）和仓库 manifest。启动时展示目标环境并校验资源归属，缺配置或身份歧义立即停止，不能默认写 prod。原本机媒体预检命令可继续使用，但不负责远端上传；本机绝对路径不进入 D1。
 - manifest 约束 v1 可导入作品和季；季条目的 `tmdb_id + season` 映射到所属剧和季号，再从 TMDB 获取季/集身份。电影和剧集分别使用其 TMDB 类型，不以标题匹配。manifest 的 `file` 是 `.jpg` 原图名，页面海报引用必须映射到仓库中存在的 `.webp` 静态资产；本项目海报留在 public，素材 README 中“生产导入 R2”的旧描述不改变 6.1 决策。
-- 固定对象命名为 `library/series/<作品 TMDB ID>/S<季号>/E<集号>.mp4`，电影为 `library/movie/<作品 TMDB ID>/movie.mp4`；季/集号至少两位且无多余前导零。清晰度档位在同目录同主文件名后加 `.2160p`/`.1080p`/`.720p`/`.480p`，如 `E03.720p.mp4`（[T4.9](playback.md#t49-多清晰度片源)）。字幕在同目录同主文件名下使用 `.<language>.<trackKey>.vtt`，language 为 `zh-CN`/`zh-TW`，trackKey 为 `main`/`bilingual` 及同类后缀（SUB1）；D1 轨道标识保存为 `language.trackKey`。不同语言和多条同语言轨道分开匹配；不做模糊片名猜测。不合规则、范围外或没有占位记录的对象跳过并记录脱敏结果。
+- 固定主文件名为 `library/series/<作品 TMDB ID>/S<季号>/E<集号>`，电影为 `library/movie/<作品 TMDB ID>/movie`；季/集号至少两位且无多余前导零。视频一律在主文件名后加档位后缀 `.2160p`/`.1080p`/`.720p`/`.480p` 与 `.mp4`，如 `E03.1080p.mp4`，不带后缀的视频不关联（[QT1](playback.md#qt1-档位编码与最高档基准)）。字幕在同目录同主文件名下使用 `.<language>.<trackKey>.vtt`，language 为 `zh-CN`/`zh-TW`，trackKey 为 `main`/`bilingual` 及同类后缀（SUB1）；D1 轨道标识保存为 `language.trackKey`。不同语言和多条同语言轨道分开匹配；不做模糊片名猜测。不合规则、范围外或没有占位记录的对象跳过并记录脱敏结果。
 - 没有片源的集可展示双语资料，但保持“片源暂缺”，不签发播放授权。TMDB 未给出时长时保存 null，展示“时长暂缺”，不填写假时长；关联 MP4 后以媒体实际时长为准。单集首播日期取该集英文详情的 `air_date` 原样保存，缺失或为空时保存 null，播放页资料行不显示该项；格式不是 `YYYY-MM-DD` 时整次初始化停止，不写入 D1。
-- 首次发现或对象版本变化时，服务器核对 MP4 顶层 box 完整边界、faststart、单 H.264 视频轨和 AAC 音轨、时长/字节数/码率，并流式计算 SHA-256；大文件不能整体读入内存。元数据块默认最多 32 MiB，超出时保持未关联并提示先在本机处理。文件在验证期间发生变化时放弃本轮关联。既有相同对象版本可跳过完整验证，重复扫描不重复挂接。
+- 首次发现或对象版本变化时，服务器核对 MP4 顶层 box 完整边界、faststart、单条视频轨（编码与档位对应，见 QT1）和单条 AAC 音轨、时长/字节数/码率，并流式计算 SHA-256；大文件不能整体读入内存。元数据块默认最多 32 MiB，超出时保持未关联并提示先在本机处理。文件在验证期间发生变化时放弃本轮关联。既有相同对象版本可跳过完整验证，重复扫描不重复挂接。
 - 字幕先按既有规则转为 VTT，再验证 UTF-8、`WEBVTT` 头、cue 时间语法、开始不晚于结束、时间可解析和标签/文本可安全渲染；ASS 转换明确提示样式丢失，不能把 ASS 原文件发布给 v1 播放器。语言限 `zh-CN`/`zh-TW`，按 SUB1 分为四类，同一轨道用稳定 `trackKey` 识别。
 - 本机预检在每个单元内以 `language.trackKey` 判定轨道唯一性，与扫描器的 D1 标识一致；不同语言可使用同名轨道，同语言不同轨道也可并存。
 - TMDB key 仅从站长本机环境变量 `TMDB_API_KEY` 读取，禁止写进输入文件、上传清单或 Worker Secrets。中文缺失保留为空并回退英文，不能把两种文本覆盖为同一列；上游超时/限流可重试，不把失败写成成功的空资料覆盖已有记录。
 - 顺序为“资料占位及身份确认 → 独立上传完整 R2 对象 → 服务器验证 → D1 原子挂接”。D1 和 R2 没有跨产品事务；上传过程中不修改现有可播记录，不能让 D1 引用未完成对象。R2 multipart 的上传和断点恢复由站长所用上传工具负责，扫描只处理已完成对象。
 - 使用稳定逻辑唯一键及固定的私密对象命名防重复。长度、校验和及对象版本吻合时跳过；R2 完整但 D1 未提交时验证后补挂接，D1 已有引用而 R2 缺失时保留记录供补回，媒体请求仍返回脱敏 404。
-- 同名替换（[REP1](#rep1-同名替换)）：记录的版本或长度与 R2 列表不符时，扫描先清空该记录的 `r2_etag`，再按首次关联的规则完整验证，所以新文件未通过时记录保持不可播。通过后用 `INSERT … ON CONFLICT DO UPDATE` 在原行改写对象键、长度、校验和与版本，视频另改时长和码率，原画在同一批次更新单元时长；记录 ID 不变，播放地址和挂在单元上的进度、讨论、弹幕不受影响。校验和与长度都相同时只更新版本、计 `skipped`，不同则计 `replaced` 并记 `media_sync_replaced`（字段同脱敏身份）。档位时长按当前原画判定，新建和替换都适用；`playbackSource` 只列出与当前原画时长相差在容差内的档位。扫描验证前，媒体请求按记录版本拒绝新字节。
+- 同名替换（[REP1](#rep1-同名替换)）：记录的版本或长度与 R2 列表不符时，扫描先清空该记录的 `r2_etag`，再按首次关联的规则完整验证，所以新文件未通过时记录保持不可播。通过后用 `INSERT … ON CONFLICT DO UPDATE` 在原行改写对象键、长度、校验和与版本，视频另改时长、编码和码率，最高档在同一批次更新单元时长；记录 ID 不变，播放地址和挂在单元上的进度、讨论、弹幕不受影响。校验和与长度都相同时只更新版本、计 `skipped`，不同则计 `replaced` 并记 `media_sync_replaced`（字段同脱敏身份）。较低档位的时长按当前最高档判定，新建和替换都适用；`playbackSource` 只列出与当前最高档时长相差在容差内的档位。扫描验证前，媒体请求按记录版本拒绝新字节。
 - D1 提交失败时，v1 只保留完整且可验证的对象供重试，不在失败路径自动删除对象。如需清理，必须暂停导入并排除并发挂接后另行操作，不能仅凭一次“无引用”检查删除对象。中断后从本机记录和 D1/R2 实际状态重建进度，不相信单一“已上传”标志。最终报告已导入/已替换/已跳过/失败的逻辑 ID 和数量，不输出凭证或远端私密路径；私密路径仅存在本地配置、内部 D1/R2 数据，不进公开仓库或浏览器。
 
 ## 查询与页面实现

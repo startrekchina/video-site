@@ -13,7 +13,7 @@ beforeEach(async () => {
   try { userId = (await member("Kepler")).id; cookie = await login("Kepler"); } finally { vi.unstubAllGlobals(); }
   await seedCatalog(env.DB);
   // The episode's media is 100 s long while its catalogue runtime says 4 s: reports are bounded by the media.
-  await env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-object',20,'hash',100,'h264','aac',100,'fictional-version')").run();
+  await env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4', '720p','fictional-object',20,'hash',100,'h264','aac',100,'fictional-version')").run();
 });
 
 async function send(input: Request) {

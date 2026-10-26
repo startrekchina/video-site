@@ -19,8 +19,8 @@ const entries = [
   { kind: "series", tmdb_id: 800002, season: 2, file: "fictional-season.jpg" },
 ];
 const mapping = () => ({ environment: "staging", resources: { d1DatabaseId: env.STAGING_D1_DATABASE_ID, mediaBucketName: env.STAGING_MEDIA_BUCKET_NAME }, media: [
-  { kind: "movie", tmdbId: 800001, videoPath: "movie.mp4", subtitles: [{ language: "zh-CN", trackKey: "main", sourcePath: "chinese.ass" }] },
-  { kind: "series", tmdbId: 800002, seasonNumber: 2, episodeNumber: 3, videoPath: "episode.mp4", subtitles: [{ language: "zh-TW", trackKey: "bilingual", sourcePath: "english.vtt" }] },
+  { kind: "movie", tmdbId: 800001, videos: { "720p": "movie.mp4" }, subtitles: [{ language: "zh-CN", trackKey: "main", sourcePath: "chinese.ass" }] },
+  { kind: "series", tmdbId: 800002, seasonNumber: 2, episodeNumber: 3, videos: { "720p": "episode.mp4" }, subtitles: [{ language: "zh-TW", trackKey: "bilingual", sourcePath: "english.vtt" }] },
 ] });
 const data = {
   "movie/800001": { id: 800001, title: "Fictional film", overview: "English film", release_date: "2020-01-01" },
@@ -45,6 +45,7 @@ before(async () => {
   await writeFile(seriesVideo, movieVideo);
   execFileSync("ffmpeg", ["-v", "error", "-y", "-i", video, "-c", "copy", join(directory, "not-faststart.mp4")], { windowsHide: true });
   execFileSync("ffmpeg", ["-v", "error", "-y", "-i", video, "-c:v", "mpeg4", "-c:a", "copy", "-movflags", "+faststart", join(directory, "wrong-codec.mp4")], { windowsHide: true });
+  execFileSync("ffmpeg", ["-v", "error", "-y", "-i", video, "-t", "2", "-c", "copy", "-movflags", "+faststart", join(directory, "short.mp4")], { windowsHide: true });
   await writeFile(join(directory, "truncated.mp4"), movieVideo.subarray(0, movieVideo.length - 100));
   await writeFile(join(directory, "english.vtt"), "WEBVTT\n\n00:00.000 --> 00:00.500\n<v Observer><i>Test signal</i>\n");
   await writeFile(join(directory, "chinese.ass"), "[Script Info]\nScriptType: v4.00+\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:00.50,Default,,0,0,0,,虚构 & <信号> {\\i1}启动{\\i0}\n");
@@ -142,6 +143,20 @@ test("subtitles accept only the four SUB1 kinds and suffixed extras, rejecting o
   await assert.rejects(run(named), /格式错误或含未支持字段/u); assert.equal(calls.length, 0);
 });
 
+test("videos list known tiers high to low, each in its codec and within the tolerance of the highest", async () => {
+  const tiers = mapping(); tiers.media[0].videos = { "480p": "short.mp4", "720p": "short.mp4" };
+  assert.deepEqual(report(await run(tiers)).media[0].videos.map(({ tier, videoCodec }) => [tier, videoCodec]), [["720p", "h264"], ["480p", "h264"]]);
+  for (const [videos, message] of [
+    [{ "1080p": "movie.mp4" }, /1080p：须为 VP9 视频/u],
+    [{ "360p": "movie.mp4" }, /只能使用 2160p、1080p、720p、480p 档位/u],
+    [{}, /非空对象/u],
+    [{ "720p": "movie.mp4", "480p": "short.mp4" }, /480p：时长与 720p 相差超过 1 秒/u],
+  ]) {
+    const input = mapping(); input.media[0].videos = videos;
+    await assert.rejects(run(input), message); assert.equal(calls.length, 0);
+  }
+});
+
 test("input/environment rejection happens before any TMDB request", async () => {
   const cases = [
     input => { input.environment = "prod"; },
@@ -152,7 +167,7 @@ test("input/environment rejection happens before any TMDB request", async () => 
     input => { input.media[0].seasonNumber = 1; },
     input => { input.media[0].subtitles[0].language = "fr"; },
     input => { input.media[0].subtitles.push(input.media[0].subtitles[0]); },
-    input => { input.media[0].videoPath = "https://private.example.test/video.mp4"; },
+    input => { input.media[0].videos["720p"] = "https://private.example.test/video.mp4"; },
   ];
   for (const modify of cases) { const input = mapping(); modify(input); await assert.rejects(run(input)); assert.equal(calls.length, 0); }
   await assert.rejects(run(mapping(), { env: { ...env, PRODUCTION_MEDIA_BUCKET_NAME: env.STAGING_MEDIA_BUCKET_NAME } }), /隔离/u);
@@ -195,7 +210,7 @@ test("actual CLI preflight twice: explicit env file wins over conflicting shell 
   const cli = join(scripts, "import-media.mjs");
   await writeFile(cli, await readFile(resolve("scripts/import-media.mjs")));
   await mkdir(join(repository, "app/lib"), { recursive: true });
-  await writeFile(join(repository, "app/lib/media-format.ts"), await readFile(resolve("app/lib/media-format.ts")));
+  for (const name of ["media-format.ts", "settings.server.ts"]) await writeFile(join(repository, "app/lib", name), await readFile(resolve("app/lib", name)));
   const envFile = join(directory, ".env-test");
   await writeFile(envFile, Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n"));
   await writeFile(mappingPath, JSON.stringify(mapping()));
@@ -224,7 +239,7 @@ test("catalog placeholders: all units, stable upserts, actual media duration and
     assert.equal(db.prepare("SELECT COUNT(*) AS n FROM playable_units").get().n, 2);
     const id = "series_800002_s2_e3";
     db.prepare("UPDATE playable_units SET duration_seconds=4 WHERE id=?").run(id);
-    db.prepare("INSERT INTO media_files VALUES ('media',?,'mp4','original','fictional.mp4',10,'fictional-checksum',4,'h264','aac',20,NULL)").run(id);
+    db.prepare("INSERT INTO media_files VALUES ('media',?,'mp4','720p','fictional.mp4',10,'fictional-checksum',4,'h264','aac',20,NULL)").run(id);
     result.units.find(unit => unit.seasonId).durationSeconds = 1200;
     result.units.find(unit => unit.seasonId).titleEn = "Updated name";
     batch(catalogQueries(result));

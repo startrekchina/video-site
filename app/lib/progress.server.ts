@@ -1,4 +1,5 @@
 import { APIError } from "better-auth/api";
+import { mediaDuration } from "./catalog.server";
 import { createRequestIdentity } from "./member.server";
 import { checkWrite, readJson } from "./security.server";
 import { settings } from "./settings.server";
@@ -13,7 +14,7 @@ export async function progressHttp(request: Request, env: Env, identity = create
   checkWrite(request, env);
   const body = await readJson(request), unitId = match[1];
   const current = await identity.read((db, userId) => db.batch([db.prepare(`SELECT u.duration_seconds,
-      (SELECT m.duration_seconds FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.variant = 'original' AND m.r2_etag IS NOT NULL AND m.r2_etag <> '') AS media_duration,
+      (${mediaDuration}) AS media_duration,
       p.revision FROM playable_units u LEFT JOIN watch_progress p ON p.playable_unit_id = u.id AND p.user_id = ? WHERE u.id = ?`).bind(userId, unitId)]));
   if (!current) throw new APIError("UNAUTHORIZED", { code: "AUTH_REQUIRED", message: "请先登录。" });
   const expected = body.expectedRevision, manual = "completed" in body;

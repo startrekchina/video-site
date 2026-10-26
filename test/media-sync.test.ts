@@ -9,7 +9,7 @@ import { inspectR2Media, mediaIdentity, syncMedia } from "@/lib/media-sync.serve
 import { playbackSource } from "@/lib/playback.server";
 import { probeD1 } from "./fixtures/d1-probe";
 
-const key = "library/series/85948/S01/E01.mp4", subtitleKey = "library/series/85948/S01/E01.zh-CN.main.vtt";
+const key = "library/series/85948/S01/E01.720p.mp4", subtitleKey = "library/series/85948/S01/E01.zh-CN.main.vtt";
 const video = () => Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0));
 const vtt = "WEBVTT\n\n00:00.000 --> 00:03.000\nA fictional signal.\n";
 const media = async () => { await seedCatalog(env.DB); await env.DB.prepare("UPDATE playable_units SET duration_seconds = NULL WHERE id = 'episode-unit'").run(); await env.MEDIA_BUCKET.put(key, video()); };
@@ -84,85 +84,94 @@ const lasting = (seconds: number) => {
   if (bytes[at] === 1) view.setBigUint64(scaleAt + 4, BigInt(Math.round(seconds * scale))); else view.setUint32(scaleAt + 4, Math.round(seconds * scale));
   return bytes;
 };
-const tierKey = (tier: string) => key.replace(".mp4", `.${tier}.mp4`);
+const tierKey = (tier: string) => `library/series/85948/S01/E01.${tier}.mp4`;
+// Rewrites the H.264 sample entry as VP9 profile 0 (vpcC plus free padding); the parser reads metadata only, never samples.
+const asVp9 = (bytes: Uint8Array) => {
+  const text = new TextEncoder(), find = (type: string, from = 0) => bytes.findIndex((_, n) => n >= from && String.fromCharCode(...bytes.subarray(n, n + 4)) === type);
+  const entry = find("avc1", find("stsd")), config = find("avcC", entry) - 4, view = new DataView(bytes.buffer), size = view.getUint32(config);
+  bytes.set(text.encode("vp09"), entry);
+  bytes.set([0, 0, 0, 20, ...text.encode("vpcC"), 1, 0, 0, 0, 0, 10, 0x82, 2, 2, 2, 0, 0, 0, 0, 0, 0, ...text.encode("free")], config);
+  view.setUint32(config + 20, size - 20);
+  return bytes;
+};
 
-it("recognizes only whitelisted quality tier names", () => {
+it("recognizes only whitelisted quality tier names and no unsuffixed video", () => {
   expect(mediaIdentity(tierKey("720p"))).toEqual({ kind: "series", tmdbId: 85948, season: 1, episode: 1, language: null, trackKey: null, variant: "720p" });
   expect(mediaIdentity("library/movie/152/movie.2160p.mp4")?.variant).toBe("2160p");
-  expect(mediaIdentity(key)).not.toHaveProperty("variant");
+  for (const bare of ["library/series/85948/S01/E01.mp4", "library/movie/152/movie.mp4"]) expect(mediaIdentity(bare)).toBeNull();
   for (const bad of ["360p", "720P", "1080i", "720p.720p", "original"]) expect(mediaIdentity(tierKey(bad))).toBeNull();
 });
 
-it("links quality tiers after their original without changing the unit's duration, and lists them high to low", async () => {
+it("links tiers in one pass, takes the unit's duration from the highest tier, and lists them high to low", async () => {
   await media();
-  await env.MEDIA_BUCKET.put(tierKey("480p"), video()); await env.MEDIA_BUCKET.put(tierKey("1080p"), lasting(4.5));
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-  try {
-    // Tiers list before their original, so the first pass cannot compare them yet.
-    expect(await syncMedia(env)).toMatchObject({ linked: 1, unattached: 2, failed: 0 });
-    expect(warn.mock.calls.map(([message]) => JSON.parse(String(message)))).toEqual(["1080p", "480p"].map(variant =>
-      expect.objectContaining({ event: "media_sync_variant_unattached", unitId: "episode-unit", reason: "ORIGINAL_MISSING", variant })));
-  } finally { warn.mockRestore(); }
-  expect(await syncMedia(env)).toMatchObject({ linked: 2, unattached: 0 });
+  await env.MEDIA_BUCKET.put(tierKey("480p"), video()); await env.MEDIA_BUCKET.put(tierKey("1080p"), asVp9(lasting(4.5)));
+  expect(await syncMedia(env)).toMatchObject({ linked: 3, unattached: 0, failed: 0 });
   expect(await syncMedia(env)).toMatchObject({ linked: 0, skipped: 3 });
-  expect((await env.DB.prepare("SELECT variant FROM media_files ORDER BY variant").all()).results.map(row => row.variant)).toEqual(["1080p", "480p", "original"]);
-  expect(await env.DB.prepare("SELECT duration_seconds FROM playable_units WHERE id = 'episode-unit'").first("duration_seconds")).toBe(4);
-  expect((await playbackSource(env.DB, episodeKey(1)))?.qualities.map(item => item.label)).toEqual(["原画", "1080p", "480p"]);
+  expect((await env.DB.prepare("SELECT variant, video_codec FROM media_files ORDER BY variant").all()).results)
+    .toEqual([{ variant: "1080p", video_codec: "vp9" }, { variant: "480p", video_codec: "h264" }, { variant: "720p", video_codec: "h264" }]);
+  expect(await env.DB.prepare("SELECT duration_seconds FROM playable_units WHERE id = 'episode-unit'").first("duration_seconds")).toBe(4.5);
+  expect((await playbackSource(env.DB, episodeKey(1)))?.qualities.map(item => item.label)).toEqual(["1080p", "720p", "480p"]);
 });
 
-it("does not link a tier whose duration differs beyond the tolerance or whose unit has no original, and isolates a failed tier", async () => {
+it("does not link a lower tier beyond the tolerance of the highest, rejects a tier in the wrong codec, and isolates a failed tier", async () => {
   await media(); expect(await syncMedia(env)).toMatchObject({ linked: 1 });
-  await env.MEDIA_BUCKET.put(tierKey("1080p"), lasting(5)); await env.MEDIA_BUCKET.put(tierKey("720p"), lasting(6));
-  await env.MEDIA_BUCKET.put(tierKey("480p"), video().slice(0, 32));
-  await env.MEDIA_BUCKET.put("library/movie/152/movie.720p.mp4", video());
+  // 1080p outranks the linked 720p, so it links unchecked and becomes the reference that 480p must match.
+  await env.MEDIA_BUCKET.put(tierKey("1080p"), asVp9(lasting(5))); await env.MEDIA_BUCKET.put(tierKey("480p"), lasting(6.5));
+  await env.MEDIA_BUCKET.put(tierKey("2160p"), video());
+  await env.MEDIA_BUCKET.put("library/movie/152/movie.480p.mp4", video().slice(0, 32)); await env.MEDIA_BUCKET.put("library/movie/152/movie.1080p.mp4", video());
+  await env.MEDIA_BUCKET.put("library/movie/152/movie.720p.mp4", asVp9(video()));
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
-    expect(await syncMedia(env)).toMatchObject({ linked: 1, unattached: 2, failed: 1 });
+    expect(await syncMedia(env)).toMatchObject({ linked: 1, unattached: 1, failed: 4 });
     const events = warn.mock.calls.map(([message]) => JSON.parse(String(message)));
-    expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ event: "media_sync_variant_unattached", unitId: "episode-unit", reason: "DURATION_MISMATCH", variant: "720p" }),
-      expect.objectContaining({ event: "media_sync_variant_unattached", unitId: "movie-unit", reason: "ORIGINAL_MISSING", variant: "720p" }),
-    ]));
+    expect(events.filter(event => event.event === "media_sync_variant_unattached")).toEqual([
+      expect.objectContaining({ unitId: "episode-unit", reason: "DURATION_MISMATCH", variant: "480p" })]);
+    expect(events.filter(event => event.event === "media_sync_rejected").map(event => event.unitId)).toEqual(["movie-unit", "movie-unit", "movie-unit", "episode-unit"]);
     expect(JSON.stringify(warn.mock.calls)).not.toMatch(/library\/|object_key|checksum_sha256|r2_etag/u);
   } finally { warn.mockRestore(); }
   expect((await env.DB.prepare("SELECT playable_unit_id AS unit, variant FROM media_files ORDER BY variant").all()).results).toEqual([
-    { unit: "episode-unit", variant: "1080p" }, { unit: "episode-unit", variant: "original" }]);
-  expect((await playbackSource(env.DB, episodeKey(1)))?.qualities.map(item => item.label)).toEqual(["原画", "1080p"]);
+    { unit: "episode-unit", variant: "1080p" }, { unit: "episode-unit", variant: "720p" }]);
+  expect(await env.DB.prepare("SELECT duration_seconds FROM playable_units WHERE id = 'episode-unit'").first("duration_seconds")).toBe(5);
+  expect((await playbackSource(env.DB, episodeKey(1)))?.qualities.map(item => item.label)).toEqual(["1080p", "720p"]);
   expect(await playbackSource(env.DB, fixtureKeys.movie)).toBeNull();
-  expect((await catalog(env.DB, "nova")).find(work => work.slug === "movie")?.units[0].playable).toBe(false);
+  // Any one verified tier is enough: a lone 480p makes the movie playable.
+  await env.MEDIA_BUCKET.put("library/movie/152/movie.480p.mp4", video());
+  expect(await syncMedia(env)).toMatchObject({ linked: 1 });
+  expect((await playbackSource(env.DB, fixtureKeys.movie))?.qualities.map(item => item.label)).toEqual(["480p"]);
+  expect((await catalog(env.DB, "nova")).find(work => work.slug === "movie")?.units[0].playable).toBe(true);
 });
 
 it("replaces a changed tier in place and logs its variant", async () => {
-  await media(); await syncMedia(env); await env.MEDIA_BUCKET.put(tierKey("720p"), video()); await syncMedia(env);
-  const before = (await env.DB.prepare("SELECT * FROM media_files WHERE variant = '720p'").first())!;
-  const changed = video(); changed[changed.length - 1] ^= 1; const object = (await env.MEDIA_BUCKET.put(tierKey("720p"), changed))!;
+  await media(); await syncMedia(env); await env.MEDIA_BUCKET.put(tierKey("480p"), video()); await syncMedia(env);
+  const before = (await env.DB.prepare("SELECT * FROM media_files WHERE variant = '480p'").first())!;
+  const changed = video(); changed[changed.length - 1] ^= 1; const object = (await env.MEDIA_BUCKET.put(tierKey("480p"), changed))!;
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   try {
     expect(await syncMedia(env)).toMatchObject({ linked: 0, replaced: 1 });
-    expect(JSON.parse(String(info.mock.calls[0][0]))).toMatchObject({ event: "media_sync_replaced", unitId: "episode-unit", resourceType: "video", variant: "720p" });
+    expect(JSON.parse(String(info.mock.calls[0][0]))).toMatchObject({ event: "media_sync_replaced", unitId: "episode-unit", resourceType: "video", variant: "480p" });
   } finally { info.mockRestore(); }
-  expect(await env.DB.prepare("SELECT * FROM media_files WHERE variant = '720p'").first()).toEqual({ ...before, checksum_sha256: sha(changed), r2_etag: object.etag });
+  expect(await env.DB.prepare("SELECT * FROM media_files WHERE variant = '480p'").first()).toEqual({ ...before, checksum_sha256: sha(changed), r2_etag: object.etag });
 });
 
-it("withdraws a tier replaced by a file of another duration and leaves the original untouched", async () => {
-  await media(); await syncMedia(env); await env.MEDIA_BUCKET.put(tierKey("720p"), video()); await syncMedia(env);
-  const original = await env.DB.prepare("SELECT * FROM media_files WHERE variant = 'original'").first();
-  await env.MEDIA_BUCKET.put(tierKey("720p"), lasting(6));
+it("withdraws a lower tier replaced by a file of another duration and leaves the highest tier untouched", async () => {
+  await media(); await syncMedia(env); await env.MEDIA_BUCKET.put(tierKey("480p"), video()); await syncMedia(env);
+  const highest = await env.DB.prepare("SELECT * FROM media_files WHERE variant = '720p'").first();
+  await env.MEDIA_BUCKET.put(tierKey("480p"), lasting(6));
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
     expect(await syncMedia(env)).toMatchObject({ replaced: 0, unattached: 1, failed: 0 });
     expect(warn.mock.calls.map(([message]) => JSON.parse(String(message)))).toEqual([
-      expect.objectContaining({ event: "media_sync_variant_unattached", unitId: "episode-unit", reason: "DURATION_MISMATCH", variant: "720p" })]);
+      expect.objectContaining({ event: "media_sync_variant_unattached", unitId: "episode-unit", reason: "DURATION_MISMATCH", variant: "480p" })]);
   } finally { warn.mockRestore(); }
-  expect(await env.DB.prepare("SELECT r2_etag FROM media_files WHERE variant = '720p'").first("r2_etag")).toBeNull();
-  expect((await playbackSource(env.DB, episodeKey(1)))?.qualities.map(item => item.label)).toEqual(["原画"]);
-  expect(await env.DB.prepare("SELECT * FROM media_files WHERE variant = 'original'").first()).toEqual(original);
+  expect(await env.DB.prepare("SELECT r2_etag FROM media_files WHERE variant = '480p'").first("r2_etag")).toBeNull();
+  expect((await playbackSource(env.DB, episodeKey(1)))?.qualities.map(item => item.label)).toEqual(["720p"]);
+  expect(await env.DB.prepare("SELECT * FROM media_files WHERE variant = '720p'").first()).toEqual(highest);
 });
 
-// Links an original, a 720p tier and a subtitle, and adds member data to the unit.
+// Links a 720p highest tier, a lower 480p tier and a subtitle, and adds member data to the unit.
 const linkedWithTier = async (position: number) => {
   await media(); await env.MEDIA_BUCKET.put(subtitleKey, vtt); await syncMedia(env);
-  await env.MEDIA_BUCKET.put(tierKey("720p"), video()); expect(await syncMedia(env)).toMatchObject({ linked: 1 });
+  await env.MEDIA_BUCKET.put(tierKey("480p"), video()); expect(await syncMedia(env)).toMatchObject({ linked: 1 });
   await env.DB.batch([
     env.DB.prepare("INSERT INTO watch_progress VALUES ('nova','episode-unit',?,0,100,1)").bind(position),
     env.DB.prepare("INSERT INTO comments(id,playable_unit_id,author_user_id,body_markdown,created_at) VALUES ('comment','episode-unit','nova','Fictional discussion.',100)"),
@@ -176,37 +185,37 @@ const linkedWithTier = async (position: number) => {
 const qualities = async () => (await playbackSource(env.DB, episodeKey(1)))?.qualities.map(item => item.label);
 const episode = async () => (await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0];
 
-it("replaces an original in place, keeps ids and member data, and offers only tiers of its new duration", async () => {
+it("replaces the highest tier in place, keeps ids and member data, and offers only tiers of its new duration", async () => {
   const { snapshot, before } = await linkedWithTier(2);
-  const previous = (await env.DB.prepare("SELECT * FROM media_files WHERE variant = 'original'").first())!;
+  const previous = (await env.DB.prepare("SELECT * FROM media_files WHERE variant = '720p'").first())!;
   const longer = lasting(6), object = (await env.MEDIA_BUCKET.put(key, longer))!;
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   try { expect(await syncMedia(env)).toMatchObject({ linked: 0, replaced: 1, failed: 0, unattached: 0 }); } finally { info.mockRestore(); }
-  expect(await env.DB.prepare("SELECT * FROM media_files WHERE variant = 'original'").first()).toEqual({
+  expect(await env.DB.prepare("SELECT * FROM media_files WHERE variant = '720p'").first()).toEqual({
     ...previous, checksum_sha256: sha(longer), duration_seconds: 6, bitrate: Math.round(longer.length * 8 / 6), r2_etag: object.etag });
   expect(await episode()).toMatchObject({ durationSeconds: 6, playable: true, positionSeconds: 2 });
-  // The 720p row keeps its verified version but no longer matches the original.
-  expect(await env.DB.prepare("SELECT r2_etag FROM media_files WHERE variant = '720p'").first("r2_etag")).toBeTruthy();
-  expect(await qualities()).toEqual(["原画"]);
-  await env.MEDIA_BUCKET.put(tierKey("720p"), lasting(6));
+  // The 480p row keeps its verified version but no longer matches the highest tier.
+  expect(await env.DB.prepare("SELECT r2_etag FROM media_files WHERE variant = '480p'").first("r2_etag")).toBeTruthy();
+  expect(await qualities()).toEqual(["720p"]);
+  await env.MEDIA_BUCKET.put(tierKey("480p"), lasting(6));
   expect(await syncMedia(env)).toMatchObject({ replaced: 1, unattached: 0 });
-  expect(await qualities()).toEqual(["原画", "720p"]);
+  expect(await qualities()).toEqual(["720p", "480p"]);
   expect(await syncMedia(env)).toMatchObject({ linked: 0, replaced: 0, skipped: 3 });
   expect(await snapshot()).toEqual(before);
 });
 
-it("needs a second pass when an original and its tier are replaced together and keeps progress beyond a shorter duration", async () => {
+it("needs a second pass when the highest and a lower tier are replaced together and keeps progress beyond a shorter duration", async () => {
   const { snapshot, before } = await linkedWithTier(3.5);
-  for (const objectKey of [key, tierKey("720p")]) await env.MEDIA_BUCKET.put(objectKey, lasting(2));
+  for (const objectKey of [key, tierKey("480p")]) await env.MEDIA_BUCKET.put(objectKey, lasting(2));
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
-    // The tier lists first and is compared with the previous original duration.
+    // The lower tier lists first and is compared with the previous highest tier's duration.
     expect(await syncMedia(env)).toMatchObject({ replaced: 1, unattached: 1, failed: 0 });
-    expect(JSON.parse(String(warn.mock.calls[0][0]))).toMatchObject({ event: "media_sync_variant_unattached", reason: "DURATION_MISMATCH", variant: "720p" });
+    expect(JSON.parse(String(warn.mock.calls[0][0]))).toMatchObject({ event: "media_sync_variant_unattached", reason: "DURATION_MISMATCH", variant: "480p" });
   } finally { warn.mockRestore(); }
-  expect(await qualities()).toEqual(["原画"]);
+  expect(await qualities()).toEqual(["720p"]);
   expect(await syncMedia(env)).toMatchObject({ replaced: 1, unattached: 0 });
-  expect(await qualities()).toEqual(["原画", "720p"]);
+  expect(await qualities()).toEqual(["720p", "480p"]);
   expect(await episode()).toMatchObject({ durationSeconds: 2, playable: true, positionSeconds: 3.5 });
   expect(await snapshot()).toEqual(before);
 });
@@ -359,7 +368,7 @@ it("replaces valid changed content, rejects an unsafe subtitle and keeps both co
 });
 
 it.each(["checksum", "length"])("replaces %s mismatches in place and logs logical identities without exposing storage details", async mismatch => {
-  const movieKey = "library/movie/152/movie.mp4", traditionalKey = "library/series/85948/S01/E01.zh-TW.main.vtt";
+  const movieKey = "library/movie/152/movie.720p.mp4", traditionalKey = "library/series/85948/S01/E01.zh-TW.main.vtt";
   await media();
   await env.MEDIA_BUCKET.put(movieKey, video());
   for (const objectKey of [subtitleKey, traditionalKey]) await env.MEDIA_BUCKET.put(objectKey, vtt);
@@ -376,8 +385,8 @@ it.each(["checksum", "length"])("replaces %s mismatches in place and logs logica
   const tracks = (await env.DB.prepare("SELECT * FROM subtitle_tracks ORDER BY id").all()).results;
   const series = { event: "media_sync_replaced", unitId: "episode-unit", kind: "series", tmdbId: 85948, season: 1, episode: 1 };
   const expected = [
-    { event: "media_sync_replaced", unitId: "movie-unit", resourceType: "video", kind: "movie", tmdbId: 152, season: null, episode: null, language: null, trackKey: null },
-    { ...series, resourceType: "video", language: null, trackKey: null },
+    { event: "media_sync_replaced", unitId: "movie-unit", resourceType: "video", kind: "movie", tmdbId: 152, season: null, episode: null, language: null, trackKey: null, variant: "720p" },
+    { ...series, resourceType: "video", language: null, trackKey: null, variant: "720p" },
     { ...series, resourceType: "subtitle", language: "zh-CN", trackKey: "zh-CN.main" },
     { ...series, resourceType: "subtitle", language: "zh-TW", trackKey: "zh-TW.main" },
   ];
@@ -410,7 +419,7 @@ it("rejects partial/changed/aborted MP4 and never publishes invalid or unknown r
   await expect(inspectR2Media(env.MEDIA_BUCKET, key, head, false, AbortSignal.abort())).rejects.toThrow();
   await env.MEDIA_BUCKET.put(key, video().slice(0, 32));
   await expect(inspectR2Media(env.MEDIA_BUCKET, key, head, false, new AbortController().signal)).rejects.toThrow();
-  await env.MEDIA_BUCKET.put("library/series/999999/S01/E01.mp4", video());
+  await env.MEDIA_BUCKET.put("library/series/999999/S01/E01.720p.mp4", video());
   expect(await syncMedia(env)).toMatchObject({ linked: 0, failed: 1, unknown: 1 });
   expect((await env.DB.prepare("SELECT id FROM media_files").all()).results).toHaveLength(0);
 });
@@ -449,7 +458,7 @@ it("migrates existing unit dependencies without losing IDs, media, progress or d
   await env.DB.batch([
     env.DB.prepare("INSERT INTO watch_progress VALUES ('nova','episode-unit',2,0,100,1)"),
     env.DB.prepare("INSERT INTO comments(id,playable_unit_id,author_user_id,body_markdown,created_at) VALUES ('comment','episode-unit','nova','Fictional discussion.',100)"),
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',4,'hash',4,'h264','aac',100)"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','720p','fictional-private-object',4,'hash',4,'h264','aac',100)"),
   ]);
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS.slice(index));
   for (const table of ["watch_progress", "comments", "media_files"]) expect((await env.DB.prepare(`SELECT playable_unit_id FROM ${table}`).all()).results[0].playable_unit_id).toBe("episode-unit");

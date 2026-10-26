@@ -28,7 +28,7 @@ const item = (id: string, workId: string | null, unitId: string | null, position
   });
 const vote = (commentId: string | null, replyId: string | null, value = 1, userId = "nova") =>
   insert("discussion_votes", { user_id: userId, comment_id: commentId, reply_id: replyId, value });
-const media = (id: string, unitId = "movie-unit", objectKey = id, variant = "original") =>
+const media = (id: string, unitId = "movie-unit", objectKey = id, variant = "720p") =>
   insert("media_files", {
     id, playable_unit_id: unitId, format: "mp4", variant, object_key: objectKey,
     byte_length: 100, checksum_sha256: "a".repeat(64), duration_seconds: 4,

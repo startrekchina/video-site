@@ -55,8 +55,10 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
   }, [unitId]);
   useEffect(() => {
     let art: Artplayer | undefined, tracks = source.tracks, selected = source.tracks[0]?.id ?? "off";
-    // Failure checks and reconnects stay on the current quality; a remembered quality this unit lacks falls back to the original.
-    let quality = source.qualities.find(item => item.label === rememberedQuality()) ?? source.qualities[0];
+    // A remembered quality wins; otherwise the highest tier this browser reports it can decode (B 6.6). Every tier stays in the menu,
+    // and failure checks and reconnects stay on the current quality.
+    const probe = document.createElement("video");
+    let quality = source.qualities.find(item => item.label === rememberedQuality()) ?? source.qualities.find(item => probe.canPlayType(item.type) !== "") ?? source.qualities[0];
     // failed latches one HEAD per failure; restoreTo holds the position a reconnect returns to once.
     // ready gates position tracking: the element reports 0 before the saved start is applied, and again while switching quality.
     let disposed = false, ready = false, failed = false, playing = false, switching = false, position = startSeconds, restoreTo: number | null = null;
@@ -158,7 +160,7 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
       art = new Artplayer({ container: container.current, url: absolute(quality.url), lang: "zh-cn", theme: "#fafafa", volume: 0.6, autoplay: false, setting: true, playbackRate: true, fullscreen: true, fullscreenWeb: true, pip: true, hotkey: true, mutex: false, backdrop: true, playsInline: true, lock: true, fastForward: true, miniProgressBar: true,
         moreVideoAttr: { preload: "metadata" }, subtitle: { url: "", type: "vtt", encoding: "utf-8", escape: true, style: { fontSize: "clamp(14px,3.2cqw,28px)" } },
         settings: [{ name: "subtitle-lang", html: "字幕", selector: subtitles(), onSelect(item) { select(String(item.id)); return String(item.html); } }],
-        // A unit with only its original gets no quality control.
+        // A unit with a single tier gets no quality control.
         controls: source.qualities.length > 1 ? [{ name: "quality", position: "right", index: 10, style: { marginRight: "10px" }, html: quality.label,
           selector: source.qualities.map(item => ({ html: item.label, default: item === quality })),
           async onSelect(item) { await switchQuality(String(item.html)); return quality.label; } }] : [],

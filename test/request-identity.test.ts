@@ -24,7 +24,7 @@ async function send(input: Request, bindings = runtime) {
 async function media() {
   await seedCatalog(env.DB);
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-object',20,'hash',4,'h264','aac',100,NULL)"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4', '720p','fictional-object',20,'hash',4,'h264','aac',100,NULL)"),
     env.DB.prepare("INSERT INTO subtitle_tracks VALUES ('zh','episode-unit','zh','vtt','中文','zh','fictional-subtitle',8,'hash',NULL)"),
   ]);
   const video = await env.MEDIA_BUCKET.put("fictional-object", "0123456789abcdefghij");

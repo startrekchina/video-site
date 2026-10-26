@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import { mp4BoxHeader, mp4Metadata, subtitleTrack, validateVtt } from "./media-format";
+import { mp4BoxHeader, mp4Metadata, qualityTiers, subtitleTrack, validateVtt, type QualityTier } from "./media-format";
 import { settings } from "./settings.server";
 
 export const mediaSyncCron = "*/5 * * * *";
 const windowMs = 6 * 60_000;
-const tierSuffix = new RegExp(`^\\.(${settings.qualityTiers.join("|")})\\.mp4$`, "u");
-// variant is present only on quality tiers; the plain MP4 is the original.
-type Identity = { kind: "movie" | "series"; tmdbId: number; season: number | null; episode: number | null; language: string | null; trackKey: string | null; variant?: string };
+const tiers = Object.keys(qualityTiers) as QualityTier[];
+const tierSuffix = new RegExp(`^\\.(${tiers.join("|")})\\.mp4$`, "u");
+// Every video names its quality tier; subtitles have none.
+type Identity = { kind: "movie" | "series"; tmdbId: number; season: number | null; episode: number | null; language: string | null; trackKey: string | null; variant?: QualityTier };
 export function mediaIdentity(key: string): Identity | null {
   const series = /^library\/series\/([1-9]\d*)\/S(\d{2,})\/E(\d{2,})(.*)$/u.exec(key);
   const movie = /^library\/movie\/([1-9]\d*)\/movie(.*)$/u.exec(key);
@@ -15,8 +16,8 @@ export function mediaIdentity(key: string): Identity | null {
   if (!Number.isSafeInteger(tmdbId) || series && (!Number.isSafeInteger(season) || !Number.isSafeInteger(episode) || String(season).padStart(2, "0") !== series[2] || String(episode).padStart(2, "0") !== series[3] || episode === 0)) return null;
   const suffix = series ? series[4] : movie![2];
   const trackKey = /^\.(.+)\.vtt$/u.exec(suffix)?.[1], subtitle = trackKey ? subtitleTrack(trackKey) : null, tier = tierSuffix.exec(suffix);
-  if (suffix !== ".mp4" && !tier && !subtitle) return null;
-  return { kind: series ? "series" : "movie", tmdbId, season, episode, language: subtitle?.language ?? null, trackKey: subtitle ? trackKey! : null, ...tier ? { variant: tier[1] } : {} };
+  if (!tier && !subtitle) return null;
+  return { kind: series ? "series" : "movie", tmdbId, season, episode, language: subtitle?.language ?? null, trackKey: subtitle ? trackKey! : null, ...tier ? { variant: tier[1] as QualityTier } : {} };
 }
 const identityKey = (value: Pick<Identity, "kind" | "tmdbId" | "season" | "episode">) => `${value.kind}:${value.tmdbId}:${value.season}:${value.episode}`;
 function requireValid(condition: unknown) { if (!condition) throw new Error("MEDIA_INVALID"); }
@@ -77,12 +78,6 @@ export async function syncMedia(env: Env) {
     const known = await db.prepare(`SELECT id, object_key, r2_etag, byte_length, playable_unit_id, variant, duration_seconds FROM media_files
       UNION ALL SELECT id, object_key, r2_etag, byte_length, NULL, NULL, NULL FROM subtitle_tracks`).all<{ id: string; object_key: string; r2_etag: string | null; byte_length: number; playable_unit_id: string | null; variant: string | null; duration_seconds: number | null }>();
     const versions = new Map(known.results.map(file => [file.object_key, file]));
-    // A tier is checked against its unit's original duration; tiers list before their original, so a fresh upload links them on the next pass.
-    const originals = new Map(known.results.filter(file => file.variant === "original").map(file => [file.playable_unit_id!, file.duration_seconds!]));
-    const unattached = (unitId: string, identity: Identity, reason: string) => {
-      result.unattached++;
-      console.warn(JSON.stringify({ event: "media_sync_variant_unattached", unitId, reason, ...identity }));
-    };
     // Enumerate before reading content so validation failures cannot starve deletion detection.
     const objects: R2Object[] = [];
     let cursor: string | undefined;
@@ -98,6 +93,14 @@ export async function syncMedia(env: Env) {
     const gone = known.results.filter(file => file.r2_etag && file.object_key.startsWith("library/") && (!listed.has(file.object_key) || !mediaIdentity(file.object_key))).map(file => file.object_key);
     if (gone.length) await db.batch(["media_files", "subtitle_tracks"].map(table => db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE object_key IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(gone))));
     result.cleared = gone.length;
+    // The highest verified tier stands for its unit: it sets the unit's duration, and a lower tier links only within the tolerance of it.
+    const rank = (variant: string) => tiers.indexOf(variant as QualityTier);
+    const references = new Map<string, { rank: number; duration: number }>();
+    for (const file of known.results) {
+      if (!file.variant || !file.r2_etag || gone.includes(file.object_key) || rank(file.variant) < 0) continue;
+      const current = references.get(file.playable_unit_id!);
+      if (!current || rank(file.variant) < current.rank) references.set(file.playable_unit_id!, { rank: rank(file.variant), duration: file.duration_seconds! });
+    }
     let last = locked.cursor ?? undefined, validated = 0;
     const checkpoint = (key: string | undefined) => db.prepare("UPDATE media_sync_state SET cursor = ?, updated_at = ? WHERE id = 'catalog' AND lease_id = ?").bind(key ?? null, Date.now(), lease).run();
     for (const object of objects) {
@@ -106,12 +109,10 @@ export async function syncMedia(env: Env) {
       const unitId = identities.get(identityKey(identity)); if (!unitId) { last = object.key; result.unknown++; continue; }
       const knownObject = versions.get(object.key);
       if (knownObject?.r2_etag === object.etag && knownObject.byte_length === object.size) { last = object.key; result.skipped++; continue; }
-      // Without an original there is nothing to compare against, so the tier is not read at all.
-      if (identity.variant && !originals.has(unitId)) { last = object.key; unattached(unitId, identity, "ORIGINAL_MISSING"); continue; }
       if (controller.signal.aborted) { await checkpoint(last); result.deferred = true; return result; }
       if (validated++ >= 20) { await checkpoint(last); result.deferred = true; return result; }
       last = object.key;
-      const table = identity.language ? "subtitle_tracks" : "media_files", variant = identity.variant ?? "original";
+      const table = identity.language ? "subtitle_tracks" : "media_files", variant = identity.variant;
       try {
         // The recorded version no longer matches R2, so the record stays unplayable unless the current object passes validation.
         if (knownObject?.r2_etag) await db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE id = ?`).bind(knownObject.id).run();
@@ -119,21 +120,25 @@ export async function syncMedia(env: Env) {
         const existing = await db.prepare(`SELECT checksum_sha256, byte_length FROM ${table} WHERE playable_unit_id = ? AND ${identity.language ? "track_key = ?" : "format = 'mp4' AND variant = ?"}`)
           .bind(unitId, identity.language ? identity.trackKey! : variant).first<{ checksum_sha256: string; byte_length: number }>();
         controller.signal.throwIfAborted();
-        if (identity.variant && Math.abs(inspected.durationSeconds! - originals.get(unitId)!) > settings.qualityDurationTolerance) { unattached(unitId, identity, "DURATION_MISMATCH"); continue; }
+        // Each tier must use its own codec (B 6.6); a mismatch fails like any invalid file.
+        requireValid(!variant || inspected.videoCodec === qualityTiers[variant]);
+        const reference = variant ? references.get(unitId) : undefined, leads = variant && (!reference || rank(variant) <= reference.rank);
+        if (variant && !leads && Math.abs(inspected.durationSeconds! - reference!.duration) > settings.qualityDurationTolerance) {
+          result.unattached++; console.warn(JSON.stringify({ event: "media_sync_variant_unattached", unitId, reason: "DURATION_MISMATCH", ...identity })); continue;
+        }
         // A replacement rewrites the existing row in place, so its id, media URL and member data stay unchanged.
         const upsert = () => db.prepare(`INSERT INTO media_files (id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag)
-          VALUES (?, ?, 'mp4', ?, ?, ?, ?, ?, 'h264', 'aac', ?, ?) ON CONFLICT (playable_unit_id, format, variant) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
-          checksum_sha256 = excluded.checksum_sha256, duration_seconds = excluded.duration_seconds, bitrate = excluded.bitrate, r2_etag = excluded.r2_etag`)
-          .bind(crypto.randomUUID(), unitId, variant, object.key, inspected.byteLength, inspected.checksum, inspected.durationSeconds!, inspected.bitrate!, object.etag);
+          VALUES (?, ?, 'mp4', ?, ?, ?, ?, ?, ?, 'aac', ?, ?) ON CONFLICT (playable_unit_id, format, variant) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
+          checksum_sha256 = excluded.checksum_sha256, duration_seconds = excluded.duration_seconds, video_codec = excluded.video_codec, bitrate = excluded.bitrate, r2_etag = excluded.r2_etag`)
+          .bind(crypto.randomUUID(), unitId, variant, object.key, inspected.byteLength, inspected.checksum, inspected.durationSeconds!, inspected.videoCodec!, inspected.bitrate!, object.etag);
         if (identity.language) await db.prepare(`INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256, r2_etag)
           VALUES (?, ?, ?, 'vtt', ?, ?, ?, ?, ?, ?) ON CONFLICT (playable_unit_id, track_key) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
           checksum_sha256 = excluded.checksum_sha256, r2_etag = excluded.r2_etag`)
           .bind(crypto.randomUUID(), unitId, identity.language, subtitleTrack(identity.trackKey!)!.label, identity.trackKey, object.key, inspected.byteLength, inspected.checksum, object.etag).run();
-        // Only the original decides the unit's duration and playability.
-        else if (identity.variant) await upsert().run();
+        else if (!leads) await upsert().run();
         else {
           await db.batch([db.prepare("UPDATE playable_units SET duration_seconds = ? WHERE id = ?").bind(inspected.durationSeconds!, unitId), upsert()]);
-          originals.set(unitId, inspected.durationSeconds!);
+          references.set(unitId, { rank: rank(variant!), duration: inspected.durationSeconds! });
         }
         if (!existing) result.linked++;
         else if (existing.checksum_sha256 === inspected.checksum && existing.byte_length === inspected.byteLength) result.skipped++;

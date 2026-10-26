@@ -26,12 +26,12 @@ node scripts/import-media.mjs catalog --environment staging --execute
 下例为虚构身份，展示逻辑命名格式，不是真实桶地址：
 
 ```text
-library/series/800002/S02/E03.mp4
+library/series/800002/S02/E03.1080p.mp4
 library/series/800002/S02/E03.720p.mp4
 library/series/800002/S02/E03.zh-CN.main.vtt
 library/series/800002/S02/E03.zh-TW.bilingual.vtt
 library/series/800002/S02/E03.zh-CN.main.alt.vtt
-library/movie/800001/movie.mp4
+library/movie/800001/movie.2160p.mp4
 library/movie/800001/movie.zh-CN.bilingual.vtt
 ```
 
@@ -39,21 +39,32 @@ library/movie/800001/movie.zh-CN.bilingual.vtt
 
 Worker 的 staging / production 配置声明 `*/5 * * * *` Cron，通过当前环境 R2 binding 扫描。默认每页 1000 项，每次最多验证 20 个新/变更对象、6 分钟窗口；D1 保存最后处理对象键及互斥租约。已发布且 ETag/长度未变的对象跳过完整校验。失败对象在下一轮完整扫描重试，后续对象可以继续处理。
 
-MP4 须为 faststart、单 H.264 视频轨与 AAC 音轨。服务器有界读取元数据（最多 32 MiB），核对 box 边界、时长和码率，再流式计算整个文件长度及 SHA-256；不把大视频整体读入内存。VTT 最大 5 MiB，验证 UTF-8、头、cue 时间、设置、安全标签和实体，拒绝 STYLE/REGION。验证前后复核对象版本；期间变化不发布。
+MP4 须为 faststart，只有一条视频轨和一条 AAC 音轨。服务器有界读取元数据（最多 32 MiB），核对 box 边界、编码、时长和码率，再流式计算整个文件长度及 SHA-256；不把大视频整体读入内存。VTT 最大 5 MiB，验证 UTF-8、头、cue 时间、设置、安全标签和实体，拒绝 STYLE/REGION。验证前后复核对象版本；期间变化不发布。
 
-清晰度档位与原画同目录同主文件名，后缀只能是 `.2160p`、`.1080p`、`.720p`、`.480p`（如 `E03.720p.mp4`），校验与原画相同。档位只挂到已有原画记录的单元，且时长与原画相差不超过 1 秒；不满足时不读取或不挂接，记 `media_sync_variant_unattached`，`reason` 为 `ORIGINAL_MISSING` 或 `DURATION_MISMATCH`。对象按键名排序时档位排在原画之前，因此新上传一集时档位在下一轮扫描挂接。单元的可播状态与 `duration_seconds` 只由原画决定；某个档位失败不影响原画和其他档位。
+每个视频都带档位后缀，只能是 `.2160p`、`.1080p`、`.720p`、`.480p`，不带后缀的 `E03.mp4`、`movie.mp4` 按命名错误计入 `unknown`。档位决定编码：`2160p`、`1080p` 须为 VP9 profile 0（8 位 4:2:0），`720p`、`480p` 须为 H.264 的 Baseline/Main/Extended/High（8 位 4:2:0）；编码不符计入 `failed`。单元有任一已验证档位即可播放。已验证的最高档位是单元的基准：挂接或替换它时同时写入单元的 `duration_seconds`，较低档位与它相差超过 1 秒时不挂接，记 `media_sync_variant_unattached`，`reason` 为 `DURATION_MISMATCH`。高档位的键名排在低档位之前（`1080p`、`2160p`、`480p`、`720p`），新上传一集时各档位在同一轮挂接；某个档位失败不影响其他档位。
 
 关联 MP4 时，实际时长和媒体记录在同一 D1 批次提交。失败保留完整 R2 对象供重试。缺失或已验证版本被覆盖时，播放入口返回脱敏 404；不会把未验证的新字节当成已验证片源。扫描不删除对象。
 
-用同一名称重新上传即替换。下一轮扫描发现版本变化后，先撤下该记录的已验证版本，再按首次关联的规则完整验证新文件：通过则在原记录上更新校验和、长度、版本、时长和码率，原画同时更新单元时长；记录 ID、播放地址及成员的进度、讨论和弹幕不变。字节完全相同的重传只更新版本，计入 `skipped`。新文件未通过验证时计入 `failed`，原画所在单元显示片源暂缺，档位从清晰度选项、字幕从字幕菜单中消失，直到重新上传合格文件；被覆盖的旧文件不会恢复，需从站长自己的冷备找回。
+用同一名称重新上传即替换。下一轮扫描发现版本变化后，先撤下该记录的已验证版本，再按首次关联的规则完整验证新文件：通过则在原记录上更新校验和、长度、版本、时长和码率，最高档同时更新单元时长；记录 ID、播放地址及成员的进度、讨论和弹幕不变。字节完全相同的重传只更新版本，计入 `skipped`。新文件未通过验证时计入 `failed`，该档位从清晰度选项、字幕从字幕菜单中消失，单元没有其他已验证档位时显示片源暂缺，直到重新上传合格文件；被覆盖的旧文件不会恢复，需从站长自己的冷备找回。
 
-替换原画后，时长与新原画相差超过 1 秒的已有档位不再出现在清晰度选项中，需要同名重新上传时长相符的档位。原画和档位一起重传时，因档位排在原画之前，第一轮扫描会拿档位与旧原画时长比较，记一条预期中的 `DURATION_MISMATCH`，下一轮才挂上档位。
+替换最高档后，时长与它相差超过 1 秒的较低档位不再出现在清晰度选项中，需要同名重新上传时长相符的档位。较低档位键名排在最高档之前（如 `2160p` 之前的 `1080p`、`720p` 之前的 `480p`）且两者一起重传时，第一轮扫描会拿较低档位与最高档的旧时长比较，记一条预期中的 `DURATION_MISMATCH`，下一轮才挂上。
+
+## 压制规格
+
+片源由站长在本机压制，项目不做转码。全部档位用 MP4 封装并加 `-movflags +faststart`：
+
+| 档位 | 视频 | 说明 |
+| --- | --- | --- |
+| `2160p`、`1080p` | VP9 profile 0，`-pix_fmt yuv420p` | 不另备 H.264 版本；不能解码 VP9 的设备选 `720p`/`480p` |
+| `720p`、`480p` | H.264 High 或更低，`-pix_fmt yuv420p` | 兼容所有目标浏览器 |
+
+音频统一为一条 AAC 轨，声道按片源保留：单声道 96 kbps、立体声 160 kbps、5.1 声道 384 kbps；7.1 片源用 `-ac 6` 混缩为 5.1、384 kbps。片源有多条音轨时只保留要播放的一条，字幕另按上文命名为 VTT。同一单元各档位须来自同一剪辑版本，时长相差不超过 1 秒。
 
 扫描日志以 `media_sync_completed` 汇总数量，每次替换另记 `media_sync_replaced`：包含 `unitId`、资源类型 `resourceType`（video/subtitle）、作品类型 `kind`、作品 `tmdbId`、季号 `season`、集号 `episode`、字幕 `language` 和复合轨道标识 `trackKey`，档位另带 `variant`。电影的季集号、视频的字幕字段为 null；简繁同名轨道可分别定位。记录不含存储对象键、路径、校验和或凭证。
 
 ## 可选本机媒体预检
 
-本机需要 PATH 上的 FFmpeg（含 ffprobe）。将映射放在被忽略的目录：
+转换 ASS 字幕时本机需要 PATH 上的 FFmpeg。将映射放在被忽略的目录：
 
 ```json
 {
@@ -65,7 +76,7 @@ MP4 须为 faststart、单 H.264 视频轨与 AAC 音轨。服务器有界读取
   "media": [{
     "kind": "series", "tmdbId": 800002,
     "seasonNumber": 2, "episodeNumber": 3,
-    "videoPath": "./episode.mp4",
+    "videos": {"1080p": "./episode.1080p.mp4", "720p": "./episode.720p.mp4"},
     "subtitles": [{"language": "zh-CN", "trackKey": "main", "sourcePath": "./subtitle.ass"}]
   }]
 }
@@ -75,7 +86,7 @@ MP4 须为 faststart、单 H.264 视频轨与 AAC 音轨。服务器有界读取
 node scripts/import-media.mjs preflight --environment staging --mapping .cloudflare/import/mapping.json
 ```
 
-媒体路径相对映射文件；电影没有季集号，没有字幕时使用空数组。检查 manifest 的类型/季集身份、JPG→存在的 WebP 映射、ffprobe 编码/时长/码率、faststart 和流式校验和。ASS 转 VTT 只生成内存字节并警告样式丢失；站长须自行保存合格 VTT 后上传。报告移除本机路径和配置，`cloudWrites` 恒为 0。旧 `import` 上传命令退出码为 2，不执行写入。
+媒体路径相对映射文件；`videos` 以档位为键，至少一项；电影没有季集号，没有字幕时使用空数组。检查 manifest 的类型/季集身份、JPG→存在的 WebP 映射，每个档位用与服务器扫描相同的 MP4 检查核对编码与档位、时长、码率和 faststart，较低档位与最高档时长相差不超过 1 秒，并流式计算校验和。ASS 转 VTT 只生成内存字节并警告样式丢失；站长须自行保存合格 VTT 后上传。报告移除本机路径和配置，`cloudWrites` 恒为 0。旧 `import` 上传命令退出码为 2，不执行写入。
 
 字幕项只含 `language`、`trackKey`、`sourcePath`，取值规则与上文扫描命名相同；显示名由轨道标识推出，带 `displayName` 等其他字段报“格式错误或含未支持字段”。语言或轨道不合规时在任何 TMDB 请求之前报错，退出码为 1。每个单元的字幕按 `language.trackKey` 去重：`zh-CN/main` 与 `zh-TW/main` 可并存，同语言不同轨道（如 `main` 与 `main.alt`）可并存，同语言同轨道重复时拒绝预检。
 

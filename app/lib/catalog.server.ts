@@ -1,5 +1,6 @@
 import stillManifest from "../../public/assets/stills/star-trek/manifest.json";
 import { continuation, unitHref, type Episode, type Work, type WorkCard } from "./catalog";
+import { qualityTiers } from "./media-format";
 import type { D1Reader } from "./member.server";
 
 // Deployment configuration, not a browser/admin editing surface.
@@ -42,7 +43,11 @@ export function pathUnit(params: PathParams): UnitKey | null {
 }
 // Only bundled poster files reach the browser.
 export const posterPath = (asset: string | null) => asset?.startsWith("/assets/posters/star-trek/") && !asset.includes("..") ? asset : "";
-export const playableMedia = "SELECT 1 FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.variant = 'original' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''";
+// Any verified quality tier makes a unit playable; the highest verified tier gives its media duration (B 6.6).
+const verifiedMedia = "FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''";
+export const playableMedia = `SELECT 1 ${verifiedMedia}`;
+export const mediaDuration = `SELECT m.duration_seconds ${verifiedMedia}
+  ORDER BY CASE m.variant ${Object.keys(qualityTiers).map((tier, rank) => `WHEN '${tier}' THEN ${rank}`).join(" ")} END LIMIT 1`;
 const stills = new Map(stillManifest.episodes.map(item => [`${item.tmdbId}:${item.season}:${item.episode}`, `/assets/stills/star-trek/${item.file}`]));
 
 // Called only after membership validation; no storage identifiers enter the global UI.

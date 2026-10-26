@@ -131,7 +131,7 @@ Cloudflare 导出响应均为模拟，D1/R2 使用本地 workerd；未做浏览�
 4. 可直接使用本环境 R2 已认证密文；从本机/WebDAV/S3 恢复时，只向 Cloudflare 私有 R2 上传加密文件，按文件头的环境、源 ID 与密钥指纹选择对象，文件名可采用新的 `encrypted-<UUID>.bin`。不能上传/下载本机中间明文 SQL，也不能把外部地址或凭据放入操作请求。
 5. 本机 `.dev.vars.restore-client.json` 只含 `endpoint`（HTTPS `/operate`）及 `operatorToken`。将请求和结果放在被忽略的 `.cloudflare/`：`node tools/backup-restore/operate.mjs .dev.vars.restore-client.json .cloudflare/restore-request.json .cloudflare/restore-result.json`。结果文件使用独占创建，避免覆盖证据；Token 不放命令行或 URL。请求示例见下表。
 6. `restore` 仅接受空隔离库，先整份认证，再锁定同一密文版本流式解密至 `backup-restore/` 私有暂存；回读确认后在 Cloudflare 内执行官方 `init → PUT → ingest → poll`，上传 URL 不携带 API Token。上传内容在 SQL 前加 `PRAGMA foreign_keys=OFF;`，`etag` 取实际上传字节的 MD5：D1 导出按建表顺序写数据，被迁移重建的父表（如 `playable_units`）排在引用它的子表之后，即使导出自带 `defer_foreign_keys`，D1 远程导入仍以 `D1_RESET_DO` 拒绝；外键完整性由导入后的 `validate` 复核。同一内容导入失败后，`init` 直接返回缓存的失败结果，原样重试无效；失败响应的 `importError` 只透出 `D1_*` 错误码，不含上游文本。导入的 `active` 或无 status 中间响应沿同一 bookmark 继续轮询，只有 `complete` 才进入数据校验；明确失败、未知状态及进行中 bookmark 变化均拒绝。SQL 暂存无论导入结果均尝试删除，密文保持不变。断线的明文删除与条件释放租约由 abort 监听登记到 `waitUntil`，不依赖导入请求恢复执行；明文监听持续到清理结束，覆盖 `head`、同键写入间隔和 `delete` 期间的断线，清理失败也撤销监听。删除等待在途解密写入结束，并遵守同键写入间隔。租约在领取前即登记断线收尾，私有 `backup-restore-control/<environment>/<targetId>.json` 的 `plaintextKey` 保存本次暂存路径，不向站点浏览器返回。硬终止或宽限期耗尽时仍可能残留；开始下一次操作前须按该记录检查并清理明文，不删除密文。导入后不再是空库，失败时不盲目重新导入或删库，先检查阶段，必要时另建隔离目标。
-7. `validate` 核对迁移摘要、SQLite/外键完整性、业务计数/有序摘要及媒体关联。每条媒体与字幕记录的 R2 对象必须存在；版本和长度都与已认证恢复点相同则复用之前的全量哈希证据，否则工具不读取或哈希该对象，只清空隔离库中该记录的 `r2_etag`，结果的 `mediaPending` 给出数量。切换后站点扫描按[同名替换](catalog.md#rep1-同名替换)规则重新验证：字节相同只恢复版本，内容不同但通过验证则改写记录，未通过保持不可播；完成前这些片源不可播（原画待验证的单元显示片源暂缺，档位和字幕从选项中移除），每轮最多验证 20 个对象。`mediaPending` 也计入恢复点中本就未验证（`r2_etag` 为空）的记录；`media_files`、`subtitle_tracks` 摘要与恢复点的差异只来自本次清空版本的记录，最多为该数量。缺媒体保持隔离，由站长从自己的冷备补齐后再检查。摘要结果与选定恢复点及恢复前记录复核，不把模拟导入当作平台成功。
+7. `validate` 核对迁移摘要、SQLite/外键完整性、业务计数/有序摘要及媒体关联。每条媒体与字幕记录的 R2 对象必须存在；版本和长度都与已认证恢复点相同则复用之前的全量哈希证据，否则工具不读取或哈希该对象，只清空隔离库中该记录的 `r2_etag`，结果的 `mediaPending` 给出数量。切换后站点扫描按[同名替换](catalog.md#rep1-同名替换)规则重新验证：字节相同只恢复版本，内容不同但通过验证则改写记录，未通过保持不可播；完成前这些片源不可播（档位和字幕从选项中移除，没有已验证档位的单元显示片源暂缺），每轮最多验证 20 个对象。`mediaPending` 也计入恢复点中本就未验证（`r2_etag` 为空）的记录；`media_files`、`subtitle_tracks` 摘要与恢复点的差异只来自本次清空版本的记录，最多为该数量。缺媒体保持隔离，由站长从自己的冷备补齐后再检查。摘要结果与选定恢复点及恢复前记录复核，不把模拟导入当作平台成功。
 8. `sanitize` 在 Cloudflare 内先验证全部旧 TOTP、生成并回验新密文，再用 D1 原子 batch 重加密 TOTP、清空库可识别的备用码组、撤销会话/verification/未用邀请/未完成注册/原生临时 Token。密码、设备、已用邀请和讨论保留。旧认证 Secret 按文件头指纹从 keyring 选取，不能默认等于当前认证 Secret；单次工具上限 1000 个 TOTP，超限明确停止。`sanitize` / `credentials` 断线时，`waitUntil` 等待在途凭证操作成功或失败后才条件释放租约；D1 写入不因客户端断线而撤销，未结束前其他恢复操作仍返回 `409 / RESTORE_BUSY`。硬终止、宽限期及租约期限的限制仍适用，不能以此保证无限期互斥。
 9. `credentials` 用新 Secret 只读复核 TOTP、空备用码及旧凭证清理结果。`sanitize` 断线或结果不明时先执行此检查，不盲重试、换 Secret 或直接开放。分批 `review` 核对成员角色、封禁和设备；管理员维护期间人工 review 历史讨论并重新手动删除，不加删除台账或清空讨论。不明确的账号继续保持维护。
 10. 完成数据、媒体、凭证和人工复核后，再经授权切换应用 D1 绑定与新认证 Secret，检查旧会话/邮箱 JWT 失效、新登录/TOTP/设备、已用邀请额度和播放；旧库保留。没有满足这些条件，任何工具响应都不是重新开放授权。
@@ -294,7 +294,7 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 
 #### 6.9.5 远程数据库迁移与运维工程细节
 
-- **staging 云端构建**：仅监听 `startrekchina/video-site` 的 `dev`，关闭其他分支/PR 预览；Node 24.21.0、pnpm 12.6.0，使用锁文件安装依赖。构建命令为 `bash scripts/build-staging.sh`，先下载固定版本并校验 SHA-256 的 Linux FFmpeg/ffprobe 到被忽略的 `.cloudflare/build-tools`，再依次运行 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm test`、`pnpm test:tools`、`pnpm build:staging`，构建时把平台提供的 `WORKERS_CI_COMMIT_SHA` 写入成员页脚的构建提交，发布后可用它核对来源 SHA；自生成媒体仍不提交到 Git。部署命令为 `pnpm db:migrate:staging && pnpm deploy:staging:prebuilt --message "GitHub dev $WORKERS_CI_COMMIT_SHA"`，迁移继续使用 cf。任一步失败即停止，不改用本机上传或静默忽略失败；核对来源 SHA、迁移结果、实际生效版本和受影响入口后才能认定发布成功。
+- **staging 云端构建**：仅监听 `startrekchina/video-site` 的 `dev`，关闭其他分支/PR 预览；Node 24.21.0、pnpm 12.6.0，使用锁文件安装依赖。构建命令为 `bash scripts/build-staging.sh`，先下载固定版本并校验 SHA-256 的 Linux FFmpeg（生成测试媒体与转换 ASS 用）到被忽略的 `.cloudflare/build-tools`，再依次运行 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm test`、`pnpm test:tools`、`pnpm build:staging`，构建时把平台提供的 `WORKERS_CI_COMMIT_SHA` 写入成员页脚的构建提交，发布后可用它核对来源 SHA；自生成媒体仍不提交到 Git。部署命令为 `pnpm db:migrate:staging && pnpm deploy:staging:prebuilt --message "GitHub dev $WORKERS_CI_COMMIT_SHA"`，迁移继续使用 cf。任一步失败即停止，不改用本机上传或静默忽略失败；核对来源 SHA、迁移结果、实际生效版本和受影响入口后才能认定发布成功。
 - **GitHub PR 检查**：`.github/workflows/ci.yml` 在每个 PR 及手动触发时于 GitHub Actions 运行 `pnpm typecheck`、`pnpm test`、`pnpm test:tools` 和 `pnpm build`（development），Node/pnpm 版本与 staging 构建一致，ffmpeg 取 Ubuntu 软件源版本。只读权限、不使用 Secrets、不迁移或部署；`dev` 推送仍由 staging 构建把关，两者互不替代。
 - **Wrangler 补充发布边界**：固定 Wrangler 4.150.0；4.151.0 引用的 workerd 版本尚不能从 npm 安装。`scripts/prepare-staging-wrangler.mjs` 使用与 cf 一致的官方 Build Output 解析器和配置转换函数，拒绝非 staging、多 Worker、Container、缺失产物及尚未适配的模块类型；配置仅生成在被忽略的 `.cloudflare/wrangler-staging/wrangler.json`。发布使用既有 ESM 拆分模块及静态素材，不重新打包、不保留手写资源映射；Wrangler 默认保留线上 Secrets，不使用 Secrets 文件。文本变量、绑定、域名、Cron 和日志设置以构建产物为准，production 仍使用 cf 且未获发布授权。
 - **构建环境**：在 Workers Builds 单独配置 `STAGING_*` 与 Cloudflare 账户标识，资源标识作为构建 Secret 保存，不注入 production 配置。沿用 staging 构建 token；核对其 Worker 部署与目标 D1 迁移权限，缺权限时报告开发者，不默认为可用。运行时认证、播放、邮件等 Secrets 保留在现有 staging Worker，不复制到 Git 或构建日志；构建机不依赖本机 `.env`。
@@ -312,13 +312,13 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 | 项目 | 估算 |
 | --- | --- |
 | Workers Paid | 5 美元/月 |
-| R2 存储（单档 1080p MP4，约 1.7 TB） | 约 26 美元/月 |
+| R2 存储（四档 MP4 合计，约 2.7 TB） | 约 40 美元/月 |
 | R2 出口流量 | 免费 |
 | R2 读写操作和 D1 | 在这个规模下基本都在免费额度内 |
 | 邮件发信（注册验证、找回、通知） | 使用站长已购买的发件服务；实际套餐限额和追加费用按已购服务核对，不再按其他服务商的免费额度估算 |
-| Cloudflare 小计 | 约 31 美元/月；邮件服务的已有支出及追加费用需另计，是否满足 50 美元总预算以实际费用核对 |
+| Cloudflare 小计 | 约 45 美元/月；邮件服务的已有支出及追加费用需另计，是否满足 50 美元总预算以实际费用核对 |
 
-以后如果增加 HLS 多档码率，存储会涨到 2.2 至 3 TB，每月约 38 至 50 美元，那时需要重新评估是否保留原始 MP4。
+四档容量按全库约 720 小时、`2160p` 只覆盖有 4K 母版的约 180 小时（约占 1 TB）粗估，未做样片实测，实际取决于压制码率和准备了哪些档位；正式片源上传前按实际合计复核，接近预算时由站长决定减少档位。
 
 ## 验证方法
 
