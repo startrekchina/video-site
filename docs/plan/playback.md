@@ -137,7 +137,7 @@ GET 与 Range 只做一次 R2 读取：`get()` 带 `onlyIf: { etagMatches: r2_et
 
 | 入口与方法 | 权限 | 请求 / 响应 |
 | --- | --- | --- |
-| `/watch/:unitId` loader | 正常成员 | 与片库查询并行读取该单元已验证的原画与档位 MP4 及已验证 VTT 字幕轨（`playbackSource`），返回 `source: { url, qualities: [{ label, url }], tracks: [{ id, language, displayName, url }] } | null`，`url` 为原画，原画未验证时为 `null`；`tracks` 按简中、简英、繁中、繁英排列，同类附加轨道紧跟其后（[SUB1](catalog.md#sub1-字幕四类标记)），播放器默认加载第一条；不访问 R2，不写入任何计数。 |
+| 播放页 `/series/<简称>/s<n>/e<m>`、`/movies/<slug>/watch` loader | 正常成员 | 地址解析为作品与季集（[URL1](catalog.md#url1-可读页面地址)），在同一批查询中与片库查询并行读取该单元已验证的原画与档位 MP4 及已验证 VTT 字幕轨（`playbackSource`），返回 `source: { url, qualities: [{ label, url }], tracks: [{ id, language, displayName, url }] } | null`，`url` 为原画，原画未验证时为 `null`；`tracks` 按简中、简英、繁中、繁英排列，同类附加轨道紧跟其后（[SUB1](catalog.md#sub1-字幕四类标记)），播放器默认加载第一条；不访问 R2，不写入任何计数。 |
 | `GET/HEAD /media/:mediaFileId`、`/subtitles/:subtitleTrackId` | 当前 Cookie 会话的正常成员 | 按 6.6.1 鉴权、6.6.2 返回字节流或脱敏错误；资源 ID 只在服务端映射 R2，不接受客户端对象路径。 |
 
 ArtPlayer 在浏览器懒加载，同源 MP4/VTT；切单元重建并读取目标起点。媒体地址固定且不按时间续期，成员选择另一清晰度时切换到对应档位地址。

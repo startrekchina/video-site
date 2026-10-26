@@ -63,7 +63,7 @@ export function WorkTile({ work, className, loading }: { work: WorkCard; classNa
       </div>
       <div className="flex min-w-0 flex-col gap-1 p-2">
         <h3 className="text-base/snug font-medium text-balance">
-          <Link to={`/title/${work.slug}`} className="outline-none focus-visible:underline">
+          <Link to={work.href} className="outline-none focus-visible:underline">
             <span className="absolute inset-0" aria-hidden />
             {work.titleZh}
           </Link>

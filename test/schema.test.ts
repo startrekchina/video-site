@@ -85,6 +85,28 @@ it("initializes reply cursors from existing data without changing or forgetting 
   expect(await db.prepare("SELECT created_at FROM comment_reply_cursors WHERE comment_id = 'old-comment'").first<number>("created_at")).toBe(200);
 });
 
+it("moves existing playlists to short ids with their items, owners and order intact", async () => {
+  const db = env.TEST_RESTORE_DB, index = env.TEST_MIGRATIONS.findIndex(migration => migration.name === "0021_playlist_short_ids.sql");
+  expect(index).toBeGreaterThan(0); await applyD1Migrations(db, env.TEST_MIGRATIONS.slice(0, index));
+  await seedCatalog(db);
+  const lists = [["11111111-1111-4111-8111-111111111111", "nova", "第一片单", "private", 2], ["22222222-2222-4222-8222-222222222222", "quinn", "第二片单", "members", 1]] as const;
+  await db.batch([
+    ...lists.map(([id, owner, title, visibility, revision], n) => db.prepare("INSERT INTO playlists VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, owner, title, visibility, revision, 100 + n, 200 + n)),
+    ...lists.flatMap(([id], n) => [db.prepare("INSERT INTO playlist_items VALUES (?, ?, 'series', NULL, 0)").bind(`work-${n}`, id),
+      db.prepare("INSERT INTO playlist_items VALUES (?, ?, NULL, 'episode-unit', 1)").bind(`unit-${n}`, id)]),
+  ]);
+  const joined = () => db.prepare(`SELECT l.owner_user_id, l.title, l.visibility, l.revision, l.created_at, l.updated_at, i.id, i.work_id, i.playable_unit_id, i.position
+    FROM playlists l JOIN playlist_items i ON i.playlist_id = l.id ORDER BY i.id`).all();
+  const before = (await joined()).results;
+  await applyD1Migrations(db, [env.TEST_MIGRATIONS[index]]);
+  const ids = (await db.prepare("SELECT id FROM playlists").all<{ id: string }>()).results.map(row => row.id);
+  expect(ids).toHaveLength(2); expect(new Set(ids).size).toBe(2);
+  for (const id of ids) expect(id).toMatch(/^[0-9A-Za-z]{8}$/u);
+  expect((await joined()).results).toEqual(before);
+  expect((await db.prepare("PRAGMA foreign_key_check").all()).results).toEqual([]);
+  expect(await db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'playlist_id_map'").first("n")).toBe(0);
+});
+
 describe("catalog constraints", () => {
   it("stores a playable movie and episode", async () => {
     expect(await env.DB.prepare("SELECT kind FROM playable_units ORDER BY kind").all())
@@ -92,8 +114,8 @@ describe("catalog constraints", () => {
   });
 
   it("allows the same TMDB number for a movie and a series but rejects a duplicate kind", async () => {
-    await insert("works", { id: "shared-tmdb", kind: "series", tmdb_id: 910001 }).run();
-    await expect(insert("works", { id: "duplicate", kind: "movie", tmdb_id: 910001 }).run())
+    await insert("works", { id: "shared-tmdb", kind: "series", tmdb_id: 152 }).run();
+    await expect(insert("works", { id: "duplicate", kind: "movie", tmdb_id: 152 }).run())
       .rejects.toThrow(/UNIQUE constraint/);
   });
 

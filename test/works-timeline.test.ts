@@ -5,12 +5,17 @@ import { expect, it } from "vitest";
 import { WorksTimeline } from "@/components/site/works-timeline";
 import type { WorkCard } from "@/lib/catalog";
 
-const series: WorkCard = { slug: "fictional-series", kind: "series", tmdbId: 930001,
+const series: WorkCard = { slug: "fictional-series", href: "/series/svy", kind: "series", tmdbId: 930001,
   titleZh: "虚构剧集", titleEn: "Fictional Series", overviewZh: null, overviewEn: null,
   year: 1987, poster: "", code: "SVY", seasonCount: 2, episodeCount: 8, watchedCount: 0, favorite: false };
-const movie: WorkCard = { ...series, slug: "fictional-movie", kind: "movie", tmdbId: 930002,
+const movie: WorkCard = { ...series, slug: "fictional-movie", href: "/movies/fictional-movie", kind: "movie", tmdbId: 930002,
   titleZh: "虚构电影", titleEn: "Fictional Movie", code: "", seasonCount: 0, episodeCount: 1, runtimeMin: 121.00033 };
 const render = (works: WorkCard[]) => renderToStaticMarkup(createElement(MemoryRouter, null, createElement(WorksTimeline, { works })));
+
+it("links each work to its page path", () => {
+  const html = render([series, movie]);
+  expect(html).toContain('href="/series/svy"'); expect(html).toContain('href="/movies/fictional-movie"');
+});
 
 it.each([
   { works: [series], labels: ["简称", "SVY"] },

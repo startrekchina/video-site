@@ -3,7 +3,7 @@ import { useRef, useState } from "react"
 import { PlayIcon } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 
-import { episodeCode, formatRuntime } from "@/lib/catalog"
+import { episodeCode, formatRuntime, seasonHref, unitHref } from "@/lib/catalog"
 import { useStageHeader } from "@/lib/header-tone"
 import { Poster, ProgressBar } from "@/components/site/media"
 import { Button } from "@/components/ui/button"
@@ -45,8 +45,8 @@ function makeStages(items: { work: WorkCard; unit: Episode; why?: string; next?:
     meta: next ? formatRuntime(unit.runtimeMin) : why ? work.kind === "series" ? `${work.seasonCount} 季 · ${work.episodeCount} 集` : formatRuntime(work.runtimeMin) : unit.durationSeconds === null ? "时长暂缺" : `${timecode(unit.positionSeconds)} / ${timecode(unit.durationSeconds)} · 剩余 ${Math.max(0, Math.round((unit.durationSeconds - unit.positionSeconds) / 60))} 分钟`,
     note: next ? "下一集" : unit.updatedAt ? new Date(unit.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "",
     thumb: [work.kind === "movie" ? "电影" : work.code || "剧集", work.kind === "series" && !why ? episodeCode(unit) : String(work.year ?? "")],
-    primary: { label: why ? "播放第 1 集" : next ? "播放下一集" : "继续播放", to: "/watch/" + unit.id },
-    secondary: { label: !why && work.kind === "series" ? "选集" : "作品详情", to: "/title/" + work.slug + (!why && work.kind === "series" ? `?season=${unit.seasonNumber}` : "") },
+    primary: { label: why ? "播放第 1 集" : next ? "播放下一集" : "继续播放", to: unitHref(work, unit) },
+    secondary: { label: !why && work.kind === "series" ? "选集" : "作品详情", to: !why && work.kind === "series" ? seasonHref(work, unit.seasonNumber) : work.href },
   }));
 }
 

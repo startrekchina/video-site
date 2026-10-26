@@ -20,6 +20,7 @@
 - 类型:`movie` / `series`
 - 季号:`s01` 起,表示该季的专属海报;无季号为整部主海报
 - 示例:`movie-1982-star-trek-ii-the-wrath-of-khan.jpg`、`series-1987-star-trek-the-next-generation-s03.jpg`
+- 文件名里的 slug 与页面地址无关:页面地址用剧集简称和电影短名(B 6.11),映射在 `app/lib/catalog.server.ts` 的 `codes` 与 `movieSlugs`;新增作品须同步补上,否则 `test/catalog.test.ts` 的清单覆盖用例会失败
 
 ## 内容
 

@@ -233,7 +233,7 @@ it("fails validation on missing media or a mismatched schema", async () => {
 it("leaves media whose R2 version differs from the restore point to the media scan without reading it", async () => {
   const file = await artifact(); await seedCatalog(env.DB);
   const video = Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0)), vtt = "WEBVTT\n\n00:00.000 --> 00:03.000\nA fictional signal.\n";
-  const movie = "library/movie/910001/movie.mp4", episode = "library/series/920001/S01/E01.mp4", track = "library/series/920001/S01/E01.zh-CN.main.vtt";
+  const movie = "library/movie/152/movie.mp4", episode = "library/series/85948/S01/E01.mp4", track = "library/series/85948/S01/E01.zh-CN.main.vtt";
   for (const key of [movie, episode]) await env.MEDIA_BUCKET.put(key, video);
   await env.MEDIA_BUCKET.put(track, vtt);
   expect(await syncMedia(env)).toMatchObject({ linked: 3 });

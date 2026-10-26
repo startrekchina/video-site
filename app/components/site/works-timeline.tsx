@@ -38,7 +38,7 @@ function Timeline({ works, ...props }: { works: WorkCard[] } & React.ComponentPr
               <TimescaleYear className="font-mono">{w.year}</TimescaleYear>
               <TimescaleContent>
                 <Link
-                  to={`/title/${w.slug}`}
+                  to={w.href}
                   className="group/tl flex gap-3 rounded-lg p-1 outline-none transition-[background-color] ease-out hover:bg-accent-muted focus-visible:inset-ring-2 focus-visible:inset-ring-ring/50"
                 >
                   <Poster

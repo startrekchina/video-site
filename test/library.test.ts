@@ -6,7 +6,7 @@ import { catalogCards } from "@/lib/catalog.server";
 import { playlistPage, playlistQueue, playlists } from "@/lib/library.server";
 import { settings } from "@/lib/settings.server";
 import { login, member, request } from "./fixtures/auth";
-import { seedCatalog } from "./fixtures/catalog";
+import { episodeKey, fixtureKeys, seedCatalog } from "./fixtures/catalog";
 
 const runtime = { ...env, APP_ENV: "development" };
 let cookie: string, userId: string, other: string, otherId: string;
@@ -54,6 +54,8 @@ it("keeps favorites per member, idempotent and for works only", async () => {
 
 it("adds each work or episode once, in order, even when repeated or concurrent", async () => {
   const id = await create(), series = await add(id, { workId: "series" }), episode = await add(id, { unitId: "episode-unit" }), movie = await add(id, { workId: "movie" });
+  // Playlist page paths carry an 8-character base62 id (B 6.11).
+  expect(id).toMatch(/^[0-9A-Za-z]{8}$/u);
   expect(await stored(id)).toEqual([{ id: series, target: "series" }, { id: episode, target: "episode-unit" }, { id: movie, target: "movie" }]);
   expect(await revision(id)).toBe(3);
   // A repeat returns the existing item without a new row, a new place or a new revision.
@@ -129,29 +131,29 @@ it("expands the queue in item order, keeps first appearances and skips finished 
   for (const item of [{ unitId: "episode-two" }, { workId: "series" }, { workId: "movie" }]) await add(id, item);
   await watched(userId, "episode-two");
   let page = await playlistPage(env.DB, userId, id);
-  expect(page).toMatchObject({ start: "episode-unit", queued: 3 });
-  expect(page?.items.map(item => [item.kicker, item.watched])).toEqual([["S01E02", true], ["整部剧集 · 1 季", false], ["电影 · —", false]]);
+  expect(page).toMatchObject({ start: "/series/ld/s1/e1", queued: 3 });
+  expect(page?.items.map(item => [item.kicker, item.watched])).toEqual([["LD · S01E02", true], ["整部剧集 · 1 季", false], ["电影 · —", false]]);
   // Queue order is E2, E1, movie: E2's later copy and the sourceless E3 drop out.
-  expect((await playlistQueue(env.DB, userId, id, "episode-two"))?.next?.id).toBe("episode-unit");
-  expect((await playlistQueue(env.DB, userId, id, "episode-unit"))?.next).toMatchObject({ id: "movie-unit", label: "电影", title: "测试信号" });
-  expect(await playlistQueue(env.DB, userId, id, "movie-unit")).toMatchObject({ id, title: "虚构片单", next: null });
-  expect(await playlistQueue(env.DB, userId, id, "episode-three")).toBeNull();
+  expect((await playlistQueue(env.DB, userId, id, episodeKey(2)))?.next?.id).toBe("episode-unit");
+  expect((await playlistQueue(env.DB, userId, id, episodeKey(1)))?.next).toMatchObject({ id: "movie-unit", label: "电影", title: "测试信号" });
+  expect(await playlistQueue(env.DB, userId, id, fixtureKeys.movie)).toMatchObject({ id, title: "虚构片单", next: null });
+  expect(await playlistQueue(env.DB, userId, id, episodeKey(3))).toBeNull();
   // Another member follows their own progress.
   page = await playlistPage(env.DB, otherId, id);
-  expect(page).toMatchObject({ start: "episode-two", queued: 3 }); expect(page?.items.map(item => item.watched)).toEqual([false, false, false]);
+  expect(page).toMatchObject({ start: "/series/ld/s1/e2", queued: 3 }); expect(page?.items.map(item => item.watched)).toEqual([false, false, false]);
   await watched(userId, "episode-unit"); await watched(userId, "movie-unit");
   expect(await playlistPage(env.DB, userId, id)).toMatchObject({ start: null, queued: 3 });
-  expect((await playlistQueue(env.DB, userId, id, "episode-two"))?.next).toBeNull();
+  expect((await playlistQueue(env.DB, userId, id, episodeKey(2)))?.next).toBeNull();
   await call("PATCH", `/me/playlists/${id}`, { visibility: "private" });
-  expect(await playlistQueue(env.DB, otherId, id, "episode-two")).toBeNull();
-  const html = await (await exports.default.fetch(`http://localhost:6120/watch/episode-unit?playlist=${id}`, { headers: { Cookie: cookie } })).text();
+  expect(await playlistQueue(env.DB, otherId, id, episodeKey(2))).toBeNull();
+  const html = await (await exports.default.fetch(`http://localhost:6120/series/ld/s1/e1?playlist=${id}`, { headers: { Cookie: cookie } })).text();
   expect(html).toContain(`href="/playlists/${id}"`);
 }, 60000);
 
 it("keeps the playlist queue on the episode step links", async () => {
   const id = await create(); await add(id, { workId: "series" });
-  const page = async (search: string) => (await exports.default.fetch(`http://localhost:6120/watch/episode-unit${search}`, { headers: { Cookie: cookie } })).text();
-  expect(await page(`?playlist=${id}`)).toContain(`href="/watch/episode-two?playlist=${id}"`);
+  const page = async (search: string) => (await exports.default.fetch(`http://localhost:6120/series/ld/s1/e1${search}`, { headers: { Cookie: cookie } })).text();
+  expect(await page(`?playlist=${id}`)).toContain(`href="/series/ld/s1/e2?playlist=${id}"`);
   expect(await page("")).not.toContain("?playlist=");
 }, 60000);
 
@@ -164,18 +166,18 @@ it("shows the queue bar with the viewer's own place among all playable units, fi
   await watched(userId, "episode-two");
   await env.DB.prepare("UPDATE works SET year = 1996 WHERE id = 'movie'").run();
   // Queue E2, E1, movie: the finished E2 still counts, and another member sees only their own progress.
-  expect(await playlistQueue(env.DB, userId, id, "episode-two")).toMatchObject({ position: 0, watched: [true, false, false], next: { id: "episode-unit" } });
-  expect(await playlistQueue(env.DB, userId, id, "episode-unit")).toMatchObject({ position: 1, next: { id: "movie-unit", label: "电影", year: 1996 } });
-  expect(await playlistQueue(env.DB, otherId, id, "movie-unit")).toMatchObject({ position: 2, watched: [false, false, false], next: null });
-  let html = await watchPage(`/watch/episode-unit?playlist=${id}`);
+  expect(await playlistQueue(env.DB, userId, id, episodeKey(2))).toMatchObject({ position: 0, watched: [true, false, false], next: { id: "episode-unit" } });
+  expect(await playlistQueue(env.DB, userId, id, episodeKey(1))).toMatchObject({ position: 1, next: { id: "movie-unit", label: "电影", year: 1996 } });
+  expect(await playlistQueue(env.DB, otherId, id, fixtureKeys.movie)).toMatchObject({ position: 2, watched: [false, false, false], next: null });
+  let html = await watchPage(`/series/ld/s1/e1?playlist=${id}`);
   expect(html).toContain("按顺序播放 · 02 / 03"); expect(segments(html)).toEqual(["bg-foreground/40", "bg-foreground", "bg-foreground/10"]);
-  expect(html).toContain(`href="/watch/movie-unit?playlist=${id}"`); expect(html).toContain("下一项 · 电影 · 1996"); expect(html).toContain("测试信号");
-  html = await watchPage(`/watch/movie-unit?playlist=${id}`);
+  expect(html).toContain(`href="/movies/the-motion-picture/watch?playlist=${id}"`); expect(html).toContain("下一项 · 电影 · 1996"); expect(html).toContain("测试信号");
+  html = await watchPage(`/movies/the-motion-picture/watch?playlist=${id}`);
   expect(html).toContain("按顺序播放 · 03 / 03 · 最后一项"); expect(html).not.toContain("下一项 ·");
   // Outside queue mode, or when the playlist is not readable, the page has no queue bar.
-  expect(await watchPage("/watch/episode-unit")).not.toContain("按顺序播放");
+  expect(await watchPage("/series/ld/s1/e1")).not.toContain("按顺序播放");
   await call("PATCH", `/me/playlists/${id}`, { visibility: "private" });
-  expect(await watchPage(`/watch/episode-unit?playlist=${id}`, other)).not.toContain("按顺序播放");
+  expect(await watchPage(`/series/ld/s1/e1?playlist=${id}`, other)).not.toContain("按顺序播放");
 }, 60000);
 
 it("shows a plain progress bar instead of segments for queues over 24 units", async () => {
@@ -185,11 +187,11 @@ it("shows a plain progress bar instead of segments for queues over 24 units", as
     env.DB.prepare("INSERT INTO media_files VALUES (?, ?, 'mp4', 'original', ?, 4, 'hash', 4, 'h264', 'aac', 100, 'fictional-version')").bind(`media-${unit}`, unit, `fictional-private-${unit}`)]));
   const id = await create(); await add(id, { workId: "series" });
   // E1, E2 and the 23 extra episodes play; E3 has no source and does not count.
-  const html = await watchPage(`/watch/episode-unit?playlist=${id}`);
+  const html = await watchPage(`/series/ld/s1/e1?playlist=${id}`);
   expect(html).toContain("按顺序播放 · 01 / 25"); expect(html).toContain('aria-valuenow="4"'); expect(segments(html)).toEqual([]);
 }, 60000);
 
 it("offers the add menu on the watch page of an episode without a source", async () => {
-  const html = await (await exports.default.fetch("http://localhost:6120/watch/episode-three", { headers: { Cookie: cookie } })).text();
+  const html = await (await exports.default.fetch("http://localhost:6120/series/ld/s1/e3", { headers: { Cookie: cookie } })).text();
   expect(html).toContain("这一集片源暂缺"); expect(html).toContain("加入片单");
 }, 60000);

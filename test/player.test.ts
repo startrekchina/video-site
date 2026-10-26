@@ -327,14 +327,14 @@ it("leaves subtitle choice to the player's own menu, which starts on the first l
   const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "测试片", titleEn: "Test",
     overviewZh: null, overviewEn: null, airDate: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true,
     positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 };
-  const work: Work = { slug: "test", kind: "movie", tmdbId: 1, titleZh: "测试片", titleEn: "Test", overviewZh: null,
+  const work: Work = { slug: "test", href: "/movies/test", kind: "movie", tmdbId: 1, titleZh: "测试片", titleEn: "Test", overviewZh: null,
     overviewEn: null, year: 2026, poster: "", code: "", seasonCount: 0, episodeCount: 1, watchedCount: 0,
     favorite: false, seasons: [], units: [unit] };
   const loaderData = { work, unit, source, previous: "", next: "", reportInterval: 15 as const, danmaku, admin: false };
   const root = { member: null, catalog: null, commit: "0123456789abcdef0123456789abcdef01234567", ray: null, colo: null };
-  const page = Watch({ loaderData, params: { id: unit.id }, matches: [
+  const page = Watch({ loaderData, params: { slug: "test" }, matches: [
     { id: "root", params: {}, pathname: "/", data: root, loaderData: root, handle: undefined },
-    { id: "routes/watch", params: { id: unit.id }, pathname: `/watch/${unit.id}`, data: loaderData, loaderData, handle: undefined },
+    { id: "movie-watch", params: { slug: "test" }, pathname: "/movies/test/watch", data: loaderData, loaderData, handle: undefined },
   ] });
   state.pageIndex = 0;
   const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
@@ -439,11 +439,11 @@ it("offers the next unit when playback ends and autoplays only after a fresh ste
   const episode = (id: string, number: number): Episode => ({ id, number, seasonNumber: 1, tmdbId: number, titleZh: `虚构第 ${number} 集`, titleEn: null,
     overviewZh: null, overviewEn: null, airDate: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true, positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 });
   const first = episode("episode-unit", 1), second = episode("episode-two", 2);
-  const work: Work = { slug: "series", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
+  const work: Work = { slug: "series", href: "/series/svy", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
     poster: "", code: "", seasonCount: 1, episodeCount: 2, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [first, second] }], units: [first, second] };
   const view = (unit: Episode, previous?: string, next?: string) => {
     const loaderData = { work, unit, source, previous, next, reportInterval: 15 as const, danmaku, admin: false };
-    const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
+    const page = Watch({ loaderData, params: { code: "svy", season: "s1", episode: `e${unit.number}` }, matches: [] as never });
     state.pageIndex = 0;
     const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
     state.pageIndex = null;
@@ -453,8 +453,8 @@ it("offers the next unit when playback ends and autoplays only after a fresh ste
   expect(player.autoplay).toBe(false); expect(player.children).toBeFalsy();
   player.onEnded!();
   player = view(first, undefined, second.id);
-  const prompt = player.children as ReactElement<{ unit: Episode; onCancel: () => void }>;
-  expect(prompt.props.unit).toBe(second);
+  const prompt = player.children as ReactElement<{ to: string; onCancel: () => void }>;
+  expect(prompt.props.to).toBe("/series/svy/s1/e2");
   prompt.props.onCancel(); expect(view(first, undefined, second.id).children).toBeFalsy();
   // The last unit has nothing to offer, so the end stays with the player.
   state.pageState.length = 0; expect(view(second, first.id).onEnded).toBeUndefined();
@@ -468,12 +468,12 @@ it("offers the next unit when playback ends and autoplays only after a fresh ste
 it("lets a playlist queue decide what follows and end on the way back to the playlist", () => {
   const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "虚构第 1 集", titleEn: null, overviewZh: null, overviewEn: null, airDate: null,
     runtimeMin: null, durationSeconds: 4, still: null, playable: true, positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 };
-  const work: Work = { slug: "series", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
+  const work: Work = { slug: "series", href: "/series/svy", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
     poster: "", code: "", seasonCount: 1, episodeCount: 1, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [unit] }], units: [unit] };
-  const movie = { id: "movie-unit", completed: false, poster: "", label: "电影", year: null, title: "测试信号" };
+  const movie = { id: "movie-unit", href: "/movies/test/watch", completed: false, poster: "", label: "电影", year: null, title: "测试信号" };
   const view = (queue: { id: string; title: string; next: typeof movie | null }) => {
     const loaderData = { work, unit, source, previous: undefined, next: undefined, reportInterval: 15 as const, danmaku, admin: false, queue: { ...queue, position: 0, watched: [false, false] } };
-    const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
+    const page = Watch({ loaderData, params: { code: "svy", season: "s1", episode: "e1" }, matches: [] as never });
     state.pageIndex = 0;
     const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
     state.pageIndex = null;
@@ -482,8 +482,8 @@ it("lets a playlist queue decide what follows and end on the way back to the pla
   // The queue's next unit is offered even where the series has no natural next, and the step keeps the queue.
   let player = view({ id: "list", title: "虚构片单", next: movie });
   player.onEnded!();
-  const prompt = view({ id: "list", title: "虚构片单", next: movie }).children as ReactElement<{ unit: unknown; label: string; search: string }>;
-  expect(prompt.props).toMatchObject({ unit: movie, label: "片单 · 电影", search: "?playlist=list" });
+  const prompt = view({ id: "list", title: "虚构片单", next: movie }).children as ReactElement<{ to: string; label: string }>;
+  expect(prompt.props).toMatchObject({ to: "/movies/test/watch?playlist=list", label: "片单 · 电影" });
   // At the queue's end the page offers the way back instead of a natural next unit or a loop.
   state.pageState.length = 0; player = view({ id: "list", title: "虚构片单", next: null });
   player.onEnded!();

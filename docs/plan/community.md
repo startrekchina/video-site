@@ -48,6 +48,8 @@
   - 验证：`test/discussion.test.ts` 删除 1 项覆盖普通成员 403、游客 401、他单元 404、跨站 403、删回复连带其赞踩且回复数减一、删评论与并发回复/赞踩竞争后无孤立记录、之后读取/回复/赞踩/再删均 404 且按 ID 读取不再返回。本地浏览器：非管理员无“删除”、管理员可见、回复与评论弹框文案（含“下面的 12 条回复”）、取消不删除、确认后单行提示、回复离开对话与数据库、评论离开列表且侧栏转到其他对话、总数减一、评论/回复/赞踩在数据库清零、390 宽度删除提示单行。
   - staging（同上）：管理员看到“删除”、回复弹框文案、取消不删除、删除回复后单行提示且回复与它收到的赞踩离开对话和数据库、评论弹框写明连带删除的 12 条回复、删除评论后单行提示且列表与侧栏移走、总数减一、评论/回复/赞踩在数据库清零；390 宽度无侧栏、无横向滚动、回复数展开内联对话、删除提示单行。封禁后讨论保留只由自动化测试覆盖。
 - [x] 各项通过类型检查、相关测试、构建、原型对照和桌面/手机验收，记录真实数据结果与差异，再进入运维里程碑。
+- [ ] 片单 8 位 ID 与迁移 0021（随[片库 URL1](catalog.md#url1-可读页面地址)交付）：新片单与迁移后的旧片单都用短 ID 打开，`?playlist=` 在剧集和电影播放地址上续接队列，他人私有片单仍 404。staging 迁移后开发者账号下的“队列条测试”片单换成新 ID。
+  - 实现与本地自检（2026-10-26）：新建片单返回 8 位 ID；迁移用例验证 UUID 片单换成互不相同的 8 位 ID，所有者、名称、可见范围、版本、时间与条目归属和顺序不变，外键检查为空、映射表已删除；本地 D1 实际应用 0021 后旧片单可用新地址打开，队列链接保留 `?playlist=`，他人私有片单 404 沿用既有用例。证据见[片库 URL1](catalog.md#url1-可读页面地址)；staging 未验证。
 
 ### T5.4 弹幕
 
@@ -92,7 +94,7 @@
 | --- | --- |
 | 观看进度 `watch_progress` | 主键 `(user_id, playable_unit_id)`；`position_seconds, completed, updated_at, revision`；`revision` 已启用（6.7.1），上报携带 `expectedRevision` 条件写入，冲突返回 `409 / REVISION_CONFLICT`。总时长来自已导入媒体，不相信客户端提交的时长；自动完成与手动“未看”的交互按 6.7.1。 |
 | 收藏 `favorites` | 主键 `(user_id, work_id)`，仅收藏作品；重复添加和删除已不存在的收藏都返回同一最终状态。 |
-| 片单 `playlists` / 条目 `playlist_items` | 片单记录 `id, owner_user_id, title, visibility, revision, created_at, updated_at`，`visibility` 为 `private` / `members`；`revision` 随条目新增、移除和重排递增，修改可见范围只更新 `updated_at`；条目记录稳定 `id, playlist_id, work_id?, playable_unit_id?, position`。两种目标必须且只能选一个，各自有外键；`(playlist_id, position)` 唯一，并对同一目标设**唯一约束**（`playlist_id` + 目标类型 + 目标 ID），使同一目标在一个片单内只能有一条（6.7.1.1）。公开只扩大站内读取权限，不改变所有者的写权限。 |
+| 片单 `playlists` / 条目 `playlist_items` | 片单记录 `id, owner_user_id, title, visibility, revision, created_at, updated_at`；`id` 是页面地址用的 8 位 base62 随机串（B 6.11），由 `better-auth/crypto` 的 `generateRandomString` 生成，撞号时主键冲突让请求失败而不重试，条目 `id` 仍为 UUID；迁移 0021 把已有 UUID 片单复制到新 ID、改挂条目后删除旧行。`visibility` 为 `private` / `members`；`revision` 随条目新增、移除和重排递增，修改可见范围只更新 `updated_at`；条目记录稳定 `id, playlist_id, work_id?, playable_unit_id?, position`。两种目标必须且只能选一个，各自有外键；`(playlist_id, position)` 唯一，并对同一目标设**唯一约束**（`playlist_id` + 目标类型 + 目标 ID），使同一目标在一个片单内只能有一条（6.7.1.1）。公开只扩大站内读取权限，不改变所有者的写权限。 |
 | 评论 `comments` / 回复 `comment_replies` | 评论记录 `id, playable_unit_id, author_user_id, body_markdown, created_at`；回复记录 `id, comment_id, author_user_id, reply_to_user_id?, body_markdown, created_at`。单元、评论和成员关联均设外键；回复通过所属评论确定单元，回复目标与所属对话一致。作者取自当前会话，正文遵循 6.12。管理员删除按 6.12.4 从当前业务数据库直接移除记录，不增加软删除标记或正文归档。顶层评论删除时一并移除其全部回复及关联赞踩；单条回复删除时移除该回复及其赞踩。不增加成员自助编辑/删除、举报或审核/恢复入口。 |
 | 赞踩 `discussion_votes` | `user_id, comment_id?, reply_id?, value`；目标必须且只能选评论或回复，外键保证目标存在，`value` 仅 `1` / `-1`。分别对 `(user_id, comment_id)`、`(user_id, reply_id)` 的有效目标设唯一约束；切换反馈更新同一记录，取消则删除，不能同时留下赞和踩。 |
 
@@ -106,7 +108,7 @@
 
 ## HTTP 映射
 
-各行均已实现。进度、收藏与片单的页面读取由 `/library`、`/playlists`、`/playlists/:id` 与带 `?playlist=` 的播放页 loader 承担，不另设 GET；他人私有片单与不存在的片单统一 404。
+各行均已实现。进度、收藏与片单的页面读取由 `/library`、`/playlists`、`/playlists/<片单 ID>` 与带 `?playlist=` 的剧集、电影播放页 loader 承担，不另设 GET；他人私有片单与不存在的片单统一 404。
 
 | 入口与方法 | 权限 | 请求 / 响应 |
 | --- | --- | --- |

@@ -2,13 +2,13 @@ import { data, Link, useLocation, useNavigate, useNavigationType } from "react-r
 import { useEffect, useRef, useState } from "react";
 import { CheckIcon, ChevronRightIcon, ListVideoIcon, PlayIcon } from "lucide-react";
 import { pageRead } from "@/lib/member.server";
-import { catalog, singleParameter } from "@/lib/catalog.server";
+import { catalog, pathUnit, singleParameter } from "@/lib/catalog.server";
 import { playlistQueue } from "@/lib/library.server";
 import { playbackSource } from "@/lib/playback.server";
 import { settings } from "@/lib/settings.server";
 import { useMarkWatched } from "@/lib/progress-client";
 import { Button } from "@/components/ui/button";
-import { displayTitle, episodeCode, formatRuntime } from "@/lib/catalog";
+import { displayTitle, episodeCode, formatRuntime, seasonHref, unitHref } from "@/lib/catalog";
 import { pageTitle } from "@/lib/site";
 import { cn } from "@/lib/utils";
 import { Page, Panel, PanelFooterLink, PanelHeader, PanelTitle, PanelTitleSup, Separator } from "@/components/site/panel";
@@ -21,11 +21,12 @@ import type { DanmakuLimits } from "@/lib/danmaku-client";
 import { DetailTop, Overview, StepLink } from "./title";
 import type { Route } from "./+types/watch";
 export async function loader({ request, params, context }: Route.LoaderArgs) {
-  const playlist = singleParameter(new URL(request.url), "playlist");
-  const current = await pageRead(request, context.cloudflare.env, context.identity, (db, userId) => Promise.all([catalog(db, userId, "", { unitId: params.id }), playbackSource(db, params.id),
-    playlist ? playlistQueue(db, userId, playlist, params.id) : null]));
+  const playlist = singleParameter(new URL(request.url), "playlist"), key = pathUnit(params);
+  const current = await pageRead(request, context.cloudflare.env, context.identity, async (db, userId) => key && Promise.all([catalog(db, userId, "", key), playbackSource(db, key),
+    playlist ? playlistQueue(db, userId, playlist, key) : null]));
+  if (!current.value) throw new Response(null, { status: 404 });
   const [works, source, queue] = current.value;
-  const work = works[0], unit = work?.units.find(unit => unit.id === params.id);
+  const work = works[0], unit = work?.units.find(unit => key?.kind !== "series" || (unit.seasonNumber === key.season && unit.number === key.episode));
   if (!work || !unit) throw new Response(null, { status: 404 });
   // Neighbours follow season and episode order and skip units without a playable source.
   const at = work.units.indexOf(unit), previous = work.units.slice(0, at).findLast(item => item.playable)?.id, next = work.units.slice(at + 1).find(item => item.playable)?.id;
@@ -55,14 +56,14 @@ function WatchContent({ work, unit, source, previous, next, reportInterval, danm
     work.kind === "movie" ? work.year && `${work.year} 年` : unit.airDate && `${unit.airDate} 首播`, unit.runtimeMin != null && formatRuntime(unit.runtimeMin)].filter(Boolean);
   useEffect(() => { revision.current = Math.max(revision.current, unit.revision); setCompleted(unit.completed); }, [unit.revision, unit.completed]);
   useEffect(() => { const current = list.current?.querySelector<HTMLElement>('[aria-current="page"]'); if (list.current && current) list.current.scrollTop = current.offsetTop - list.current.offsetTop - list.current.clientHeight / 2 + current.clientHeight / 2; }, [unit.id]);
-  return <Page data-watch-page><DetailTop back={queue ? `/playlists/${queue.id}` : `/title/${work.slug}${work.kind === "series" ? `?season=${unit.seasonNumber}` : ""}`} backLabel={queue ? queue.title : work.titleZh} title={work.kind === "movie" ? work.titleZh : displayTitle(unit)}><span className="font-mono text-xs text-muted-foreground max-sm:hidden">{work.kind === "series" ? [work.code, episodeCode(unit)].filter(Boolean).join(" · ") : `电影 · ${work.year ?? "—"}`}</span><StepLink to={previous && `/watch/${previous}${search}`} label={previousUnit ? `上一集 · ${episodeCode(previousUnit)}` : "上一集"} direction="previous" /><StepLink to={next && `/watch/${next}${search}`} label={nextUnit ? `下一集 · ${episodeCode(nextUnit)}` : "下一集"} direction="next" /></DetailTop>
+  return <Page data-watch-page><DetailTop back={queue ? `/playlists/${queue.id}` : work.kind === "series" ? seasonHref(work, unit.seasonNumber) : work.href} backLabel={queue ? queue.title : work.titleZh} title={work.kind === "movie" ? work.titleZh : displayTitle(unit)}><span className="font-mono text-xs text-muted-foreground max-sm:hidden">{work.kind === "series" ? [work.code, episodeCode(unit)].filter(Boolean).join(" · ") : `电影 · ${work.year ?? "—"}`}</span><StepLink to={previousUnit && `${unitHref(work, previousUnit)}${search}`} label={previousUnit ? `上一集 · ${episodeCode(previousUnit)}` : "上一集"} direction="previous" /><StepLink to={nextUnit && `${unitHref(work, nextUnit)}${search}`} label={nextUnit ? `下一集 · ${episodeCode(nextUnit)}` : "下一集"} direction="next" /></DetailTop>
     <div className="h-4" />{source ? <Player unitId={unit.id} source={source} startSeconds={unit.completed ? 0 : unit.positionSeconds} autoplay={autoplay} progress={{ revision, interval: reportInterval, duration: unit.durationSeconds, onSaved: saved => setCompleted(saved.completed) }} danmaku={danmaku} onEnded={queue || nextUnit ? () => setEnded(true) : undefined}>{ended && (queue
-      ? queue.next ? <NextUp unit={queue.next} label={`片单 · ${queue.next.label}`} title={queue.next.title} poster={queue.next.poster} search={`?playlist=${queue.id}`} onCancel={() => setEnded(false)} /> : <QueueEnd playlist={queue} poster={work.poster} onClose={() => setEnded(false)} />
-      : nextUnit && <NextUp unit={nextUnit} label={`下一集 · ${episodeCode(nextUnit)}`} title={displayTitle(nextUnit)} poster={work.poster} onCancel={() => setEnded(false)} />)}</Player> : <p className="p-8">{work.kind === "series" ? "这一集片源暂缺，可在下方选择其他集。" : "片源暂缺。"}</p>}
+      ? queue.next ? <NextUp to={`${queue.next.href}?playlist=${queue.id}`} label={`片单 · ${queue.next.label}`} title={queue.next.title} poster={queue.next.poster} onCancel={() => setEnded(false)} /> : <QueueEnd playlist={queue} poster={work.poster} onClose={() => setEnded(false)} />
+      : nextUnit && <NextUp to={unitHref(work, nextUnit)} label={`下一集 · ${episodeCode(nextUnit)}`} title={displayTitle(nextUnit)} poster={work.poster} onCancel={() => setEnded(false)} />)}</Player> : <p className="p-8">{work.kind === "series" ? "这一集片源暂缺，可在下方选择其他集。" : "片源暂缺。"}</p>}
     {queue && <QueueBar queue={queue} />}
     <div className="flex flex-wrap items-center gap-2 px-4 py-3">{source && <WatchedButton unitId={unit.id} completed={completed} revision={revision} onChange={setCompleted} />}<AddToPlaylist item={work.kind === "series" ? { unitId: unit.id } : { workId: work.slug }} size="sm" />{source && <div className="ml-auto flex gap-2"><DanmakuBlockWords limits={danmaku} />{admin && <DanmakuAdmin unitId={unit.id} kind={work.kind === "series" ? "episode" : "movie"} />}</div>}</div>
     <div className="screen-line-top screen-line-bottom flex flex-col gap-2 p-4">{facts.length > 0 && <p className="font-mono text-xs text-muted-foreground">{facts.join(" · ")}</p>}<Overview item={work.kind === "series" ? unit : work} /></div>
-    {work.kind === "series" && <><Separator /><Panel><PanelHeader><PanelTitle>第 {unit.seasonNumber} 季<PanelTitleSup>({episodes.length} 集)</PanelTitleSup></PanelTitle></PanelHeader><ol ref={list} className="no-scrollbar relative max-h-80 scroll-fade overflow-y-auto divide-y divide-line">{episodes.map(item => <li key={item.id}>{item.playable ? <Link aria-current={item.id === unit.id ? "page" : undefined} className={cn("flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent-muted", item.id === unit.id && "bg-accent")} to={`/watch/${item.id}`}><span className="w-6 shrink-0 font-mono text-xs text-muted-foreground tabular-nums">{String(item.number).padStart(2, "0")}</span><span className={cn("min-w-0 flex-1 truncate", item.id === unit.id && "font-medium")}>{displayTitle(item)}</span>{item.id === unit.id ? <span className="font-mono text-[11px] text-muted-foreground">正在播放</span> : item.completed ? <CheckIcon className="size-4 text-success" aria-label="已看完" /> : item.positionSeconds > 0 && item.durationSeconds ? <ProgressBar value={item.positionSeconds / item.durationSeconds} className="w-10" /> : <span className="font-mono text-[11px] text-muted-foreground">{formatRuntime(item.runtimeMin)}</span>}</Link> : <span className="flex items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground"><span className="w-6 shrink-0 font-mono text-xs">{String(item.number).padStart(2, "0")}</span><span className="min-w-0 flex-1 truncate">{displayTitle(item)}</span><span className="font-mono text-[11px]">片源暂缺</span></span>}</li>)}</ol><PanelFooterLink to={`/title/${work.slug}?season=${unit.seasonNumber}`}>全部季</PanelFooterLink></Panel></>}
+    {work.kind === "series" && <><Separator /><Panel><PanelHeader><PanelTitle>第 {unit.seasonNumber} 季<PanelTitleSup>({episodes.length} 集)</PanelTitleSup></PanelTitle></PanelHeader><ol ref={list} className="no-scrollbar relative max-h-80 scroll-fade overflow-y-auto divide-y divide-line">{episodes.map(item => <li key={item.id}>{item.playable ? <Link aria-current={item.id === unit.id ? "page" : undefined} className={cn("flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-accent-muted", item.id === unit.id && "bg-accent")} to={unitHref(work, item)}><span className="w-6 shrink-0 font-mono text-xs text-muted-foreground tabular-nums">{String(item.number).padStart(2, "0")}</span><span className={cn("min-w-0 flex-1 truncate", item.id === unit.id && "font-medium")}>{displayTitle(item)}</span>{item.id === unit.id ? <span className="font-mono text-[11px] text-muted-foreground">正在播放</span> : item.completed ? <CheckIcon className="size-4 text-success" aria-label="已看完" /> : item.positionSeconds > 0 && item.durationSeconds ? <ProgressBar value={item.positionSeconds / item.durationSeconds} className="w-10" /> : <span className="font-mono text-[11px] text-muted-foreground">{formatRuntime(item.runtimeMin)}</span>}</Link> : <span className="flex items-center gap-3 px-4 py-2.5 text-sm text-muted-foreground"><span className="w-6 shrink-0 font-mono text-xs">{String(item.number).padStart(2, "0")}</span><span className="min-w-0 flex-1 truncate">{displayTitle(item)}</span><span className="font-mono text-[11px]">片源暂缺</span></span>}</li>)}</ol><PanelFooterLink to={seasonHref(work, unit.seasonNumber)}>全部季</PanelFooterLink></Panel></>}
     <Separator /><Discussion unitId={unit.id} kind={work.kind === "series" ? "episode" : "movie"} />
   </Page>;
 }
@@ -74,7 +75,7 @@ function QueueBar({ queue: { id, title, position, watched, next } }: { queue: No
     <div className="flex min-w-0 items-center gap-4 px-4 py-3"><ListVideoIcon className="size-5 shrink-0 text-muted-foreground" /><div className="min-w-0 flex-1"><div className="font-mono text-xs text-muted-foreground tabular-nums">{`按顺序播放 · ${pad(position + 1)} / ${pad(watched.length)}${next ? "" : " · 最后一项"}`}</div><Link to={`/playlists/${id}`} className="block truncate font-medium hover:underline">{title}</Link></div>
       {/* One segment per unit; long queues fall back to a plain bar so segments stay visible. */}
       {watched.length <= queueSegmentsMax ? <ol className="flex w-28 shrink-0 gap-0.5 sm:w-40" aria-hidden>{watched.map((done, index) => <li key={index} className={cn("h-1 flex-1", index === position ? "bg-foreground" : done ? "bg-foreground/40" : "bg-foreground/10")} />)}</ol> : <ProgressBar value={(position + 1) / watched.length} className="w-28 shrink-0 sm:w-40" />}</div>
-    {next && <Link to={`/watch/${next.id}?playlist=${id}`} className="group flex min-w-0 items-center gap-3 border-t border-line px-4 py-3 transition-[background-color] ease-out hover:bg-accent-muted sm:border-t-0 sm:border-l"><Poster src={next.poster} alt="" className="w-7 shrink-0" /><div className="min-w-0 flex-1"><div className="font-mono text-xs text-muted-foreground">{`下一项 · ${next.label}${next.year ? ` · ${next.year}` : ""}`}</div><div className="truncate text-sm font-medium">{next.title}</div></div><ChevronRightIcon className="size-4 shrink-0 text-muted-foreground transition-transform ease-out group-hover:translate-x-0.5" /></Link>}
+    {next && <Link to={`${next.href}?playlist=${id}`} className="group flex min-w-0 items-center gap-3 border-t border-line px-4 py-3 transition-[background-color] ease-out hover:bg-accent-muted sm:border-t-0 sm:border-l"><Poster src={next.poster} alt="" className="w-7 shrink-0" /><div className="min-w-0 flex-1"><div className="font-mono text-xs text-muted-foreground">{`下一项 · ${next.label}${next.year ? ` · ${next.year}` : ""}`}</div><div className="truncate text-sm font-medium">{next.title}</div></div><ChevronRightIcon className="size-4 shrink-0 text-muted-foreground transition-transform ease-out group-hover:translate-x-0.5" /></Link>}
   </div>;
 }
 const nextCountdown = 10;
@@ -84,8 +85,8 @@ function PlayerCard({ poster, children }: { poster: string; children: React.Reac
 }
 const cardPrimary = "bg-white text-zinc-950 hover:bg-white/85", cardGhost = "text-white hover:bg-white/10 hover:text-white";
 // Counts down to the next unit; the step there carries the autoplay intent, and a blocked autoplay leaves the player's own play button.
-function NextUp({ unit, label, title, poster, search = "", onCancel }: { unit: { id: string }; label: string; title: string; poster: string; search?: string; onCancel: () => void }) {
-  const navigate = useNavigate(), [left, setLeft] = useState(nextCountdown), to = `/watch/${unit.id}${search}`;
+function NextUp({ to, label, title, poster, onCancel }: { to: string; label: string; title: string; poster: string; onCancel: () => void }) {
+  const navigate = useNavigate(), [left, setLeft] = useState(nextCountdown);
   useEffect(() => {
     if (left <= 0) { void navigate(to, { state: { autoplay: true } }); return; }
     const timer = setTimeout(() => setLeft(value => value - 1), 1000);

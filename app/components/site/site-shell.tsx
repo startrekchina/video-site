@@ -23,7 +23,9 @@ import { useHeaderTone } from "@/lib/header-tone";
 const mainNavigation = [{ to: "/", label: "首页", end: true }, { to: "/series", label: "剧集" }, { to: "/movies", label: "电影" }, { to: "/library", label: "我的片库" }];
 const guestNavigation = [{ to: "/", label: "首页", end: true }, { to: "/about", label: "关于" }];
 type Member = { username: string; role: "member" | "admin" };
-export type SearchWork = Pick<Work, "slug" | "kind" | "titleZh" | "titleEn" | "code" | "year">;
+export type SearchWork = Pick<Work, "slug" | "href" | "kind" | "titleZh" | "titleEn" | "code" | "year">;
+// Navigation state for in-page switches whose path changes, such as a season tab: the page stays where it was.
+export const keepScroll = { keepScroll: true };
 
 function UserMenu({ member }: { member: Member }) {
   const navigate = useNavigate(), [busy, setBusy] = useState(false);
@@ -53,11 +55,11 @@ function BottomNav({ member, onSearch }: { member: Member; onSearch: () => void 
 }
 
 export function SiteShell({ children, member, catalog }: { children: ReactNode; member?: Member | null; catalog?: { works: SearchWork[] } | null }) {
-  const theme = useTheme(), tone = useHeaderTone(), [searchOpen, setSearchOpen] = useState(false), { pathname } = useLocation();
+  const theme = useTheme(), tone = useHeaderTone(), [searchOpen, setSearchOpen] = useState(false), { pathname, state } = useLocation();
   useHotkey("d", toggleTheme);
   useHotkey("k", () => setSearchOpen(open => !open), { mod: true, enabled: Boolean(member) });
   useHotkey("/", () => setSearchOpen(true), { enabled: Boolean(member) });
-  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  useEffect(() => { if ((state as typeof keepScroll | null)?.keepScroll !== true) window.scrollTo(0, 0); }, [pathname]);
   const navigation = member ? [...mainNavigation, ...(member.role === "admin" ? [{ to: "/admin", label: "管理后台" }] : [])] : guestNavigation;
   const authPage = ["/login", "/register", "/forgot-password", "/reset-password", "/reset-password/complete", "/verify-email", "/verify-pending"].includes(pathname);
   return <TooltipProvider><div className="group/layout relative isolate content-frame has-data-[slot=auth-frame]:flex has-data-[slot=auth-frame]:min-h-svh has-data-[slot=auth-frame]:flex-col">

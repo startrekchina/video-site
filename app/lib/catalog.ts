@@ -1,6 +1,9 @@
 export type Episode = { id: string; number: number; seasonNumber: number; tmdbId: number; titleZh: string | null; titleEn: string | null; overviewZh: string | null; overviewEn: string | null; airDate: string | null; runtimeMin: number | null; durationSeconds: number | null; still: string | null; playable: boolean; positionSeconds: number; completed: boolean; updatedAt: number; revision: number };
-export type WorkCard = { slug: string; kind: "series" | "movie"; tmdbId: number; titleZh: string; titleEn: string; overviewZh: string | null; overviewEn: string | null; year: number | null; poster: string; code: string; seasonCount: number; episodeCount: number; watchedCount: number; runtimeMin?: number | null; unitId?: string; favorite: boolean };
+export type WorkCard = { slug: string; href: string; kind: "series" | "movie"; tmdbId: number; titleZh: string; titleEn: string; overviewZh: string | null; overviewEn: string | null; year: number | null; poster: string; code: string; seasonCount: number; episodeCount: number; watchedCount: number; runtimeMin?: number | null; unitId?: string; favorite: boolean };
 export type Work = WorkCard & { seasons: { id: string; number: number; episodes: Episode[] }[]; units: Episode[] };
+// Page paths (B 6.11): a season adds s<n> to the work's path, an episode e<m>; a movie plays at /watch.
+export const seasonHref = (work: Pick<WorkCard, "href">, season: number) => `${work.href}/s${season}`;
+export const unitHref = (work: Pick<WorkCard, "kind" | "href">, unit: Pick<Episode, "seasonNumber" | "number">) => work.kind === "movie" ? `${work.href}/watch` : `${seasonHref(work, unit.seasonNumber)}/e${unit.number}`;
 export function workCard({ seasons, units, ...card }: Work): WorkCard { return card; }
 export const displayTitle = (unit: { titleZh: string | null; titleEn: string | null }) => unit.titleZh || unit.titleEn || "标题暂缺";
 export const episodeCode = (unit: Pick<Episode, "seasonNumber" | "number">) => `S${String(unit.seasonNumber).padStart(2, "0")}E${String(unit.number).padStart(2, "0")}`;
