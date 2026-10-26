@@ -14,6 +14,38 @@ async function send(body: object, headers: Record<string, string> = {}, config =
   await waitOnExecutionContext(ctx); return response;
 }
 afterEach(() => vi.restoreAllMocks());
+
+it.each([false, true])("cleans a previous restore's plaintext before replacing its control record (delete fails=%s)", async fails => {
+  await applyD1Migrations(env.TEST_RESTORE_DB, env.TEST_MIGRATIONS);
+  const config = { ...bindings, APP_ENV: "staging" }, control = key.replace("/test/", "/staging/");
+  const plaintextKey = `backup-restore/staging/${crypto.randomUUID()}/source.sql`, previous = { updatedAt: Date.now() - 2000, deadline: 0, plaintextKey };
+  await env.MEDIA_BUCKET.put(plaintextKey, "fictional abandoned plaintext"); await env.MEDIA_BUCKET.put(control, JSON.stringify(previous));
+  const remove = env.MEDIA_BUCKET.delete.bind(env.MEDIA_BUCKET);
+  vi.spyOn(env.MEDIA_BUCKET, "delete").mockImplementation(async name => {
+    if (fails && name === plaintextKey) throw new Error("fictional-delete-failure");
+    return remove(name);
+  });
+  const response = await send({ action: "review" }, {}, config);
+  expect(response.status).toBe(fails ? 503 : 200);
+  if (fails) {
+    expect(await response.json()).toMatchObject({ error: "RESTORE_PLAINTEXT_CLEANUP_FAILED" });
+    expect(await (await env.MEDIA_BUCKET.get(control))!.json()).toEqual(previous);
+    expect(await env.MEDIA_BUCKET.head(plaintextKey)).not.toBeNull();
+  } else {
+    expect(await env.MEDIA_BUCKET.head(plaintextKey)).toBeNull();
+    expect(await (await env.MEDIA_BUCKET.get(control))!.json()).toMatchObject({ deadline: 0 });
+    expect(await (await env.MEDIA_BUCKET.get(control))!.json()).not.toHaveProperty("plaintextKey");
+  }
+});
+
+it("refuses a prior cleanup pointer outside the recovery environment", async () => {
+  const config = { ...bindings, APP_ENV: "staging" }, control = key.replace("/test/", "/staging/");
+  const plaintextKey = `backup-restore/production/${crypto.randomUUID()}/source.sql`, previous = { updatedAt: Date.now() - 2000, deadline: 0, plaintextKey };
+  await env.MEDIA_BUCKET.put(plaintextKey, "fictional protected data"); await env.MEDIA_BUCKET.put(control, JSON.stringify(previous));
+  const remove = vi.spyOn(env.MEDIA_BUCKET, "delete");
+  expect((await send({ action: "review" }, {}, config)).status).toBe(500);
+  expect(remove).not.toHaveBeenCalled(); expect(await (await env.MEDIA_BUCKET.get(control))!.json()).toEqual(previous);
+});
 it("requires a separate operator token, rejects browser origins and non-JSON, and never exposes a public restoration path", async () => {
   const rejected: Record<string, string>[] = [{ Authorization: "" }, { Authorization: "Bearer wrong" }, { Origin: "https://recovery.example.test" }];
   for (const headers of rejected) {

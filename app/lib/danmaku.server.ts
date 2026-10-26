@@ -43,13 +43,12 @@ export async function danmakuHttp(request: Request, env: Env, identity = createR
   if (route === "GET admin") {
     const raw = url.searchParams.get("page") ?? "1", page = /^\d{1,6}$/u.test(raw) ? Number(raw) : 0, size = settings.danmaku.adminPageSize;
     if (page < 1) invalid();
-    const current = await read(reader => reader.batch<Record<string, unknown>>([
+    admin((await read(async () => null)).member.role);
+    const reader = db.withSession("first-primary"), [count, rows] = await reader.batch<Record<string, unknown>>([
       reader.prepare("SELECT count(*) AS total FROM danmaku WHERE playable_unit_id = ?").bind(unitId),
       reader.prepare(`SELECT ${fields}, d.created_at AS createdAt, coalesce(u.displayUsername, u.username) AS author FROM danmaku d
         JOIN "user" u ON u.id = d.author_user_id WHERE d.playable_unit_id = ? ORDER BY d.position_seconds, d.created_at, d.id LIMIT ? OFFSET ?`)
-        .bind(unitId, size, (page - 1) * size)]));
-    admin(current.member.role);
-    const [count, rows] = current.value;
+        .bind(unitId, size, (page - 1) * size)]);
     return respond(request, { data: { items: rows.results as AdminDanmaku[], total: count.results[0].total as number, pageSize: size } });
   }
   if (route === "DELETE item") {

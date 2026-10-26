@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import worker from "../workers/app";
 import { login, member, request } from "./fixtures/auth";
 import { verifyEncryptedBackup } from "@/lib/backup-storage.server";
-import { runScheduledBackup, updateBackupSchedule } from "@/lib/backups.server";
+import { backupStatus, runScheduledBackup, updateBackupSchedule } from "@/lib/backups.server";
 import { settings } from "@/lib/settings.server";
 
 const runtime: Env = { ...env, APP_ENV: "test", OWNER_EMAIL: "NOVA@example.test", BACKUP_ACCOUNT_ID: "a".repeat(32),
@@ -40,6 +40,91 @@ const data = async <T = PublicJob>(response: Response) => (await response.json()
 const create = async () => data(await send("/admin/backups", input));
 const stateKey = (id: string) => `backup-control/test/jobs/${id}.json`;
 const state = async (id: string) => (await env.MEDIA_BUCKET.get(stateKey(id)))!.json<{ sourceId: string; attempt: string; result: { file: string }; [key: string]: unknown }>();
+
+it.each(["lease", "job"])("releases an interrupted backup whose initial %s write is still in flight", async blockedWrite => {
+  const network = mockExport(), put = env.MEDIA_BUCKET.put.bind(env.MEDIA_BUCKET), controller = new AbortController(), ctx = createExecutionContext();
+  let entered!: () => void, resume!: () => void, blocked = false;
+  const writing = new Promise<void>(resolve => { entered = resolve; }), gate = new Promise<void>(resolve => { resume = resolve; });
+  vi.spyOn(env.MEDIA_BUCKET, "put").mockImplementation(async (key, value, options) => {
+    if (!blocked && (blockedWrite === "lease" ? key === "backup-control/test/lease.json" : key.startsWith("backup-control/test/jobs/"))) {
+      blocked = true; entered(); await gate;
+    }
+    return put(key, value, options);
+  });
+  const requestWork = worker.fetch(new Request(request("/admin/backups", input, owner), { signal: controller.signal }), runtime, ctx);
+  try {
+    await writing; controller.abort(); let finished = false;
+    const background = waitOnExecutionContext(ctx).then(() => { finished = true; });
+    await new Promise(resolve => setTimeout(resolve, 1200)); expect.soft(finished).toBe(false);
+    resume(); await requestWork; await background;
+    expect(await (await env.MEDIA_BUCKET.get("backup-control/test/lease.json"))!.json()).toMatchObject({ deadline: 0 });
+    expect(network).not.toHaveBeenCalled();
+    const status = await backupStatus(runtime);
+    expect(status.items).toHaveLength(blockedWrite === "lease" ? 0 : 1);
+    if (blockedWrite === "job") expect(status.items[0]).toMatchObject({ status: "failed", failure: { code: "BACKUP_INTERRUPTED" } });
+  } finally { resume(); await requestWork; await waitOnExecutionContext(ctx); }
+}, 10000);
+
+it("reports corrupt job records without hiding readable jobs or authorizing cleanup", async () => {
+  mockExport(); const good = await create(), damaged = await create(), original = await state(damaged.id);
+  const mutations = [{ ...original, result: {} }, { ...original, result: { ...original.result, source: { environment: "staging" } } },
+    { ...original, receipt: { target: "webdav", destinationId: "0".repeat(64), name: "foreign-file.stcnbak", verifiedAt: Date.now() } }];
+  for (const record of mutations) {
+    await env.MEDIA_BUCKET.put(stateKey(damaged.id), JSON.stringify(record));
+    const status = await backupStatus(runtime); expect(status.invalidJobs).toEqual([damaged.id]);
+    expect(status.items.map(job => job.id)).toEqual([good.id]);
+    expect((await send(`/admin/backups/${damaged.id}/download`)).status).toBe(503);
+    const remove = vi.spyOn(env.MEDIA_BUCKET, "delete");
+    expect((await send("/admin/backups/cleanup", {})).status).toBe(503);
+    expect(remove).not.toHaveBeenCalled(); remove.mockRestore();
+  }
+}, 20000);
+
+it("keeps a corrupt lease closed to backups but releases the scan exclusion after the task timeout", async () => {
+  const key = "backup-control/test/lease.json"; await env.MEDIA_BUCKET.put(key, "{broken");
+  const uploaded = (await env.MEDIA_BUCKET.head(key))!.uploaded.getTime(), ctx = createExecutionContext();
+  expect(await runScheduledBackup(runtime, ctx, Date.now())).toMatchObject({ status: "schedule_failed", busy: true });
+  vi.spyOn(Date, "now").mockReturnValue(uploaded + settings.backupTaskTimeout * 1000 + 1);
+  expect(await runScheduledBackup(runtime, ctx, Date.now())).toMatchObject({ status: "schedule_failed", busy: false });
+  expect((await send("/admin/backups", input)).status).toBe(503);
+  expect(await (await env.MEDIA_BUCKET.get(key))!.text()).toBe("{broken");
+  await waitOnExecutionContext(ctx);
+});
+
+it("marks backup configuration unavailable when the authentication key is missing or too short", async () => {
+  for (const secret of ["", "short"]) expect(await backupStatus({ ...runtime, BETTER_AUTH_SECRET: secret }))
+    .toMatchObject({ targets: { download: false }, schedule: { available: false }, unavailableReason: expect.any(String) });
+});
+
+it("keeps encrypted downloads available when optional authentication-key metadata is absent", async () => {
+  mockExport(); const job = await create();
+  const original = await (await env.MEDIA_BUCKET.get(stateKey(job.id)))!.json<{ result: { source: { authKeyId?: string } } }>();
+  delete original.result.source.authKeyId; await env.MEDIA_BUCKET.put(stateKey(job.id), JSON.stringify(original));
+  expect((await backupStatus(runtime)).items[0]).toMatchObject({ id: job.id, downloadReady: true, authKeyId: null });
+  const response = await send(`/admin/backups/${job.id}/download`); expect(response.status).toBe(200); await response.body!.cancel();
+});
+
+it.each(["download", "webdav"] as const)("preserves the protected %s object when another job misstates the same source's age", async target => {
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  let remote = new Uint8Array(), deletes = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (!String(url).startsWith(bindings.WEBDAV_URL)) return String(url) === signed ? download() : complete();
+    if (init?.method === "PUT") { remote = new Uint8Array(await new Response(init.body).arrayBuffer()); return new Response(null); }
+    if (init?.method === "DELETE") { deletes++; return new Response(null); }
+    return new Response(remote);
+  }));
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() - 31 * 86400000);
+  const job = await data(await send("/admin/backups", { ...input, target }, owner, bindings));
+  const original = await (await env.MEDIA_BUCKET.get(stateKey(job.id)))!.json<{ sourceId: string; result: { file: string; source: { createdAt: number } } }>();
+  clock.mockRestore();
+  const duplicate = { ...original, id: job.id.slice(0, 17) + crypto.randomUUID(),
+    result: { ...original.result, source: { ...original.result.source, createdAt: original.result.source.createdAt - 86400000 } } };
+  await env.MEDIA_BUCKET.put(stateKey(duplicate.id), JSON.stringify(duplicate));
+  expect(await data(await send("/admin/backups/cleanup", {}, owner, bindings))).toMatchObject({ status: "complete", deleted: 0 });
+  expect(deletes).toBe(0);
+  expect(await env.MEDIA_BUCKET.head(`backups/test/${original.sourceId}/${original.result.file}.bin`)).not.toBeNull();
+  expect((await backupStatus(bindings)).items.every(item => item.downloadReady)).toBe(true);
+}, 10000);
 
 it("keeps a verified encrypted download after external failure and retries without exporting or encrypting again", async () => {
   const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
@@ -219,6 +304,75 @@ it("protects the last known-key R2 copy past retention and cleans only older bac
   expect((await data(await send(`/admin/backups/${first.id}`))).downloadReady).toBe(false);
   expect((await data(await send(`/admin/backups/${second.id}`))).downloadReady).toBe(true);
   expect(await env.MEDIA_BUCKET.head("library/fictional.mp4")).not.toBeNull();
+}, 15000);
+
+it("keeps changed destinations pending while cleaning the current location, then closes only on owner confirmation", async () => {
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/old/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  const remote = new Map<string, ArrayBuffer>();
+  const network = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith("https://dav.example.test/")) {
+      if (init?.method === "PUT") { remote.set(String(url), await new Response(init.body).arrayBuffer()); return new Response(null); }
+      if (init?.method === "DELETE") { remote.delete(String(url)); return new Response(null); }
+      return new Response(remote.get(String(url)));
+    }
+    return String(url) === signed ? download() : complete();
+  });
+  vi.stubGlobal("fetch", network);
+  const body = { target: "webdav", maintenanceConfirmed: true }, old = await data(await send("/admin/backups", body, owner, bindings));
+  const oldRemote = [...remote.keys()][0];
+  vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 86400_000);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+  owner = await login("Nova"); vi.stubGlobal("fetch", network);
+  const changed = { ...bindings, WEBDAV_URL: "https://dav.example.test/current/" };
+  const fresh = await data(await send("/admin/backups", body, owner, changed));
+  expect(fresh).toMatchObject({ status: "complete", cleanup: { status: "pending", pending: 1 } });
+  const pending = await data<{ updatedAt: number }>(await send(`/admin/backups/${old.id}`, undefined, owner, changed));
+  expect(pending).toMatchObject({ externalPending: true, r2Deleted: true, deleted: false, externalClosedAt: null });
+  expect(remote.has(oldRemote)).toBe(true);
+  const path = `/admin/backups/${old.id}/close-external`, confirmation = { confirmed: true, updatedAt: pending.updatedAt };
+  expect((await send(path, { ...confirmation, confirmed: false }, owner, changed)).status).toBe(400);
+  expect((await send(path, { ...confirmation, updatedAt: 1 }, owner, changed)).status).toBe(409);
+  for (let repeat = 0; repeat < 2; repeat++) {
+    const closed = await send(path, confirmation, owner, changed);
+    expect(closed.status).toBe(200);
+    expect(await data(closed)).toMatchObject({ externalPending: false, deleted: true, externalClosedAt: expect.any(Number) });
+  }
+  expect((await state(old.id)).externalDeleted).not.toBe(true);
+  expect(remote.has(oldRemote)).toBe(true);
+  expect(await data(await send("/admin/backups/cleanup", {}, owner, changed))).toMatchObject({ status: "complete" });
+  expect(await data(await send(`/admin/backups/${fresh.id}`, undefined, owner, changed))).toMatchObject({ downloadReady: true });
+}, 20000);
+
+it("guards old-location confirmation by owner, origin, current destination, live lease and record version", async () => {
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/old/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  let remote = new ArrayBuffer(0);
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith(bindings.WEBDAV_URL)) {
+      if (init?.method === "PUT") { remote = await new Response(init.body).arrayBuffer(); return new Response(null); }
+      return new Response(remote);
+    }
+    return String(url) === signed ? download() : complete();
+  }));
+  const job = await data(await send("/admin/backups", { target: "webdav", maintenanceConfirmed: true }, owner, bindings));
+  const original = await state(job.id), path = `/admin/backups/${job.id}/close-external`;
+  const body = { confirmed: true, updatedAt: original.updatedAt }, changed = { ...bindings, WEBDAV_URL: "https://dav.example.test/new/" };
+  for (const cookie of [ordinary, admin]) expect((await send(path, body, cookie, changed)).status).toBe(403);
+  expect((await send(path, body, owner, changed, { Origin: "https://other.example.test" })).status).toBe(403);
+  expect((await send(path, body, owner, bindings)).status).toBe(409);
+  await env.MEDIA_BUCKET.put("backup-control/test/lease.json", JSON.stringify({ deadline: Date.now() + 60000 }));
+  expect((await send(path, body, owner, changed)).status).toBe(409);
+  await env.MEDIA_BUCKET.delete("backup-control/test/lease.json");
+  const originalPut = env.MEDIA_BUCKET.put.bind(env.MEDIA_BUCKET), concurrent = { ...original, updatedAt: Number(original.updatedAt) + 1 };
+  const put = vi.spyOn(env.MEDIA_BUCKET, "put").mockImplementationOnce(async (key, value, options) => {
+    await originalPut(key, JSON.stringify(concurrent));
+    return originalPut(key, value, options);
+  });
+  try { expect((await send(path, body, owner, changed)).status).toBe(409); }
+  finally { put.mockRestore(); }
+  expect(await state(job.id)).toEqual(concurrent);
+  const closed = await send(path, { ...body, updatedAt: concurrent.updatedAt }, owner, changed);
+  expect(closed.status).toBe(200);
+  expect(await data(closed)).toMatchObject({ downloadReady: true, r2Deleted: false, deleted: false, externalPending: false });
 }, 15000);
 
 it("cleans expired source prefixes abandoned by a retry without a source completion marker", async () => {

@@ -117,7 +117,8 @@ export function createSiteAuth(env: Env, identity: RequestIdentity) {
       }
       if (ctx.path === "/request-password-reset" || ctx.path === "/send-verification-email" || ctx.path === "/change-email") {
         mail = await reserveMail(env, ctx.path === "/change-email" ? ctx.body.newEmail : ctx.body.email,
-          ctx.path === "/request-password-reset" ? "password_reset" : ctx.path === "/change-email" ? "email_change_verification" : "verification_resend");
+          ctx.path === "/request-password-reset" ? "password_reset" : ctx.path === "/change-email" ? "email_change_verification" : "verification_resend",
+          ctx.path === "/change-email" ? ctx.context.session!.session.userId : undefined);
       }
     }) }], after: [{ matcher: () => true, handler: createAuthMiddleware(async ctx => {
       // The public session endpoint has already performed native verification and rolling renewal.

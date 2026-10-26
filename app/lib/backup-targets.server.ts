@@ -31,6 +31,9 @@ function destination(env: Env, target: ExternalBackupTarget) {
 export function backupTargetAvailability(env: Env) {
   return { webdav: !!destination(env, "webdav"), s3: !!destination(env, "s3") };
 }
+export function backupDestinationMatches(env: Env, receipt: BackupReceipt) {
+  return destination(env, receipt.target)?.id === receipt.destinationId;
+}
 async function targetFetch(env: Env, target: ExternalBackupTarget, name: string, method: "PUT" | "GET" | "DELETE", signal: AbortSignal,
   payload?: { body: ReadableStream<Uint8Array>; byteLength: number; sha256: string }) {
   const dest = destination(env, target);
@@ -63,14 +66,19 @@ export async function uploadBackup(env: Env, target: ExternalBackupTarget, artif
     if (object && "body" in object) await object.body.cancel();
     throw new Error("BACKUP_OBJECT_CHANGED");
   }
-  const put = await targetFetch(env, target, name, "PUT", signal, { ...artifact, body: object.body });
-  await put.body?.cancel(); if (!put.ok) throw new Error("BACKUP_TARGET_UPLOAD_FAILED");
+  try {
+    const put = await targetFetch(env, target, name, "PUT", signal, { ...artifact, body: object.body });
+    await put.body?.cancel(); if (!put.ok) throw new Error("BACKUP_TARGET_UPLOAD_FAILED");
+  } finally {
+    // A preflight failure leaves the source open; fetch may already own or have consumed it.
+    await object.body.cancel().catch(() => {});
+  }
   const receipt = { ...attempted, verifiedAt: Date.now() };
   await verifyExternalBackup(env, receipt, artifact, signal);
   return receipt;
 }
 export async function verifyExternalBackup(env: Env, receipt: BackupReceipt, artifact: BackupArtifact, signal: AbortSignal) {
-  if (destination(env, receipt.target)?.id !== receipt.destinationId) throw new Error("BACKUP_TARGET_CHANGED");
+  if (!backupDestinationMatches(env, receipt)) throw new Error("BACKUP_TARGET_CHANGED");
   const get = await targetFetch(env, receipt.target, receipt.name, "GET", signal);
   if (!get.ok || !get.body || get.headers.get("Content-Encoding") && get.headers.get("Content-Encoding") !== "identity") {
     await get.body?.cancel(); throw new Error("BACKUP_TARGET_VERIFY_FAILED");
@@ -80,7 +88,7 @@ export async function verifyExternalBackup(env: Env, receipt: BackupReceipt, art
 }
 export async function deleteExternalBackup(env: Env, receipt: BackupReceipt, signal: AbortSignal) {
   // Changed targets cannot authorize deletion in a different storage location.
-  if (destination(env, receipt.target)?.id !== receipt.destinationId) throw new Error("BACKUP_TARGET_CHANGED");
+  if (!backupDestinationMatches(env, receipt)) throw new Error("BACKUP_TARGET_CHANGED");
   const response = await targetFetch(env, receipt.target, receipt.name, "DELETE", signal);
   await response.body?.cancel();
   if (!response.ok && response.status !== 404) throw new Error("BACKUP_TARGET_DELETE_FAILED");

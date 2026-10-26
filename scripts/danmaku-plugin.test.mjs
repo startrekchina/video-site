@@ -7,6 +7,25 @@ const source = readFileSync(new URL("../node_modules/artplayer-plugin-danmuku/di
 const start = source.indexOf("class Danmuku {"), end = source.indexOf("const lib =", start);
 assert.ok(start >= 0 && end > start);
 const Danmuku = runInNewContext(`${source.slice(start, end)}; Danmuku`);
+
+test("the editor accepts 50 Unicode code points, limits pasted text, and waits for composition to finish", () => {
+  const settingStart = source.indexOf("class Setting {"), settingEnd = source.indexOf("\n}", settingStart) + 2;
+  assert.ok(settingStart >= 0 && settingEnd > settingStart);
+  const settingSource = source.slice(settingStart, settingEnd);
+  const icons = Object.fromEntries([...settingSource.matchAll(/\$[a-zA-Z_][a-zA-Z_0-9]*/g)].map(([name]) => [name, ""]));
+  const Setting = runInNewContext(`${settingSource}; Setting`, icons), setting = Object.create(Setting.prototype);
+  const input = { value: "" }, events = new Map();
+  Object.assign(setting, { template: { $input: input }, danmuku: { option: { ...Danmuku.option, maxLength: 50 } },
+    art: { proxy(target, event, handler) { if (target === input) events.set(event, handler); } } });
+  assert.match(setting.TEMPLATE, /maxLength="100"/);
+  setting.createEvents();
+  for (const text of ["😀".repeat(50), "字".repeat(50), "😀字".repeat(25)]) {
+    input.value = text; events.get("input")({ isComposing: false }); assert.equal(input.value, text);
+    input.value += "😀extra"; events.get("input")({ isComposing: false }); assert.equal(input.value, text);
+  }
+  input.value = "字".repeat(51); events.get("input")({ isComposing: true }); assert.equal(input.value.length, 51);
+  events.get("compositionend")({}); assert.equal(input.value, "字".repeat(50));
+});
 function instance(items = []) {
   const plugin = Object.create(Danmuku.prototype);
   Object.assign(plugin, { art: { currentTime: 120, emit() {} }, utils: { clamp: (v, min, max) => Math.max(min, Math.min(v, max)) },

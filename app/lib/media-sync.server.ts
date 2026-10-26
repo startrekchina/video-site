@@ -83,70 +83,70 @@ export async function syncMedia(env: Env) {
       result.unattached++;
       console.warn(JSON.stringify({ event: "media_sync_variant_unattached", unitId, reason, ...identity }));
     };
-    // Only a pass that lists the whole prefix in one run can prove that an object is gone.
-    const fullPass = !locked.cursor, listed = new Set<string>();
-    let cursor = locked.cursor ?? undefined, validated = 0;
-    const checkpoint = (key: string | undefined) => db.prepare("UPDATE media_sync_state SET cursor = ?, updated_at = ? WHERE id = 'catalog' AND lease_id = ?").bind(key ?? null, Date.now(), lease).run();
+    // Enumerate before reading content so validation failures cannot starve deletion detection.
+    const objects: R2Object[] = [];
+    let cursor: string | undefined;
     do {
       const page = await env.MEDIA_BUCKET.list({ prefix: "library/", limit: 1000, startAfter: cursor });
-      let last = cursor;
-      for (const object of page.objects) {
-        listed.add(object.key);
-        const identity = mediaIdentity(object.key); if (!identity) { last = object.key; result.unknown++; continue; }
-        const unitId = identities.get(identityKey(identity)); if (!unitId) { last = object.key; result.unknown++; continue; }
-        const knownObject = versions.get(object.key);
-        if (knownObject?.r2_etag === object.etag && knownObject.byte_length === object.size) { last = object.key; result.skipped++; continue; }
-        // Without an original there is nothing to compare against, so the tier is not read at all.
-        if (identity.variant && !originals.has(unitId)) { last = object.key; unattached(unitId, identity, "ORIGINAL_MISSING"); continue; }
-        if (validated++ >= 20 || controller.signal.aborted) { await checkpoint(last); result.deferred = true; return result; }
-        last = object.key;
-        const table = identity.language ? "subtitle_tracks" : "media_files", variant = identity.variant ?? "original";
-        try {
-          // The recorded version no longer matches R2, so the record stays unplayable unless the current object passes validation.
-          if (knownObject?.r2_etag) await db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE id = ?`).bind(knownObject.id).run();
-          const inspected = await inspectR2Media(env.MEDIA_BUCKET, object.key, object, Boolean(identity.language), controller.signal);
-          const existing = await db.prepare(`SELECT checksum_sha256, byte_length FROM ${table} WHERE playable_unit_id = ? AND ${identity.language ? "track_key = ?" : "format = 'mp4' AND variant = ?"}`)
-            .bind(unitId, identity.language ? identity.trackKey! : variant).first<{ checksum_sha256: string; byte_length: number }>();
-          controller.signal.throwIfAborted();
-          if (identity.variant && Math.abs(inspected.durationSeconds! - originals.get(unitId)!) > settings.qualityDurationTolerance) { unattached(unitId, identity, "DURATION_MISMATCH"); continue; }
-          // A replacement rewrites the existing row in place, so its id, media URL and member data stay unchanged.
-          const upsert = () => db.prepare(`INSERT INTO media_files (id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag)
-            VALUES (?, ?, 'mp4', ?, ?, ?, ?, ?, 'h264', 'aac', ?, ?) ON CONFLICT (playable_unit_id, format, variant) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
-            checksum_sha256 = excluded.checksum_sha256, duration_seconds = excluded.duration_seconds, bitrate = excluded.bitrate, r2_etag = excluded.r2_etag`)
-            .bind(crypto.randomUUID(), unitId, variant, object.key, inspected.byteLength, inspected.checksum, inspected.durationSeconds!, inspected.bitrate!, object.etag);
-          if (identity.language) await db.prepare(`INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256, r2_etag)
-            VALUES (?, ?, ?, 'vtt', ?, ?, ?, ?, ?, ?) ON CONFLICT (playable_unit_id, track_key) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
-            checksum_sha256 = excluded.checksum_sha256, r2_etag = excluded.r2_etag`)
-            .bind(crypto.randomUUID(), unitId, identity.language, subtitleTrack(identity.trackKey!)!.label, identity.trackKey, object.key, inspected.byteLength, inspected.checksum, object.etag).run();
-          // Only the original decides the unit's duration and playability.
-          else if (identity.variant) await upsert().run();
-          else {
-            await db.batch([db.prepare("UPDATE playable_units SET duration_seconds = ? WHERE id = ?").bind(inspected.durationSeconds!, unitId), upsert()]);
-            originals.set(unitId, inspected.durationSeconds!);
-          }
-          if (!existing) result.linked++;
-          else if (existing.checksum_sha256 === inspected.checksum && existing.byte_length === inspected.byteLength) result.skipped++;
-          else {
-            result.replaced++;
-            console.info(JSON.stringify({ event: "media_sync_replaced", unitId, resourceType: identity.language ? "subtitle" : "video", ...identity }));
-          }
-        } catch {
-          if (controller.signal.aborted) { await checkpoint(last); result.deferred = true; return result; }
-          result.failed++; console.warn(JSON.stringify({ event: "media_sync_rejected", unitId, code: "MEDIA_VALIDATION_OR_COMMIT_FAILED" }));
-        }
-      }
       requireValid(!page.truncated || page.objects.length > 0);
-      cursor = page.truncated ? last : undefined;
-      await checkpoint(cursor);
+      objects.push(...page.objects);
+      cursor = page.truncated ? page.objects.at(-1)!.key : undefined;
     } while (cursor && !controller.signal.aborted);
-    result.deferred = Boolean(cursor);
-    if (fullPass && !cursor) {
-      // A row whose key no longer follows the naming rules (e.g. a pre-SUB1 subtitle) is treated as gone, although its object stays in R2.
-      const gone = known.results.filter(file => file.r2_etag && file.object_key.startsWith("library/") && (!listed.has(file.object_key) || !mediaIdentity(file.object_key))).map(file => file.object_key);
-      // One set-based statement per table keeps any number of deletions within the per-invocation query limit.
-      if (gone.length) await db.batch(["media_files", "subtitle_tracks"].map(table => db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE object_key IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(gone))));
-      result.cleared = gone.length;
+    controller.signal.throwIfAborted();
+    const listed = new Set(objects.map(object => object.key));
+    // Obsolete naming rules also make a stored reference unusable, even if its object remains in R2.
+    const gone = known.results.filter(file => file.r2_etag && file.object_key.startsWith("library/") && (!listed.has(file.object_key) || !mediaIdentity(file.object_key))).map(file => file.object_key);
+    if (gone.length) await db.batch(["media_files", "subtitle_tracks"].map(table => db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE object_key IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(gone))));
+    result.cleared = gone.length;
+    let last = locked.cursor ?? undefined, validated = 0;
+    const checkpoint = (key: string | undefined) => db.prepare("UPDATE media_sync_state SET cursor = ?, updated_at = ? WHERE id = 'catalog' AND lease_id = ?").bind(key ?? null, Date.now(), lease).run();
+    for (const object of objects) {
+      if (locked.cursor && object.key <= locked.cursor) continue;
+      const identity = mediaIdentity(object.key); if (!identity) { last = object.key; result.unknown++; continue; }
+      const unitId = identities.get(identityKey(identity)); if (!unitId) { last = object.key; result.unknown++; continue; }
+      const knownObject = versions.get(object.key);
+      if (knownObject?.r2_etag === object.etag && knownObject.byte_length === object.size) { last = object.key; result.skipped++; continue; }
+      // Without an original there is nothing to compare against, so the tier is not read at all.
+      if (identity.variant && !originals.has(unitId)) { last = object.key; unattached(unitId, identity, "ORIGINAL_MISSING"); continue; }
+      if (controller.signal.aborted) { await checkpoint(last); result.deferred = true; return result; }
+      if (validated++ >= 20) { await checkpoint(last); result.deferred = true; return result; }
+      last = object.key;
+      const table = identity.language ? "subtitle_tracks" : "media_files", variant = identity.variant ?? "original";
+      try {
+        // The recorded version no longer matches R2, so the record stays unplayable unless the current object passes validation.
+        if (knownObject?.r2_etag) await db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE id = ?`).bind(knownObject.id).run();
+        const inspected = await inspectR2Media(env.MEDIA_BUCKET, object.key, object, Boolean(identity.language), controller.signal);
+        const existing = await db.prepare(`SELECT checksum_sha256, byte_length FROM ${table} WHERE playable_unit_id = ? AND ${identity.language ? "track_key = ?" : "format = 'mp4' AND variant = ?"}`)
+          .bind(unitId, identity.language ? identity.trackKey! : variant).first<{ checksum_sha256: string; byte_length: number }>();
+        controller.signal.throwIfAborted();
+        if (identity.variant && Math.abs(inspected.durationSeconds! - originals.get(unitId)!) > settings.qualityDurationTolerance) { unattached(unitId, identity, "DURATION_MISMATCH"); continue; }
+        // A replacement rewrites the existing row in place, so its id, media URL and member data stay unchanged.
+        const upsert = () => db.prepare(`INSERT INTO media_files (id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag)
+          VALUES (?, ?, 'mp4', ?, ?, ?, ?, ?, 'h264', 'aac', ?, ?) ON CONFLICT (playable_unit_id, format, variant) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
+          checksum_sha256 = excluded.checksum_sha256, duration_seconds = excluded.duration_seconds, bitrate = excluded.bitrate, r2_etag = excluded.r2_etag`)
+          .bind(crypto.randomUUID(), unitId, variant, object.key, inspected.byteLength, inspected.checksum, inspected.durationSeconds!, inspected.bitrate!, object.etag);
+        if (identity.language) await db.prepare(`INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256, r2_etag)
+          VALUES (?, ?, ?, 'vtt', ?, ?, ?, ?, ?, ?) ON CONFLICT (playable_unit_id, track_key) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
+          checksum_sha256 = excluded.checksum_sha256, r2_etag = excluded.r2_etag`)
+          .bind(crypto.randomUUID(), unitId, identity.language, subtitleTrack(identity.trackKey!)!.label, identity.trackKey, object.key, inspected.byteLength, inspected.checksum, object.etag).run();
+        // Only the original decides the unit's duration and playability.
+        else if (identity.variant) await upsert().run();
+        else {
+          await db.batch([db.prepare("UPDATE playable_units SET duration_seconds = ? WHERE id = ?").bind(inspected.durationSeconds!, unitId), upsert()]);
+          originals.set(unitId, inspected.durationSeconds!);
+        }
+        if (!existing) result.linked++;
+        else if (existing.checksum_sha256 === inspected.checksum && existing.byte_length === inspected.byteLength) result.skipped++;
+        else {
+          result.replaced++;
+          console.info(JSON.stringify({ event: "media_sync_replaced", unitId, resourceType: identity.language ? "subtitle" : "video", ...identity }));
+        }
+      } catch {
+        if (controller.signal.aborted) { await checkpoint(last); result.deferred = true; return result; }
+        result.failed++; console.warn(JSON.stringify({ event: "media_sync_rejected", unitId, code: "MEDIA_VALIDATION_OR_COMMIT_FAILED" }));
+      }
     }
+    await checkpoint(undefined);
     return result;
   } finally {
     clearTimeout(timer);

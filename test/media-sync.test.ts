@@ -263,9 +263,9 @@ it("clears versions of deleted objects only after a complete pass and restores t
   const playable = async () => (await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0].playable;
   await env.MEDIA_BUCKET.delete([key, subtitleKey]);
   await env.DB.prepare("UPDATE media_sync_state SET cursor = 'library/000'").run();
-  expect(await syncMedia(env)).toMatchObject({ cleared: 0, deferred: false });
-  expect(await playable()).toBe(true);
   expect(await syncMedia(env)).toMatchObject({ cleared: 2, deferred: false });
+  expect(await playable()).toBe(false);
+  expect(await syncMedia(env)).toMatchObject({ cleared: 0, deferred: false });
   expect(await playable()).toBe(false);
   expect((await env.DB.prepare("SELECT r2_etag FROM media_files UNION ALL SELECT r2_etag FROM subtitle_tracks").all()).results).toEqual([{ r2_etag: null }, { r2_etag: null }]);
   await env.MEDIA_BUCKET.put(key, video()); await env.MEDIA_BUCKET.put(subtitleKey, vtt);
@@ -284,6 +284,35 @@ it("clears any number of deleted objects with one set-based statement per table"
   expect(cleanup?.statements).toHaveLength(2);
   expect(await env.DB.prepare("SELECT count(*) AS n FROM subtitle_tracks WHERE r2_etag IS NOT NULL").first<number>("n")).toBe(0);
   expect(await env.DB.prepare("SELECT r2_etag FROM media_files").first("r2_etag")).toBeNull();
+});
+
+it("clears deleted media while repeatedly invalid files exhaust the validation budget", async () => {
+  await media(); expect(await syncMedia(env)).toMatchObject({ linked: 1 });
+  await env.MEDIA_BUCKET.delete(key);
+  for (let n = 0; n < 21; n++) await env.MEDIA_BUCKET.put(`library/series/920001/S01/E01.zh-CN.main.bad${String(n).padStart(2, "0")}.vtt`, "INVALID");
+  await env.MEDIA_BUCKET.put("library/series/920001/S01/E01.zh-CN.main.zzz.vtt", vtt);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(await syncMedia(env)).toMatchObject({ failed: 20, cleared: 1, deferred: true });
+    expect((await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0].playable).toBe(false);
+    expect(await syncMedia(env)).toMatchObject({ failed: 1, linked: 1, deferred: false });
+    await env.MEDIA_BUCKET.delete("library/series/920001/S01/E01.zh-CN.main.zzz.vtt");
+    expect(await syncMedia(env)).toMatchObject({ failed: 20, cleared: 1, deferred: true });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM subtitle_tracks WHERE r2_etag IS NOT NULL").first("n")).toBe(0);
+  } finally { warn.mockRestore(); }
+});
+
+it("does not clear unseen media when listing fails before the end of the prefix", async () => {
+  await media(); expect(await syncMedia(env)).toMatchObject({ linked: 1 });
+  const original = await env.DB.prepare("SELECT r2_etag FROM media_files").first("r2_etag");
+  const page = await env.MEDIA_BUCKET.list({ prefix: "library/" });
+  const list = vi.spyOn(env.MEDIA_BUCKET, "list")
+    .mockResolvedValueOnce({ ...page, objects: [{ ...page.objects[0], key: "library/000", writeHttpMetadata: page.objects[0].writeHttpMetadata }], truncated: true, cursor: "fictional-next" })
+    .mockRejectedValueOnce(new Error("fictional listing failure"));
+  try { await expect(syncMedia(env)).rejects.toThrow("fictional listing failure"); }
+  finally { list.mockRestore(); }
+  expect(await env.DB.prepare("SELECT r2_etag FROM media_files").first("r2_etag")).toBe(original);
+  expect(await env.DB.prepare("SELECT lease_until FROM media_sync_state").first("lease_until")).toBe(0);
 });
 
 it("clears pre-SUB1 subtitle rows so the scanner relinks only compliant objects under the new labels", async () => {

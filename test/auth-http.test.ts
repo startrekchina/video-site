@@ -23,6 +23,32 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const count = (table: string) => env.DB.prepare(`SELECT count(*) AS n FROM "${table}"`).first<number>("n");
+
+it("shares a 60-second change-email cooldown across target addresses while keeping recipient quotas", async () => {
+  const user = await member("Sender"), cookie = await login("Sender"), now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  const change = (newEmail: string) => http("/change-email", { newEmail, callbackURL: `${env.APP_ORIGIN}/verify-email` }, cookie);
+  const responses = await Promise.all([change("alias-one@example.test"), change("alias-two@example.test")]);
+  expect(responses.map(response => response.status).sort()).toEqual([200, 429]);
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM email_deliveries WHERE user_id = ? AND purpose = 'email_change_verification'").bind(user.id).first<number>("n")).toBe(1);
+  clock.mockReturnValue(now + 60000); expect((await change("alias-three@example.test")).status).toBe(200);
+  const another = await member("Another");
+  expect(await reserveMail(env, "independent@example.test", "email_change_verification", another.id)).toMatchObject({ purpose: "email_change_verification" });
+  await expect(reserveMail(env, "alias-three@example.test", "email_change_verification", another.id)).rejects.toMatchObject({ statusCode: 429 });
+});
+
+it("limits a member to 30 change-email reservations per rolling hour, including failed sends", async () => {
+  const user = await member("Sender"), now = Date.now();
+  await env.DB.batch(Array.from({ length: 30 }, (_, index) => env.DB.prepare(`INSERT INTO email_deliveries
+    (id, user_id, to_email_key, purpose, status, error_code, created_at) VALUES (?, ?, ?, 'email_change_verification', 'failed', 'EMAIL_SEND_FAILED', ?)`)
+    .bind(crypto.randomUUID(), user.id, `fictional-${index}`, now - (index + 1) * 61000)));
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  await expect(reserveMail(env, "fresh@example.test", "email_change_verification", user.id)).rejects.toMatchObject({ statusCode: 429 });
+  expect(await count("email_deliveries")).toBe(30);
+  clock.mockReturnValue(now + 3600000 - 30 * 61000);
+  expect(await reserveMail(env, "fresh@example.test", "email_change_verification", user.id)).toMatchObject({ purpose: "email_change_verification" });
+  expect(await count("email_deliveries")).toBe(31);
+});
 async function invite(code = "fictional-invitation") {
   await env.DB.prepare("INSERT INTO invitations (id, code_hash, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(crypto.randomUUID(), await sha256(code), Date.now(), Date.now() + 86400000).run();
   return code;

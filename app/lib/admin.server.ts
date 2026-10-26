@@ -81,11 +81,14 @@ export async function adminHttp(request: Request, env: Env, identity = createReq
     throw new APIError("FORBIDDEN", { code: "FRESH_SESSION_REQUIRED", message: "此操作需要已开启二步验证，并在 5 分钟内重新登录。请重新登录后再试。" });
   }
   const key = `admin:${actorId}`;
-  const limit = await env.DB.prepare(`INSERT INTO rate_limit_counters (key, operation, occurred_at, count, expires_at)
+  const [, limit] = await env.DB.batch([
+    env.DB.prepare("DELETE FROM rate_limit_counters WHERE operation = 'admin' AND expires_at <= ?").bind(now),
+    env.DB.prepare(`INSERT INTO rate_limit_counters (key, operation, occurred_at, count, expires_at)
     SELECT ?, 'admin', ?, 1, ? WHERE (SELECT coalesce(sum(count), 0) FROM rate_limit_counters
       WHERE key = ? AND operation = 'admin' AND occurred_at > ?) < ?
     ON CONFLICT (key, operation, occurred_at) DO UPDATE SET count = count + 1`)
-    .bind(key, now, now + 60000, key, now - 60000, settings.rateLimits.adminHighImpactPerAdmin.perMinute).run();
+      .bind(key, now, now + 60000, key, now - 60000, settings.rateLimits.adminHighImpactPerAdmin.perMinute),
+  ]);
   if (!limit.meta.changes) {
     const earliest = await env.DB.prepare("SELECT min(occurred_at) AS n FROM rate_limit_counters WHERE key = ? AND operation = 'admin' AND occurred_at > ?").bind(key, now - 60000).first<number>("n");
     throw new APIError("TOO_MANY_REQUESTS", { code: "ADMIN_RATE_LIMITED", message: "管理操作过于频繁，请稍后再试。" }, { "Retry-After": String(Math.max(1, Math.ceil(((earliest ?? now) + 60000 - now) / 1000))) });

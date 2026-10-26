@@ -30,7 +30,10 @@ function target(body: Record<string, unknown>): Target {
 const found = "SELECT EXISTS(SELECT 1 FROM works WHERE id = ?1) OR EXISTS(SELECT 1 FROM playable_units WHERE id = ?2 AND kind = 'episode') AS found";
 function title(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
-  return text && [...text].length <= settings.playlistTitleMax && !/\p{Cc}/u.test(text) ? text : invalid(`片单名称需为 1–${settings.playlistTitleMax} 个字符。`);
+  if (!text || [...text].length > settings.playlistTitleMax) return invalid(`片单名称需为 1–${settings.playlistTitleMax} 个字符。`);
+  if (/[\p{Cc}\p{Bidi_Control}]/u.test(text)) return invalid("片单名称不能包含控制字符。");
+  if (!/[^\p{White_Space}\p{Default_Ignorable_Code_Point}]/u.test(text)) return invalid("片单名称需包含可见内容。");
+  return text;
 }
 const visibility = (value: unknown) => value === "private" || value === "members" ? value : invalid();
 

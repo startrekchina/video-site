@@ -44,6 +44,22 @@ const counters = (user: string, times: number[]) => env.DB.batch(times.map(at =>
 // Moves the server clock; sessions and their caches stay valid because only Date.now is replaced.
 const at = (time: number) => vi.spyOn(Date, "now").mockReturnValue(time);
 
+it("rejects an ordinary member before reading the administrator danmaku list", async () => {
+  const queries: string[] = [];
+  const db = new Proxy(env.DB, { get: (real, key) => key !== "withSession" ? (value => typeof value === "function" ? value.bind(real) : value)(Reflect.get(real, key))
+    : (...args: Parameters<D1Database["withSession"]>) => {
+      const session = real.withSession(...args);
+      return new Proxy(session, { get: (reader, method) => method !== "prepare" ? (value => typeof value === "function" ? value.bind(reader) : value)(Reflect.get(reader, method))
+        : (sql: string) => { if (/FROM danmaku\b/.test(sql)) queries.push(sql); return reader.prepare(sql); } });
+    } });
+  const read = async (as: string) => {
+    const ctx = createExecutionContext(), response = await worker.fetch(request(`${unit}/admin`, undefined, as), { ...runtime, DB: db }, ctx);
+    await waitOnExecutionContext(ctx); return response;
+  };
+  expect((await read(cookie)).status).toBe(403); expect(queries).toEqual([]);
+  expect((await read(admin)).status).toBe(200); expect(queries).toHaveLength(2);
+});
+
 it("sends and reads danmaku as a member without any sender details", async () => {
   const response = await emit({ text: "  <b>好看</b>  ", color: "#f2c14e", mode: 1 });
   expect(response.status).toBe(200);

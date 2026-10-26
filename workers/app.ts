@@ -42,7 +42,7 @@ export default {
         if (!backup.busy) await syncMedia(env);
         throw backup.error;
       }
-      if (backup.status === "not_due") await syncMedia(env);
+      if (backup.status === "not_due" || backup.status === "unavailable") await syncMedia(env);
     }
   },
   async fetch(request: Request, env, ctx) {

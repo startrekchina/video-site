@@ -117,12 +117,15 @@ export async function discussionHttp(request: Request, env: Env, identity = crea
     if (!found.results.length || (to && !answered)) missing();
     const { member } = current, row = { id: crypto.randomUUID(), body: content, created_at: now, author: member.displayUsername ?? member.username,
       admin: Number(member.role === "admin"), mine: 1, likes: 0, vote: 0 as const };
-    // A comment or target reply deleted since the check takes the insert with it: nothing is written and the reply is refused.
+    // Allocate the cursor in the write, so slow requests and equal clocks cannot insert behind a reader's cursor.
+    // The trigger retains this watermark after deletion; a missing comment/target still refuses the insert.
     const saved = await db.prepare(`INSERT INTO comment_replies (id, comment_id, author_user_id, reply_to_user_id, body_markdown, created_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM comments WHERE id = ?2)
-        AND (?7 IS NULL OR EXISTS (SELECT 1 FROM comment_replies WHERE id = ?7 AND comment_id = ?2))`)
-      .bind(row.id, commentId, member.user_id, answered?.author_user_id ?? null, content, now, to).run();
+      SELECT ?1, ?2, ?3, ?4, ?5, max(?6, coalesce((SELECT created_at + 1 FROM comment_reply_cursors WHERE comment_id = ?2), ?6))
+      WHERE EXISTS (SELECT 1 FROM comments WHERE id = ?2)
+        AND (?7 IS NULL OR EXISTS (SELECT 1 FROM comment_replies WHERE id = ?7 AND comment_id = ?2)) RETURNING created_at`)
+      .bind(row.id, commentId, member.user_id, answered?.author_user_id ?? null, content, Date.now(), to).run<{ created_at: number }>();
     if (!saved.meta.changes) missing();
+    row.created_at = saved.results[0].created_at;
     return respond(request, { data: { ...item(row), replyTo: answered?.name ?? null } satisfies Reply });
   }
   const column = replyId ? "reply_id" : "comment_id", target = replyId ?? commentId;

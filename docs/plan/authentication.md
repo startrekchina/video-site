@@ -8,6 +8,8 @@
 
 ## 任务与验证摘要
 
+- [x] 后端审查修复的实现与本地自检：管理员限流清理过期计数，保持原有 30 次/分钟与失败计数语义；改邮箱叠加成员总预算（60 秒冷却、滚动每小时 30 次），在 `email_deliveries` 预留行中绑定发起成员，与收件邮箱配额同时条件写入；`0019_email_sender_quota.sql` 只新增查询索引，保留原有记录。`auth-http`、`member-actions` 用例通过，覆盖不同目标的并发申请、60 秒边界、30 次滚动预算、失败计数、成员隔离与管理员有效计数保留；邮件传输使用虚构响应，staging 未复验。
+
 - 2026-10-22 staging 定向复验：实际增量迁移的邀请来源一致性、封禁时仅作废有效未用码、旧会话即时撤销通过；发码幂等、额度、跨成员/跨来源拒绝及媒体授权通过。三个专用虚构成员及其会话/邀请码已精确清理，外键检查无违规。封禁状态由 SQL 触发，不计管理员网页或通知验收，详见[复验记录](../staging-readiness-20261022.md#邀请与封禁迁移)。
 - 2026-10-22 性能复测：五条页面/媒体路径各 20 个请求全部成功，TTFB 中位数 377–492 ms；三轮各 50 个并发 64 KiB Range 全部成功。18 个慢样本主要在 TLS 建连，仍有两次建连后的等待超过 800 ms；不能认定历史尾延迟已解决。浏览器性能 trace 不可用，真正冷启动、手机冷缓存及完整成本矩阵仍未完成；详见[性能证据与限制](../staging-readiness-20261022.md#请求性能与并发)。
 
@@ -54,7 +56,7 @@
 - **注册重试验证**（2026-10-14）：建号前失败后仅更换邀请码的 HTTP/D1 回归在本地 `dev` 单独通过；PR #23 的认证 HTTP/注册专项 34 项、类型检查及 development 构建通过。未重跑全量回归或云端验收。
 - rateLimit 开启 D1 database storage、可信 Cloudflare IP，参数按 B 6.3.2；captcha 传 x-captcha-response 并核 allowedHostnames/expectedAction。包装 HTTP 先验来源/IP/Turnstile，不假定 auth.api 内调会执行 onRequest 插件。
 - Postal HTTPS fetch：POST /api/v1/send/message，Content-Type application/json 与 X-Server-API-Key；映射 to/from/reply_to/subject/plain_body（接口也支持 html_body，当前传输仅纯文本）。同时检查 HTTP 与 JSON status，只取必要 data.message_id；服务接受不等于送达。
-- 传输最多一次、10 秒、manual 重定向且拒绝非 2xx，不自动补发；失败/超时捕获脱敏，超时记未确认，不回滚注册或封禁。验证用途共用邮箱摘要配额，找回另计，D1 条件写入计入首次/失败/超时；通知不受站内发送上限，仍受上游限制。
+- 传输最多一次、10 秒、manual 重定向且拒绝非 2xx，不自动补发；失败/超时捕获脱敏，超时记未确认，不回滚注册或封禁。验证用途共用邮箱摘要配额，找回另计；改邮箱另按可信会话成员检查 B 6.0.3 的 60 秒/每小时 30 次额度，预留记录的 `user_id` 在同一 D1 条件写入中绑定成员，两组额度同时满足才预留。首次/失败/超时均计入，`Retry-After` 取所有受限额度的最晚恢复时间；通知不受站内发送上限，仍受上游限制。
 - 本环境发件子域及 From/Reply-To/API 地址从本机/平台配置；staging 测试发件人与 production 区分，Reply-To 同收信地址；域名及 SPF/DKIM/DMARC 由站长维护。异步发信纳入请求生命周期，不留未等待 Promise。部署与日志限制见[运维说明](operations.md#695-远程数据库迁移与运维工程细节)。
 
 ### 6.2.1 认证与邀请存储映射

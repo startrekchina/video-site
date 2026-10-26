@@ -25,6 +25,23 @@ const adminPost = (id: string, action: string, anti: { cookie: string }, body: o
 const issue = (anti: { cookie: string }, operationId = crypto.randomUUID()) =>
   invitationsHttp(request("/invites/create", { operationId }, anti.cookie), env);
 
+it("removes expired admin counters without weakening the active budget or deleting other operation counters", async () => {
+  const admin = await setupAdmin(), target = await member(), now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now);
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO rate_limit_counters VALUES (?, 'admin', ?, 29, ?)").bind(`admin:${admin.user.id}`, now - 1000, now + 59000),
+    env.DB.prepare("INSERT INTO rate_limit_counters VALUES ('admin:expired', 'admin', ?, 30, ?)").bind(now - 60000, now),
+    env.DB.prepare("INSERT INTO rate_limit_counters VALUES ('admin:active', 'admin', ?, 7, ?)").bind(now - 1000, now + 59000),
+    env.DB.prepare("INSERT INTO rate_limit_counters VALUES ('danmaku:kept', 'danmaku', ?, 1, ?)").bind(now - 3600000, now),
+  ]);
+  expect((await adminPost(target.id, "quota", admin, { total: 9 })).status).toBe(200);
+  await expect(adminPost(target.id, "quota", admin, { total: 10 })).rejects.toMatchObject({ statusCode: 429, body: { code: "ADMIN_RATE_LIMITED" } });
+  expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE key = ? AND operation = 'admin'").bind(`admin:${admin.user.id}`).first<number>("n")).toBe(30);
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM rate_limit_counters WHERE key = 'admin:expired'").first<number>("n")).toBe(0);
+  expect(await env.DB.prepare("SELECT count FROM rate_limit_counters WHERE key = 'admin:active'").first<number>("count")).toBe(7);
+  expect(await env.DB.prepare("SELECT count FROM rate_limit_counters WHERE key = 'danmaku:kept'").first<number>("count")).toBe(1);
+});
+
 it("serves real admin totals, filtered pages and invitation trees without credentials", async () => {
   const admin = await setupAdmin(); const root = await member("Root"); await member("Branch", true, root.id);
   const anti = { cookie: await login("Root") }; const issued = await (await issue(anti)).json() as { data: { code: string } };

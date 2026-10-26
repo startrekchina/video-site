@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { applyD1Migrations } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { settings } from "@/lib/settings.server";
 import { fixtureTime, memberStatements, seedCatalog } from "./fixtures/catalog";
@@ -65,6 +66,23 @@ beforeEach(async () => {
       body_markdown: "Signal received.", created_at: now,
     }),
   ]);
+});
+
+it("initializes reply cursors from existing data without changing or forgetting stored replies", async () => {
+  const db = env.TEST_RESTORE_DB, index = env.TEST_MIGRATIONS.findIndex(migration => migration.name === "0018_reply_cursor.sql");
+  expect(index).toBeGreaterThan(0); await applyD1Migrations(db, env.TEST_MIGRATIONS.slice(0, index));
+  await seedCatalog(db);
+  await db.batch([
+    db.prepare("INSERT INTO comments VALUES ('old-comment', 'movie-unit', 'nova', 'kept-comment', 50)"),
+    db.prepare("INSERT INTO comment_replies VALUES ('old-a', 'old-comment', 'nova', NULL, 'kept-a', 100)"),
+    db.prepare("INSERT INTO comment_replies VALUES ('old-b', 'old-comment', 'quinn', NULL, 'kept-b', 200)"),
+  ]);
+  await applyD1Migrations(db, [env.TEST_MIGRATIONS[index]]);
+  expect((await db.prepare("SELECT body_markdown, created_at FROM comment_replies ORDER BY created_at").all()).results)
+    .toEqual([{ body_markdown: "kept-a", created_at: 100 }, { body_markdown: "kept-b", created_at: 200 }]);
+  expect(await db.prepare("SELECT created_at FROM comment_reply_cursors WHERE comment_id = 'old-comment'").first<number>("created_at")).toBe(200);
+  await db.prepare("DELETE FROM comment_replies WHERE id = 'old-b'").run();
+  expect(await db.prepare("SELECT created_at FROM comment_reply_cursors WHERE comment_id = 'old-comment'").first<number>("created_at")).toBe(200);
 });
 
 describe("catalog constraints", () => {

@@ -5,9 +5,9 @@ import { APIError } from "better-auth/api";
 import { createRequestIdentity, requireMember, type Member } from "./member.server";
 import { checkWrite, readJson } from "./security.server";
 import { settings } from "./settings.server";
-import { encryptBackup, stageBackup, type BackupScope } from "./backup-storage.server";
+import { backupSourceMetadata, encryptBackup, stageBackup, type BackupScope } from "./backup-storage.server";
 import { backupKeyId, backupKeys } from "./backup-keys.server";
-import { backupDestinationReceipt, backupTargetAvailability, deleteExternalBackup, uploadBackup, verifyExternalBackup, type BackupReceipt, type BackupTarget, type ExternalBackupTarget } from "./backup-targets.server";
+import { backupDestinationMatches, backupDestinationReceipt, backupTargetAvailability, deleteExternalBackup, uploadBackup, verifyExternalBackup, type BackupReceipt, type BackupTarget, type ExternalBackupTarget } from "./backup-targets.server";
 
 const uuid = "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}";
 const jobIdPattern = new RegExp(`^\\d{16}-${uuid}$`, "u"), uuidPattern = new RegExp(`^${uuid}$`, "u");
@@ -25,7 +25,8 @@ type Failure = keyof typeof failureMessages;
 type Artifact = Awaited<ReturnType<typeof encryptBackup>>;
 type Job = { id: string; environment: BackupScope["environment"]; createdAt: number; startedAt: number; updatedAt: number;
   deadline: number; attempt: string; sourceId: string; target?: BackupTarget; receipt?: BackupReceipt; pendingReceipt?: BackupReceipt;
-  cleanup?: { status: "complete" | "failed"; deleted: number }; deleted?: boolean; r2Deleted?: boolean; externalDeleted?: boolean;
+  cleanup?: { status: "complete" | "failed" | "pending"; deleted: number; pending?: number };
+  deleted?: boolean; r2Deleted?: boolean; externalDeleted?: boolean; externalClosedAt?: number;
   status: "running" | "failed" | "complete"; failure?: Failure; result?: Artifact };
 type Lease = { jobId: string; attempt: string; deadline: number; updatedAt?: number };
 export type BackupFrequency = "daily" | "weekly" | "interval";
@@ -39,6 +40,8 @@ export type BackupSchedule = { enabled: boolean; target: ExternalBackupTarget; f
   lastStatus: "running" | "complete" | "failed" | null; lastJobId: string | null; lastFailure: keyof typeof scheduleFailures | null; updatedAt: number };
 const rejected = (code: string, message: string) => new APIError("CONFLICT", { code, message });
 const invalid = () => new APIError("BAD_REQUEST", { code: "INVALID_INPUT", message: "备份请求无效。" });
+const invalidRecord = () => new APIError("SERVICE_UNAVAILABLE", { code: "BACKUP_RECORD_INVALID", message: "备份控制记录损坏，请检查存储记录后重试。" });
+const isInvalidRecord = (error: unknown) => error instanceof APIError && error.body?.code === "BACKUP_RECORD_INVALID";
 function environment(env: Env): BackupScope["environment"] {
   if (env.APP_ENV === "development" || env.APP_ENV === "test" || env.APP_ENV === "staging" || env.APP_ENV === "production") return env.APP_ENV;
   throw new APIError("SERVICE_UNAVAILABLE", { code: "BACKUP_CONFIG_INVALID", message: "当前环境的备份配置无效。" });
@@ -108,13 +111,15 @@ function configured(env: Env) {
   return env.APP_ENV !== "development" && /^[a-f0-9]{32}$/u.test(env.BACKUP_ACCOUNT_ID)
     && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(env.BACKUP_DATABASE_ID)
     && !!env.D1_EXPORT_TOKEN && Buffer.byteLength(env.BACKUP_ENCRYPTION_KEY ?? "") >= 32
+    && typeof env.BETTER_AUTH_SECRET === "string" && env.BETTER_AUTH_SECRET.length >= 32
     && env.BACKUP_ENCRYPTION_KEY !== env.BETTER_AUTH_SECRET;
 }
 async function record<T>(bucket: R2Bucket, key: string) {
   const object = await bucket.get(key);
   if (!object) return null;
-  if (object.size > 16384) { await object.body.cancel(); throw new Error("BACKUP_RECORD_INVALID"); }
-  return { value: await object.json<T>(), etag: object.etag };
+  if (object.size > 16384) { await object.body.cancel(); throw invalidRecord(); }
+  try { return { value: await object.json<T>(), etag: object.etag }; }
+  catch { throw invalidRecord(); }
 }
 function validSchedule(value: BackupSchedule) {
   if (!value || typeof value !== "object" || typeof value.enabled !== "boolean" || (value.target !== "webdav" && value.target !== "s3")
@@ -141,9 +146,12 @@ async function readSchedule(env: Env) {
 }
 async function publicSchedule(value: BackupSchedule, env: Env) {
   const targets = backupTargetAvailability(env), ready = configured(env) && targets[value.target];
-  const stored = value.lastJobId ? await readJob(env, value.lastJobId) : null, job = stored ? publicJob(stored.value) : null;
+  let unreadable = false;
+  const stored = value.lastJobId ? await readJob(env, value.lastJobId).catch(error => {
+    if (!isInvalidRecord(error)) throw error; unreadable = true; return null;
+  }) : null, job = stored ? publicJob(stored.value, env) : null;
   const interrupted = value.lastStatus === "running" && Date.now() >= value.lastRunAt! + settings.backupTaskTimeout * 1000;
-  const stateFailed = !job || job.status === "running" ? value.lastFailure : null;
+  const stateFailed = unreadable ? "BACKUP_STATE_FAILED" : !job || job.status === "running" ? value.lastFailure : null;
   return { enabled: value.enabled, target: value.target, frequency: value.frequency, intervalDays: value.intervalDays,
     weekday: value.weekday, time: value.time, nextRunAt: value.nextRunAt, lastRunAt: value.lastRunAt,
     lastStatus: stateFailed ? "failed" as const : job?.status ?? (interrupted ? "failed" : value.lastStatus), lastJobId: job?.id ?? null,
@@ -188,24 +196,71 @@ export async function updateBackupSchedule(env: Env, body: Record<string, unknow
 async function readJob(env: Env, id: string) {
   if (!jobIdPattern.test(id)) throw invalid();
   const stored = await record<Job>(env.MEDIA_BUCKET, jobKey(env, id));
-  if (stored && (stored.value.id !== id || stored.value.environment !== environment(env)
+  if (stored && (!stored.value || typeof stored.value !== "object" || stored.value.id !== id || stored.value.environment !== environment(env)
     || !uuidPattern.test(stored.value.sourceId) || !uuidPattern.test(stored.value.attempt)
+    || !Number.isSafeInteger(stored.value.createdAt) || stored.value.createdAt <= 0
+    || !Number.isSafeInteger(stored.value.startedAt) || stored.value.startedAt <= 0
     || !Number.isSafeInteger(stored.value.deadline) || !Number.isSafeInteger(stored.value.updatedAt)
     || !["running", "failed", "complete"].includes(stored.value.status)
-    || stored.value.status === "complete" && !stored.value.result)) throw new Error("BACKUP_RECORD_INVALID");
+    || stored.value.status === "complete" && !stored.value.result
+    || stored.value.target !== undefined && !["download", "webdav", "s3"].includes(stored.value.target)
+    || stored.value.failure !== undefined && !Object.hasOwn(failureMessages, stored.value.failure))) throw invalidRecord();
+  const job = stored?.value, artifact = job?.result;
+  if (job && ([job.deleted, job.r2Deleted, job.externalDeleted].some(value => value !== undefined && typeof value !== "boolean")
+    || job.externalClosedAt !== undefined && (!Number.isSafeInteger(job.externalClosedAt) || job.externalClosedAt < job.createdAt
+      || job.externalClosedAt > job.updatedAt || !(job.receipt ?? job.pendingReceipt))
+    || job.cleanup !== undefined && (!job.cleanup || !["complete", "failed", "pending"].includes(job.cleanup.status)
+      || !Number.isSafeInteger(job.cleanup.deleted) || job.cleanup.deleted < 0
+      || job.cleanup.pending !== undefined && (!Number.isSafeInteger(job.cleanup.pending) || job.cleanup.pending <= 0)
+      || job.cleanup.status === "pending" && !job.cleanup.pending))) throw invalidRecord();
+  const digest = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+  if (artifact !== undefined) {
+    try { backupSourceMetadata(artifact?.source, scope(job!)); } catch { throw invalidRecord(); }
+    if (artifact.source.createdAt > job!.startedAt || artifact.source.byteLength > maxExportBytes
+      || !digest(artifact.keyId) || !digest(artifact.sha256) || !new RegExp(`^encrypted-${uuid}$`, "u").test(artifact.file)
+      || typeof artifact.etag !== "string" || !artifact.etag || !Number.isSafeInteger(artifact.byteLength)
+      || artifact.byteLength <= 0 || artifact.byteLength > maxExportBytes + 4096 + 28) throw invalidRecord();
+  }
+  for (const receipt of [job?.receipt, job?.pendingReceipt]) {
+    if (receipt !== undefined && (!receipt || !artifact || !["webdav", "s3"].includes(receipt.target) || !digest(receipt.destinationId)
+      || receipt.name !== `video-site-${job!.environment}-${job!.sourceId}-${artifact.file}.stcnbak`
+      || !Number.isSafeInteger(receipt.verifiedAt) || receipt.verifiedAt < 0)) throw invalidRecord();
+  }
   return stored;
 }
-function publicJob(job: Job) {
+function externalPending(job: Job, env: Env) {
+  const receipt = job.receipt ?? job.pendingReceipt;
+  return !!receipt && !job.externalDeleted && !job.externalClosedAt && !backupDestinationMatches(env, receipt);
+}
+function publicJob(job: Job, env: Env) {
   const interrupted = job.status === "running" && job.deadline <= Date.now();
   const failure = interrupted ? "BACKUP_INTERRUPTED" : job.failure;
-  return { id: job.id, environment: job.environment, createdAt: job.createdAt, startedAt: job.startedAt,
+  return { id: job.id, environment: job.environment, createdAt: job.createdAt, startedAt: job.startedAt, updatedAt: job.updatedAt,
     backupTime: job.result?.source.createdAt ?? null, target: job.target ?? "download", status: interrupted ? "failed" : job.status,
     failure: failure ? { code: failure, message: failureMessages[failure] } : null,
     downloadReady: !!job.result && !job.deleted && !job.r2Deleted, byteLength: job.result?.byteLength ?? null, keyId: job.result?.keyId ?? null,
-    authKeyId: job.result?.source.authKeyId ?? null, deleted: !!job.deleted, r2Deleted: !!job.deleted || !!job.r2Deleted, cleanup: job.cleanup ?? null };
+    authKeyId: job.result?.source.authKeyId ?? null, deleted: !!job.deleted, r2Deleted: !!job.deleted || !!job.r2Deleted, cleanup: job.cleanup ?? null,
+    externalPending: externalPending(job, env), externalClosedAt: job.externalClosedAt ?? null };
+}
+async function readLease(env: Env) {
+  const key = `${control(env)}lease.json`, object = await env.MEDIA_BUCKET.get(key);
+  if (!object) return { key, stored: null, busy: false };
+  try {
+    if (object.size > 16384) throw invalidRecord();
+    const value = await object.json<Lease>();
+    if (!value || !Number.isSafeInteger(value.deadline) || value.deadline < 0
+      || value.updatedAt !== undefined && (!Number.isSafeInteger(value.updatedAt) || value.updatedAt < 0)) throw invalidRecord();
+    return { key, stored: { value, etag: object.etag }, busy: value.deadline > Date.now() };
+  } catch {
+    await object.body.cancel().catch(() => {});
+    // A corrupt record never grants a new lease. R2's upload time bounds the possible in-flight task before scanning resumes.
+    return { key, stored: null, busy: object.uploaded.getTime() + settings.backupTaskTimeout * 1000 > Date.now(), error: invalidRecord() };
+  }
 }
 async function acquire(env: Env, job: Job) {
-  const key = `${control(env)}lease.json`, previous = await record<Lease>(env.MEDIA_BUCKET, key);
+  const state = await readLease(env);
+  if (state.error) throw state.error;
+  const { key, stored: previous } = state;
   if (previous && previous.value.deadline > Date.now()) {
     throw rejected("BACKUP_BUSY", "已有备份或清理正在进行，请等它结束后再试。");
   }
@@ -313,7 +368,7 @@ async function deleteSource(env: Env, id: string, signal: AbortSignal) {
 }
 async function cleanupBackups(env: Env, current: Job | undefined, signal: AbortSignal) {
   signal.throwIfAborted();
-  const pairs = backupKeys(env), protectedR2 = { id: "", time: 0 }, protectedExternal = new Map<string, { id: string; time: number }>();
+  const pairs = backupKeys(env), protectedR2 = { id: "", time: 0 }, protectedExternal = new Map<string, { name: string; time: number }>();
   const recoverable = (job: Job) => job.result && pairs.some(pair => pair.keyId === job.result!.keyId)
     && pairs.some(pair => pair.authKeyId === job.result!.source.authKeyId);
   async function protect(job: Job) {
@@ -322,38 +377,42 @@ async function cleanupBackups(env: Env, current: Job | undefined, signal: AbortS
     const artifact = job.result!, time = artifact.source.createdAt;
     if (!job.r2Deleted && time > protectedR2.time) {
       const object = await env.MEDIA_BUCKET.head(`backups/${job.environment}/${job.sourceId}/${artifact.file}.bin`);
-      if (object?.etag === artifact.etag && object.size === artifact.byteLength) Object.assign(protectedR2, { id: job.id, time });
+      if (object?.etag === artifact.etag && object.size === artifact.byteLength) Object.assign(protectedR2, { id: job.sourceId, time });
     }
-    if (job.receipt && !job.externalDeleted && time > (protectedExternal.get(job.receipt.destinationId)?.time ?? 0)) {
+    if (job.receipt && !job.externalDeleted && !job.externalClosedAt && backupDestinationMatches(env, job.receipt)
+      && time > (protectedExternal.get(job.receipt.destinationId)?.time ?? 0)) {
       // Recheck the candidate before treating it as the last recoverable external copy.
       try {
         await verifyExternalBackup(env, job.receipt, artifact, signal);
-        protectedExternal.set(job.receipt.destinationId, { id: job.id, time });
+        protectedExternal.set(job.receipt.destinationId, { name: job.receipt.name, time });
       } catch { signal.throwIfAborted(); }
     }
   }
   for await (const { value: job } of allJobs(env)) if (job.status !== "running") await protect(job);
-  let deleted = 0, failed = false;
+  let deleted = 0, pending = 0, failed = false;
   for await (const stored of allJobs(env)) {
     signal.throwIfAborted(); const job = stored.value;
     if (job.deleted || job.id === current?.id || job.status === "running" && job.deadline > Date.now()
       || (job.result?.source.createdAt ?? job.createdAt) >= Date.now() - settings.backupRetention * 1000) continue;
     const remote = job.receipt ?? job.pendingReceipt, time = job.result?.source.createdAt ?? job.createdAt;
+    const remotePending = externalPending(job, env), remoteManaged = remote && !job.externalDeleted && !job.externalClosedAt && !remotePending;
+    if (remotePending) pending++;
     let changed = false;
-    if ((!job.r2Deleted && !protectedR2.id) || (remote && !job.externalDeleted && !protectedExternal.has(remote.destinationId))) failed = true;
+    if ((!job.r2Deleted && !protectedR2.id) || (remoteManaged && !protectedExternal.has(remote.destinationId))) failed = true;
     // A fallback protection point only authorizes deleting older copies, never a newer unverified recovery option.
-    if (remote && !job.externalDeleted && (protectedExternal.get(remote.destinationId)?.time ?? 0) > time) {
+    if (remoteManaged && remote.name !== protectedExternal.get(remote.destinationId)?.name
+      && (protectedExternal.get(remote.destinationId)?.time ?? 0) > time) {
       try { await deleteExternalBackup(env, remote, signal); job.externalDeleted = true; changed = true; }
       catch { failed = true; signal.throwIfAborted(); }
     }
-    if (!job.r2Deleted && protectedR2.time > time) {
+    if (!job.r2Deleted && job.sourceId !== protectedR2.id && protectedR2.time > time) {
       try {
         await deleteSource(env, job.sourceId, signal);
         job.r2Deleted = true; changed = true;
       } catch { failed = true; signal.throwIfAborted(); }
     }
     if (changed) {
-      job.deleted = !!job.r2Deleted && (!remote || !!job.externalDeleted); job.updatedAt = Date.now();
+      job.deleted = !!job.r2Deleted && (!remote || !!job.externalDeleted || !!job.externalClosedAt); job.updatedAt = Date.now();
       try {
         if (!await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), { onlyIf: { etagMatches: stored.etag } })) throw new Error("BACKUP_STATE_CHANGED");
         if (job.deleted) deleted++;
@@ -379,26 +438,44 @@ async function cleanupBackups(env: Env, current: Job | undefined, signal: AbortS
     if (page.truncated && !after) throw new Error("BACKUP_RECORD_INVALID");
   } while (after);
   signal.throwIfAborted();
-  return { status: failed ? "failed" as const : "complete" as const, deleted };
+  return { status: failed ? "failed" as const : pending ? "pending" as const : "complete" as const, deleted, ...(pending ? { pending } : {}) };
+}
+async function closeExternalBackup(env: Env, id: string, updatedAt: number, signal: AbortSignal) {
+  const stored = await readJob(env, id);
+  if (!stored) throw new APIError("NOT_FOUND", { code: "BACKUP_NOT_FOUND", message: "找不到这次备份。" });
+  const job = stored.value;
+  if (job.externalClosedAt) return publicJob(job, env);
+  if (!externalPending(job, env) || job.updatedAt !== updatedAt) throw rejected("BACKUP_STATE_CHANGED", "保存位置或记录已变化，请刷新后检查。");
+  const lease = await readLease(env);
+  if (lease.error) throw lease.error;
+  if (lease.busy || job.status === "running" && job.deadline > Date.now()) throw rejected("BACKUP_BUSY", "已有备份或清理正在进行，请等它结束后再试。");
+  await delay(Math.max(0, job.updatedAt + 1100 - Date.now()), undefined, { signal });
+  job.externalClosedAt = job.updatedAt = Date.now(); job.deleted = !!job.r2Deleted;
+  if (!await env.MEDIA_BUCKET.put(jobKey(env, id), JSON.stringify(job), { onlyIf: { etagMatches: stored.etag } })) {
+    throw rejected("BACKUP_STATE_CHANGED", "备份状态已变化，请刷新后检查。");
+  }
+  return publicJob(job, env);
 }
 async function manualCleanup(env: Env, requestSignal: AbortSignal, ctx: ExecutionContext) {
   const now = Date.now(), job: Job = { id: newJobId(now),
     environment: environment(env), createdAt: now, startedAt: now, updatedAt: now, deadline: now + settings.backupTaskTimeout * 1000,
     attempt: crypto.randomUUID(), sourceId: crypto.randomUUID(), status: "running" };
-  const lease = await acquire(env, job);
+  requestSignal.throwIfAborted();
+  const claiming = Promise.resolve().then(() => acquire(env, job));
   const timer = new AbortController(), timeout = setTimeout(() => timer.abort(), Math.max(0, job.deadline - Date.now()));
   let released: Promise<void> | undefined;
-  const detach = onDisconnect(requestSignal, () => { released = release(env, lease, ctx); });
-  try { return await cleanupBackups(env, undefined, AbortSignal.any([requestSignal, timer.signal])); }
+  const finish = () => released ??= claiming.then(lease => release(env, lease, ctx), () => {});
+  const detach = onDisconnect(requestSignal, () => { ctx.waitUntil(finish().catch(() => {})); });
+  try { await claiming; return await cleanupBackups(env, undefined, AbortSignal.any([requestSignal, timer.signal])); }
   finally {
-    clearTimeout(timeout); detach(); await (released?.catch(() => {}) ?? release(env, lease, ctx));
+    clearTimeout(timeout); detach(); await finish();
   }
 }
 
 async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionContext, target: BackupTarget, old?: Awaited<ReturnType<typeof readJob>>, scheduledId?: string) {
   const now = Date.now(), previous = old?.value;
   if (previous?.status === "complete") throw rejected("BACKUP_ALREADY_COMPLETE", "这次备份已经成功，无需重试。");
-  if (previous?.deleted || previous?.r2Deleted) throw rejected("BACKUP_NOT_READY", "这次备份的加密文件已过期清理，请创建新备份。");
+  if (previous?.deleted || previous?.r2Deleted || previous?.externalClosedAt) throw rejected("BACKUP_NOT_READY", "这次备份已结束或加密文件已过期清理，请创建新备份。");
   if (previous?.status === "running" && previous.deadline > now) throw rejected("BACKUP_BUSY", "这次备份仍在进行，请稍后查看记录。");
   const reused = previous && await env.MEDIA_BUCKET.head(sourceKey(previous));
   const job: Job = { id: previous?.id ?? scheduledId ?? newJobId(now),
@@ -406,38 +483,45 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
     deadline: now + settings.backupTaskTimeout * 1000, attempt: crypto.randomUUID(),
     sourceId: reused ? previous!.sourceId : crypto.randomUUID(), target, status: "running",
     ...(reused && previous?.result ? { result: previous.result, receipt: previous.receipt, pendingReceipt: previous.pendingReceipt } : {}) };
-  const lease = await acquire(env, job);
+  requestSignal.throwIfAborted();
   const timeout = new AbortController(), timer = setTimeout(() => timeout.abort(), Math.max(0, job.deadline - Date.now()));
   const signal = AbortSignal.any([requestSignal, timeout.signal]);
-  let abandoned: Promise<void> | undefined, detach = () => {};
-  try {
+  let lease: Awaited<ReturnType<typeof acquire>> | undefined, etag: string | undefined;
+  let abandoned: Promise<void> | undefined, released: Promise<void> | undefined;
+  let writes: Promise<void> = Promise.resolve();
+  const finish = () => released ??= (async () => { await writes.catch(() => {}); if (lease) await release(env, lease, ctx); })();
+  const save = () => {
+    const written = writes.catch(() => {}).then(async () => {
+      if (!etag) return;
+      await delay(Math.max(0, job.updatedAt + 1100 - Date.now())); job.updatedAt = Date.now();
+      const saved = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), { onlyIf: { etagMatches: etag } });
+      if (!saved) throw rejected("BACKUP_STATE_CHANGED", "备份状态已变化，请刷新后检查。");
+      etag = saved.etag;
+    });
+    writes = written; ctx.waitUntil(written.catch(() => {})); return written;
+  };
+  const detach = onDisconnect(requestSignal, () => {
+    if (job.status === "running") { job.status = "failed"; job.failure = "BACKUP_INTERRUPTED"; }
+    abandoned = save().finally(finish); ctx.waitUntil(abandoned.catch(() => {}));
+  });
+  // Register the disconnect listener before claiming or writing the initial record; the promise includes the lease assignment.
+  writes = Promise.resolve().then(async () => {
+    signal.throwIfAborted(); lease = await acquire(env, job); signal.throwIfAborted();
     // R2 limits writes to the same object to one per second; no per-poll status writes are needed.
-    if (previous) await delay(Math.max(0, previous.updatedAt + 1100 - Date.now()));
+    if (previous) await delay(Math.max(0, previous.updatedAt + 1100 - Date.now()), undefined, { signal });
     job.updatedAt = Date.now();
     const started = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), {
       onlyIf: old ? { etagMatches: old.etag } : { etagDoesNotMatch: "*" },
     });
     if (!started) throw rejected("BACKUP_BUSY", "备份状态已变化，请刷新后重试。");
-    let etag = started.etag, phase: Failure = "BACKUP_EXPORT_FAILED", writes: Promise<void> = Promise.resolve();
-    const save = () => {
-      // Serialized so a disconnect write never races this request's own status write.
-      const finish = writes.catch(() => {}).then(async () => {
-        await delay(Math.max(0, job.updatedAt + 1100 - Date.now())); job.updatedAt = Date.now();
-        const saved = await env.MEDIA_BUCKET.put(jobKey(env, job.id), JSON.stringify(job), { onlyIf: { etagMatches: etag } });
-        if (!saved) throw rejected("BACKUP_STATE_CHANGED", "备份状态已变化，请刷新后检查。");
-        etag = saved.etag;
-      });
-      writes = finish;
-      // Only small status writes use the disconnect grace period, never backup or cleanup work.
-      ctx.waitUntil(finish.catch(() => {})); return finish;
-    };
-    detach = onDisconnect(requestSignal, () => {
-      if (job.status === "running") { job.status = "failed"; job.failure = "BACKUP_INTERRUPTED"; }
-      abandoned = save().finally(() => release(env, lease, ctx));
-      ctx.waitUntil(abandoned.catch(() => {}));
-    });
+    etag = started.etag;
+  });
+  try {
+    await writes;
+    let phase: Failure = "BACKUP_EXPORT_FAILED";
     const persist = () => abandoned ? abandoned.catch(() => {}) : save();
     try {
+      signal.throwIfAborted();
       if (!reused) {
         phase = "BACKUP_STORAGE_FAILED";
         if (!await env.MEDIA_BUCKET.put(sourceControlKey(env, job.sourceId), JSON.stringify({ jobId: job.id, createdAt: job.startedAt }), { onlyIf: { etagDoesNotMatch: "*" } })) throw new Error("BACKUP_RECORD_INVALID");
@@ -471,21 +555,18 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
       catch { job.cleanup = { status: "failed", deleted: 0 }; }
       await persist();
     }
-    return publicJob(job);
-  } finally { clearTimeout(timer); detach(); await (abandoned?.catch(() => {}) ?? release(env, lease, ctx)); }
+    return publicJob(job, env);
+  } finally { clearTimeout(timer); detach(); await (abandoned?.catch(() => {}) ?? finish()); }
 }
 
 export async function runScheduledBackup(env: Env, ctx: ExecutionContext, now = Date.now()) {
-  const busy = async () => {
-    const lease = await record<Lease>(env.MEDIA_BUCKET, `${control(env)}lease.json`);
-    if (lease && (!Number.isSafeInteger(lease.value?.deadline) || lease.value.deadline < 0)) throw new Error("BACKUP_RECORD_INVALID");
-    return !!lease && lease.value.deadline > Date.now();
-  };
+  const lease = await readLease(env);
+  if (lease.error) return { status: "schedule_failed" as const, error: lease.error, busy: lease.busy };
   let current: Awaited<ReturnType<typeof readSchedule>>;
   try { current = await readSchedule(env); }
-  catch (error) { return { status: "schedule_failed" as const, error, busy: await busy() }; }
+  catch (error) { return { status: "schedule_failed" as const, error, busy: lease.busy }; }
   if (!current?.value.enabled || current.value.nextRunAt === null || current.value.nextRunAt > now) {
-    if (await busy()) return { status: "busy" as const };
+    if (lease.busy) return { status: "busy" as const };
     return { status: "not_due" as const };
   }
   const available = configured(env) && backupTargetAvailability(env)[current.value.target];
@@ -495,7 +576,7 @@ export async function runScheduledBackup(env: Env, ctx: ExecutionContext, now = 
     lastFailure: available ? null : "BACKUP_TARGET_UNAVAILABLE", updatedAt: started };
   const claimed = await env.MEDIA_BUCKET.put(scheduleKey(env), JSON.stringify(claimedValue), { onlyIf: { etagMatches: current.etag } });
   if (!claimed) return { status: "busy" as const };
-  if (!available) return { status: "unavailable" as const };
+  if (!available) return { status: lease.busy ? "busy" as const : "unavailable" as const };
   let result: Awaited<ReturnType<typeof runBackup>> | undefined;
   try {
     result = await runBackup(new AbortController().signal, env, ctx, current.value.target, undefined, claimedValue.lastJobId!);
@@ -512,10 +593,16 @@ export async function runScheduledBackup(env: Env, ctx: ExecutionContext, now = 
 export async function backupStatus(env: Env, after: string | null = null) {
   if (after && !jobIdPattern.test(after)) throw invalid();
   const prefix = `${control(env)}jobs/`, page = await env.MEDIA_BUCKET.list({ prefix, limit: 20, ...(after ? { startAfter: `${prefix}${after}.json` } : {}) });
-  const ids = page.objects.map(object => object.key.slice(prefix.length, -5)), jobs = await Promise.all(ids.map(id => readJob(env, id)));
-  if (jobs.some(job => !job)) throw new Error("BACKUP_RECORD_UNAVAILABLE");
+  const ids = page.objects.map(object => object.key.slice(prefix.length, -5)), invalidJobs: string[] = [];
+  const jobs = await Promise.all(ids.map(async id => {
+    try {
+      const stored = await readJob(env, id);
+      if (!stored) throw invalidRecord();
+      return publicJob(stored.value, env);
+    } catch (error) { if (!isInvalidRecord(error)) throw error; invalidJobs.push(id); return null; }
+  }));
   const schedule = await readSchedule(env);
-  return { environment: environment(env), items: jobs.map(job => publicJob(job!.value)), after: page.truncated ? ids.at(-1)! : null,
+  return { environment: environment(env), items: jobs.filter(job => job !== null), invalidJobs, after: page.truncated ? ids.at(-1)! : null,
     targets: { download: configured(env), ...Object.fromEntries(Object.entries(backupTargetAvailability(env)).map(([key, ready]) => [key, configured(env) && ready])) } as Record<BackupTarget, boolean>,
     schedule: await publicSchedule(schedule?.value ?? defaultSchedule(), env),
     unavailableReason: configured(env) ? null : "本环境未配置数据库导出，不能创建备份。" };
@@ -531,17 +618,15 @@ export async function backupsHttp(request: Request, env: Env, ctx: ExecutionCont
     checkWrite(request, env);
     return json(await updateBackupSchedule(env, await readJson(request)));
   }
-  const match = new RegExp(`^/admin/backups/(\\d{16}-${uuid})(?:/(retry|download))?$`, "u").exec(path);
+  const match = new RegExp(`^/admin/backups/(\\d{16}-${uuid})(?:/(retry|download|close-external))?$`, "u").exec(path);
   if (request.method === "GET" && match) {
     const stored = await readJob(env, match[1]);
     if (!stored) throw new APIError("NOT_FOUND", { code: "BACKUP_NOT_FOUND", message: "找不到这次备份。" });
     const job = stored.value;
-    if (!match[2]) return json(publicJob(job));
+    if (!match[2]) return json(publicJob(job, env));
     if (match[2] === "download") {
       if (!job.result || job.deleted || job.r2Deleted) throw rejected("BACKUP_NOT_READY", "这次备份没有完成，或加密文件已过期清理，不能下载。");
       const artifact = job.result;
-      if (artifact.source.environment !== environment(env) || artifact.source.id !== job.sourceId
-        || !new RegExp(`^encrypted-${uuid}$`, "u").test(artifact.file) || !artifact.etag) throw new Error("BACKUP_RECORD_INVALID");
       // The completion record already proves SHA-256 and GCM verification; serve only that exact immutable version.
       const object = await env.MEDIA_BUCKET.get(`backups/${job.environment}/${job.sourceId}/${artifact.file}.bin`, { onlyIf: { etagMatches: artifact.etag } });
       if (!object || !("body" in object) || object.size !== artifact.byteLength) {
@@ -557,6 +642,11 @@ export async function backupsHttp(request: Request, env: Env, ctx: ExecutionCont
     if (request.method === "POST" && path === "/admin/backups/cleanup") {
       if (Object.keys(body).length) throw invalid();
       return json(await manualCleanup(env, request.signal, ctx));
+    }
+    if (request.method === "POST" && match?.[2] === "close-external") {
+      if (body.confirmed !== true || !Number.isSafeInteger(body.updatedAt) || Number(body.updatedAt) <= 0
+        || Object.keys(body).some(key => !["confirmed", "updatedAt"].includes(key))) throw invalid();
+      return json(await closeExternalBackup(env, match[1], Number(body.updatedAt), request.signal));
     }
     if (request.method !== "POST" || path !== "/admin/backups" && match?.[2] !== "retry") return new Response(null, { status: 404 });
     if (body.maintenanceConfirmed !== true || Object.keys(body).some(key => !["target", "maintenanceConfirmed"].includes(key))) throw invalid();

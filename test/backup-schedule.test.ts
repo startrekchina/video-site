@@ -127,6 +127,18 @@ it("retains the normal media scan when no backup is due", async () => {
   expect(fetcher).not.toHaveBeenCalled();
 });
 
+it.each([false, true])("scans after an unavailable backup target only without a live lease (busy: %s)", async busy => {
+  await updateBackupSchedule(runtime, input, Date.now() - 86400_000);
+  if (busy) await env.MEDIA_BUCKET.put("backup-control/test/lease.json", JSON.stringify({ deadline: Date.now() + 60000 }));
+  const fetcher = network(), list = vi.spyOn(env.MEDIA_BUCKET, "list"), ctx = createExecutionContext();
+  const missing = { ...runtime, WEBDAV_PASSWORD: "" };
+  await worker.scheduled({ cron: mediaSyncCron } as ScheduledController, missing, ctx);
+  await waitOnExecutionContext(ctx);
+  expect((await stored()).lastFailure).toBe("BACKUP_TARGET_UNAVAILABLE");
+  expect(list.mock.calls.some(([options]) => options?.prefix === "library/")).toBe(!busy);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
 it.each(["none", "active", "invalid", "unreadable"])("surfaces a malformed schedule and scans only with a confirmed idle lease (%s)", async lease => {
   await env.MEDIA_BUCKET.put(key, "{invalid schedule");
   const leaseKey = "backup-control/test/lease.json";

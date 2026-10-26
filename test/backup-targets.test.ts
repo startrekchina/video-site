@@ -16,6 +16,22 @@ async function artifact() {
   return encryptBackup(env.MEDIA_BUCKET, scope, runtime.BACKUP_ENCRYPTION_KEY, signal());
 }
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+it.each(["webdav", "s3"].flatMap(target => ["aborted-before-fetch", "network-error"].map(fault => ({ target: target as ExternalBackupTarget, fault }))))
+  ("closes the encrypted $target source after $fault without deleting it", async ({ target, fault }) => {
+    const file = await artifact(), controller = new AbortController(), get = env.MEDIA_BUCKET.get.bind(env.MEDIA_BUCKET);
+    const cancellations: ReturnType<typeof vi.spyOn>[] = [];
+    vi.spyOn(env.MEDIA_BUCKET, "get").mockImplementation(async (key, options) => {
+      const object = await get(key, options);
+      if (object && "body" in object) cancellations.push(vi.spyOn(object.body, "cancel"));
+      if (fault === "aborted-before-fetch") controller.abort();
+      return object;
+    });
+    const network = vi.fn(async () => { throw new Error("fictional network failure"); }); vi.stubGlobal("fetch", network);
+    await expect(uploadBackup(runtime, target, file, controller.signal)).rejects.toThrow();
+    expect(network).toHaveBeenCalledTimes(fault === "aborted-before-fetch" ? 0 : 1);
+    expect(cancellations).toHaveLength(1); expect(cancellations[0]).toHaveBeenCalledOnce();
+    expect(await env.MEDIA_BUCKET.head(`backups/test/${file.source.id}/${file.file}.bin`)).not.toBeNull();
+  });
 it.each(["webdav", "s3"] as ExternalBackupTarget[])("streams encrypted %s PUT and checks GET content, not ETag", async target => {
   const file = await artifact(); let uploaded = new Uint8Array();
   const network = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {

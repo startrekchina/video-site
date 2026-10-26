@@ -21,6 +21,18 @@ index fac426cd821bbde03114f0bbc509d68ea403d7a4..7ae660c74b880ba7754f4d27b92fa98c
 +    } else {
 +      this.queue.forEach((danmu) => this.makeWait(danmu));
 +    }
+@@ -1047,1 +1058,1 @@
+-                <input class="apd-input" placeholder="发个友善的弹幕见证当下" autocomplete="off" maxLength="${option.maxLength}" />
++                <input class="apd-input" placeholder="发个友善的弹幕见证当下" autocomplete="off" maxLength="${option.maxLength * 2}" />
+@@ -1251,1 +1262,8 @@
+     this.art.proxy($send, "click", () => this.emit());
++    const limitInput = (event) => {
++      if (event.isComposing) return;
++      const text = [...$input.value].slice(0, this.option.maxLength).join("");
++      if (text !== $input.value) $input.value = text;
++    };
++    this.art.proxy($input, "input", limitInput);
++    this.art.proxy($input, "compositionend", limitInput);
 diff --git a/types/artplayer-plugin-danmuku.d.ts b/types/artplayer-plugin-danmuku.d.ts
 index 00373f44447474aa2356fd45c92410f1446a43ed..8c759218207b055e926bd5a59e3812ba98138c98 100644
 --- a/types/artplayer-plugin-danmuku.d.ts
