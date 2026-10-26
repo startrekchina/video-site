@@ -35,6 +35,25 @@ it("keeps the original attempt when recovery fails and permits only one concurre
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+it("resumes with the old cookie when the response carrying the replacement cookie was lost", async () => {
+  await env.DB.exec("CREATE TRIGGER interrupt_registration AFTER INSERT ON account BEGIN UPDATE invitations SET revoked_at = created_at + 1 WHERE id = 'original'; END;");
+  const first = await registerWithInvitation(env, input);
+  expect(first.status).toBe("retry");
+  await env.DB.exec("DROP TRIGGER interrupt_registration");
+  const original = await env.DB.prepare('SELECT id FROM "user" WHERE username = ?').bind("recovering").first<string>("id");
+  const cookie = `registration=${first.attemptToken}`, resumedInput = { ...input, invitationCode: replacement };
+  // The recovery batch commits, then the request fails; its Set-Cookie never reaches the browser.
+  await env.DB.exec(`CREATE TRIGGER interrupt_completion BEFORE INSERT ON member_profiles WHEN NEW.user_id = '${original}' BEGIN SELECT RAISE(ABORT, 'Injected completion failure'); END;`);
+  expect((await http("/register", resumedInput, cookie)).status).not.toBe(200);
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM registration_attempts WHERE id = ?").bind(await sha256(first.attemptToken!)).first("n")).toBe(0);
+  await env.DB.exec("DROP TRIGGER interrupt_completion");
+  const resumed = await http("/register", resumedInput, cookie);
+  expect(resumed.status).toBe(200);
+  expect(await resumed.json()).toMatchObject({ status: "pending_verification", alreadyCompleted: false });
+  expect(await env.DB.prepare("SELECT used_by_user_id FROM invitations WHERE id = 'replacement'").first("used_by_user_id")).toBe(original);
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM registration_attempts").first("n")).toBe(1);
+});
+
 describe.each([
   ["revoked", "UPDATE invitations SET revoked_at = created_at + 1 WHERE id = 'original'"],
   ["expired", "UPDATE invitations SET expires_at = created_at + 1 WHERE id = 'original'"],

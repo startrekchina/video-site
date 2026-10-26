@@ -27,6 +27,8 @@ export function createSiteAuth(env: Env, identity: RequestIdentity) {
           const previous = await env.DB.prepare(`SELECT a.state, a.expected_user_id, a.identity_key, i.code_hash
             FROM registration_attempts AS a JOIN invitations AS i ON i.id = a.invitation_id WHERE a.id = ?`)
             .bind(await sha256(attemptToken)).first<{ state: string; expected_user_id: string; identity_key: string; code_hash: string }>();
+          // Recovery replaces its attempt; if that response was lost, the stale cookie must not block the password-verified retry.
+          if (!previous) attemptToken = undefined;
           const identity = typeof ctx.body?.username === "string" && typeof ctx.body?.email === "string"
             ? await sha256(JSON.stringify([ctx.body.username.toLowerCase(), ctx.body.email.toLowerCase()])) : "";
           const codeHash = typeof ctx.body?.invitationCode === "string" ? await sha256(ctx.body.invitationCode) : "";
