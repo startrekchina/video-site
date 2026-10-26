@@ -21,8 +21,8 @@ export async function registerWithInvitation(env: Env, input: RegistrationInput,
     || (attemptToken !== undefined && !/^[a-f0-9]{64}$/.test(attemptToken))) {
     return { status: "rejected", code: "REGISTRATION_INPUT_INVALID" };
   }
-  const token = attemptToken ?? Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, "0")).join("");
-  const id = await sha256(token);
+  let token = attemptToken ?? Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, "0")).join("");
+  let id = await sha256(token);
   const identity = await sha256(JSON.stringify([input.username.toLowerCase(), input.email.toLowerCase()]));
   const codeHash = await sha256(input.invitationCode);
   const db = env.DB;
@@ -32,7 +32,7 @@ export async function registerWithInvitation(env: Env, input: RegistrationInput,
     (i.issuer_user_id IS NULL OR EXISTS (SELECT 1 FROM member_profiles AS p JOIN "user" AS u ON u.id = p.user_id
       WHERE p.user_id = i.issuer_user_id AND p.status = 'active' AND p.registration_state = 'completed' AND u.emailVerified = 1)) AS issuer_valid
     FROM invitations AS i WHERE code_hash = ?`).bind(codeHash).first<Invitation>();
-  if (attempt && (!attempt.expected_user_id || attempt.identity_key !== identity || attempt.invitation_id !== invitation?.id)) {
+  if (attempt && (!attempt.expected_user_id || attempt.identity_key !== identity || attempt.state === "completed" && attempt.invitation_id !== invitation?.id)) {
     return { status: "rejected", code: "REGISTRATION_ATTEMPT_INVALID" };
   }
   if (attemptToken && !attempt) return { status: "rejected", code: "REGISTRATION_ATTEMPT_INVALID" };
@@ -42,6 +42,25 @@ export async function registerWithInvitation(env: Env, input: RegistrationInput,
       : invitation.used_by_user_id ? "INVITATION_USED" : invitation.revoked_at !== null ? "INVITATION_REVOKED"
         : invitation.expires_at <= now ? "INVITATION_EXPIRED" : null;
     if (invalid) return { status: "rejected", code: invalid, ...(attempt && { attemptToken: token }) };
+    let recovery: Attempt | null = null;
+    if (!attempt || attempt.invitation_id !== invitation!.id) {
+      recovery = await db.prepare(`SELECT a.* FROM registration_attempts AS a JOIN "user" AS u ON u.id = a.expected_user_id
+        WHERE a.identity_key = ? AND u.username = ? AND u.email = ? AND a.state <> 'completed'
+          AND (a.id = ? OR EXISTS (SELECT 1 FROM account WHERE userId = u.id AND providerId = 'credential' AND accountId = u.id AND password IS NOT NULL))
+          AND NOT EXISTS (SELECT 1 FROM member_profiles WHERE user_id = u.id)`)
+        .bind(identity, input.username.toLowerCase(), input.email.toLowerCase(), attempt?.id ?? "").first<Attempt>();
+      if (attempt && recovery?.id !== attempt.id) return { status: "rejected", code: "REGISTRATION_ATTEMPT_INVALID" };
+      if (recovery) {
+        const context = await createAuth(env).$context, { minPasswordLength, maxPasswordLength } = context.password.config;
+        const credential = await db.prepare("SELECT password FROM account WHERE userId = ? AND providerId = 'credential' AND accountId = ?")
+          .bind(recovery.expected_user_id, recovery.expected_user_id).first<{ password: string }>();
+        // A lost cookie is recoverable only with the original credential, never with an email match alone.
+        if (input.password.length < minPasswordLength || input.password.length > maxPasswordLength
+          || (credential?.password ? !await context.password.verify({ hash: credential.password, password: input.password }) : !attemptToken)) {
+          return { status: "rejected", code: "REGISTRATION_ATTEMPT_INVALID" };
+        }
+      }
+    }
     await db.prepare(`UPDATE registration_attempts SET state = 'failed', updated_at = ?
       WHERE invitation_id = ? AND state IN ('reserved', 'created') AND expires_at <= ?`)
       .bind(now, invitation!.id, now).run();
@@ -51,7 +70,28 @@ export async function registerWithInvitation(env: Env, input: RegistrationInput,
         WHERE p.user_id = i.issuer_user_id AND p.status = 'active' AND p.registration_state = 'completed' AND u.emailVerified = 1)))
       AND NOT EXISTS (SELECT 1 FROM registration_attempts WHERE invitation_id = ? AND state IN ('reserved', 'created') AND id <> ?)`;
     const expires = now + settings.registrationReservationTtl * 1000;
-    if (!attempt) {
+    if (recovery) {
+      const replacementToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, "0")).join("");
+      const replacementId = await sha256(replacementToken);
+      // Retire only an owned unfinished attempt. The batch preserves it if its replacement cannot be inserted.
+      const results = await db.batch([
+        db.prepare(`DELETE FROM registration_attempts WHERE id = ? AND expected_user_id = ? AND state <> 'completed'
+          AND NOT EXISTS (SELECT 1 FROM member_profiles WHERE user_id = expected_user_id)
+          AND (invitation_id = ? OR NOT EXISTS (SELECT 1 FROM invitations AS i WHERE i.id = registration_attempts.invitation_id
+            AND i.used_by_user_id IS NULL AND i.revoked_at IS NULL AND i.created_at <= ? AND i.expires_at > ?
+            AND (i.issuer_user_id IS NULL OR EXISTS (SELECT 1 FROM member_profiles AS p JOIN "user" AS u ON u.id = p.user_id
+              WHERE p.user_id = i.issuer_user_id AND p.status = 'active' AND p.registration_state = 'completed' AND u.emailVerified = 1))))
+          AND ${available}`)
+          .bind(recovery.id, recovery.expected_user_id, invitation!.id, now, now, invitation!.id, now, invitation!.id, recovery.id),
+        db.prepare(`INSERT INTO registration_attempts (id, invitation_id, expected_user_id, identity_key, state, created_at, updated_at, expires_at)
+          SELECT ?, ?, ?, ?, 'reserved', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM registration_attempts WHERE expected_user_id = ?)
+            AND NOT EXISTS (SELECT 1 FROM member_profiles WHERE user_id = ?) AND ${available}`)
+          .bind(replacementId, invitation!.id, recovery.expected_user_id, identity, now, now, expires,
+            recovery.expected_user_id, recovery.expected_user_id, invitation!.id, now, invitation!.id, replacementId),
+      ]);
+      if (!results[1].meta.changes) return { status: "rejected", code: "REGISTRATION_ATTEMPT_INVALID" };
+      token = replacementToken; id = replacementId;
+    } else if (!attempt) {
       await db.prepare(`INSERT INTO registration_attempts (id, invitation_id, expected_user_id, identity_key, state, created_at, updated_at, expires_at)
         SELECT ?, ?, ?, ?, 'reserved', ?, ?, ? WHERE ${available} ON CONFLICT DO NOTHING`)
         .bind(id, invitation!.id, crypto.randomUUID(), identity, now, now, expires, invitation!.id, now, invitation!.id, id).run();

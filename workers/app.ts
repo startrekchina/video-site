@@ -31,6 +31,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Robots-Tag": "noindex",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
+  "Content-Security-Policy": "frame-ancestors 'none'",
 };
 
 export default {

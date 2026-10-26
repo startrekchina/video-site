@@ -1,5 +1,5 @@
 import { APIError } from "better-auth/api";
-import { createRequestIdentity, type D1Reader } from "./member.server";
+import { createRequestIdentity, liveMemberSql, type D1Reader } from "./member.server";
 import { checkWrite, readJson } from "./security.server";
 import { settings } from "./settings.server";
 
@@ -52,10 +52,13 @@ export async function danmakuHttp(request: Request, env: Env, identity = createR
     return respond(request, { data: { items: rows.results as AdminDanmaku[], total: count.results[0].total as number, pageSize: size } });
   }
   if (route === "DELETE item") {
-    admin((await read(async () => null)).member.role);
+    const current = await read(async () => null);
+    admin(current.member.role);
     // Deletion is final and refunds no send quota (B 6.17); a target already gone or under another unit is missing alike.
-    const saved = await db.prepare("DELETE FROM danmaku WHERE id = ? AND playable_unit_id = ?").bind(part, unitId).run();
-    if (!saved.meta.changes) missing();
+    const saved = await db.prepare(`DELETE FROM danmaku WHERE id = ? AND playable_unit_id = ?
+      AND EXISTS (SELECT 1 ${liveMemberSql} AND p.role = 'admin')`)
+      .bind(part, unitId, current.member.user_id, current.session.id, new Date().toISOString()).run();
+    if (!saved.meta.changes) { admin((await read(async () => null)).member.role); missing(); }
     return respond(request, { data: { deleted: true } });
   }
 

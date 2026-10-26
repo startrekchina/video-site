@@ -3,6 +3,11 @@ import { authError, call } from "@/lib/auth-client";
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
+it("explains how to recover from an invitation replay that cannot return the original code", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: { code: "INVITATION_REPLAY_UNAVAILABLE" } }, { status: 409 })));
+  await expect(call("/invites/create", { operationId: crypto.randomUUID() })).rejects.toThrow("本次发码无法重试，请刷新页面后重新生成。");
+});
+
 it("keeps rate-limit waits readable and never surfaces raw network or gateway errors", async () => {
   expect(authError({}, "30")).toBe("操作过于频繁，请在 30 秒后重试。");
   expect(authError({}, "3412")).toBe("操作过于频繁，请约 57 分钟后再试。");

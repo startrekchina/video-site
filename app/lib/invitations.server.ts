@@ -51,15 +51,16 @@ export async function invitationsHttp(request: Request, env: Env, identity = cre
   if (typeof expiry !== "number" || !Number.isSafeInteger(expiry) || expiry <= now || expiry > 8640000000000000) {
     throw new APIError("BAD_REQUEST", { code: "INVALID_INPUT", message: "有效期必须晚于当前时间。" });
   }
-  const code = await invitationCode(env, userId, body.operationId);
+  const code = await invitationCode(env, userId, body.operationId), codeHash = await sha256(code);
   await env.DB.prepare(`INSERT INTO invitations (id, code_hash, issuer_user_id, operation_id, created_at, expires_at)
     SELECT ?, ?, p.user_id, ?, ?, ? FROM member_profiles AS p WHERE p.user_id = ? AND ${actorSql}
       AND (p.role = 'admin' OR p.invite_quota > ${occupiedSql})
     ON CONFLICT (issuer_user_id, operation_id) WHERE issuer_user_id IS NOT NULL DO NOTHING`)
-    .bind(crypto.randomUUID(), await sha256(code), body.operationId, now, expiry, userId, ...actor, now).run();
-  const row = await env.DB.prepare("SELECT id, expires_at, used_at, revoked_at FROM invitations WHERE issuer_user_id = ? AND operation_id = ?")
-    .bind(userId, body.operationId).first<{ id: string; expires_at: number; used_at: number | null; revoked_at: number | null }>();
+    .bind(crypto.randomUUID(), codeHash, body.operationId, now, expiry, userId, ...actor, now).run();
+  const row = await env.DB.prepare("SELECT id, code_hash, expires_at, used_at, revoked_at FROM invitations WHERE issuer_user_id = ? AND operation_id = ?")
+    .bind(userId, body.operationId).first<{ id: string; code_hash: string; expires_at: number; used_at: number | null; revoked_at: number | null }>();
   if (!row) throw new APIError("CONFLICT", { code: "QUOTA_EXHAUSTED", message: "邀请额度已用完或账号已被封禁。" });
   if (row.used_at || row.revoked_at || row.expires_at <= now) throw new APIError("CONFLICT", { code: "INVITATION_USED", message: "本次发码已经结束，请使用新的操作。" });
+  if (row.code_hash !== codeHash) throw new APIError("CONFLICT", { code: "INVITATION_REPLAY_UNAVAILABLE", message: "本次发码无法重试，请刷新页面后重新生成。旧邀请码可在列表中作废。" });
   return Response.json({ data: { id: row.id, code, expiresAt: row.expires_at }, requestId: request.headers.get("X-Site-Request-Id") ?? crypto.randomUUID() }, { headers: current.headers });
 }

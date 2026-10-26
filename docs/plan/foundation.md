@@ -8,6 +8,8 @@
 
 ## 任务与验收摘要
 
+- [x] DSK 基础防护与配置清理的实现与本地自检（2026-10-26，基线 `58d408d`）：动态响应与静态资源使用禁止嵌入的 CSP，配置只声明实际使用的绑定。`http`、`settings` 与原生限流定向用例通过；development 构建产物保留静态 CSP，类型检查通过。隔离浏览器直接访问登录页正常、官方 Turnstile 测试控件显示成功，在 iframe 中的登录页不显示。临时夹具与虚构配置均已清理，staging 未复验。
+
 - [x] DOC1 文档职责调整为 A/B 与核心/模块计划四层，链接、内容保留、任务状态及敏感信息检查通过；[检查记录](../documentation-restructure-20261011.md)。
 - [x] DOC2 按站长要求继续精炼 A，保留八项核心能力及目标/范围；细则承接、链接和差异检查通过，不改变产品或阶段状态，见[精炼记录](../documentation-restructure-20261011.md#核心需求二次精炼)。
 - [x] DOC3 分离协作规则与项目结论，删减内容承接、临时授权记录、维护规则入口及文档链接/状态/差异检查通过；A/B 与功能里程碑不变，见[整理记录](../documentation-restructure-20261011.md#协作规则与项目结论分离)。
@@ -111,6 +113,7 @@ staging 核对（2026-10-15，`78914f2`）：入口脚本、根样式与字体�
 - 稳定错误码至少区分 `AUTH_REQUIRED`、`AUTH_INVALID`、`CSRF_INVALID`、`TURNSTILE_REQUIRED`、`FRESH_SESSION_REQUIRED`、`INVITATION_INVALID`、`INVITATION_EXPIRED`、`INVITATION_USED`、`INVITATION_REVOKED`、`QUOTA_EXHAUSTED` 和 `REVISION_CONFLICT`；前端按 code 处理，不解析中文 message。邀请码无效使用 `400`，其已用/过期/作废及额度不足使用 `409`。
 - 受保护 HTML 页面未登录时跳转登录页；6.5 列明的公开页无需登录，受保护 JSON 和媒体接口返回错误。登录、邮箱找回保留库脱敏语义；注册可返回库的用户名/邮箱冲突码，不能承诺注册入口完全隐藏账号存在性。邀请码失败仍明确区分状态，不返回邀请人的私人资料。
 - 登录态 HTML、loader 数据、认证 action、邀请凭证和媒体响应使用 `Cache-Control: private, no-store`，禁止共享缓存绕过鉴权。公开静态资源可以按文件版本缓存；静态资源、重定向、错误和媒体响应同样带 `X-Robots-Tag: noindex`。Workers 静态资源头与 Worker 生成响应头分别配置，不能假定其中一处覆盖另一处。
+- Worker 动态响应及静态资源均设置 `Content-Security-Policy: frame-ancestors 'none'`，禁止页面被嵌入；该策略不限制页面自身加载 Turnstile 脚本及 iframe。
 - 动态响应设置 `Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff`。浏览器不接收内部 R2 key/URL、Worker Secrets、密码哈希或 TOTP 密文；必要注册/绑定/签发流程只向有权接收者给出凭证材料，站长专用加密备份文件下载按 6.9.4 单独鉴权。Better Auth 自己的登录/会话端点可返回原生会话 token，按敏感凭证处理；本站会话列表仅给设备信息与 ID，撤销时在服务端映射 token。日志只记录请求 ID、路由模板、状态、错误码、处理请求的机房代码（`colo`）及必要资源 ID，不记录 Cookie、密码、邀请码、备用码、TOTP、完整 token/URL；平台 URL 日志也须验证脱敏。
 
 ## 基础验证方法

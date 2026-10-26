@@ -41,6 +41,77 @@ const create = async () => data(await send("/admin/backups", input));
 const stateKey = (id: string) => `backup-control/test/jobs/${id}.json`;
 const state = async (id: string) => (await env.MEDIA_BUCKET.get(stateKey(id)))!.json<{ sourceId: string; attempt: string; result: { file: string }; [key: string]: unknown }>();
 
+it("removes successful backup plaintext while retaining the verified encrypted download", async () => {
+  const job = await create();
+  expect(job).toMatchObject({ status: "complete", downloadReady: true });
+  const stored = await state(job.id), prefix = `backups/test/${stored.sourceId}/`;
+  expect(await env.MEDIA_BUCKET.head(`${prefix}source.sql`)).toBeNull();
+  expect(await env.MEDIA_BUCKET.head(`${prefix}${stored.result.file}.bin`)).not.toBeNull();
+  const response = await send(`/admin/backups/${job.id}/download`);
+  expect(response.status).toBe(200); await response.body!.cancel();
+});
+
+it("reports plaintext removal failure and retries cleanup without losing the last encrypted copy", async () => {
+  const remove = env.MEDIA_BUCKET.delete.bind(env.MEDIA_BUCKET);
+  const injected = vi.spyOn(env.MEDIA_BUCKET, "delete").mockImplementation(async keys => {
+    if (typeof keys === "string" && keys.endsWith("/source.sql")) throw new Error("Injected plaintext removal failure");
+    return remove(keys);
+  });
+  const job = await create(), stored = await state(job.id), prefix = `backups/test/${stored.sourceId}/`;
+  expect(job).toMatchObject({ status: "complete", downloadReady: true, cleanup: { status: "failed" } });
+  expect(await env.MEDIA_BUCKET.head(`${prefix}source.sql`)).not.toBeNull();
+  injected.mockRestore();
+  expect(await data(await send("/admin/backups/cleanup", {}))).toMatchObject({ status: "complete", deleted: 0 });
+  expect(await env.MEDIA_BUCKET.head(`${prefix}source.sql`)).toBeNull();
+  expect(await env.MEDIA_BUCKET.head(`${prefix}${stored.result.file}.bin`)).not.toBeNull();
+});
+
+it.each([false, true])("retries failed encryption safely (plaintext missing: %s)", async missing => {
+  const network = mockExport(), put = env.MEDIA_BUCKET.put.bind(env.MEDIA_BUCKET);
+  const injected = vi.spyOn(env.MEDIA_BUCKET, "put").mockImplementation(async (key, value, options) => {
+    if (/\/encrypted-[^/]+\.bin$/.test(key)) throw new Error("Injected encryption storage failure");
+    return put(key, value, options);
+  });
+  const job = await create(), stored = await state(job.id), source = `backups/test/${stored.sourceId}/source.sql`;
+  expect(job).toMatchObject({ status: "failed", failure: { code: "BACKUP_ENCRYPTION_FAILED" } });
+  expect(await env.MEDIA_BUCKET.head(source)).not.toBeNull();
+  injected.mockRestore();
+  if (missing) await env.MEDIA_BUCKET.delete(source);
+  expect(await data(await send(`/admin/backups/${job.id}/retry`, input))).toMatchObject({ status: "complete", downloadReady: true });
+  const retried = await state(job.id);
+  expect(retried.sourceId === stored.sourceId).toBe(!missing);
+  expect(network.mock.calls.filter(([url]) => String(url) !== signed)).toHaveLength(missing ? 2 : 1);
+  expect(await env.MEDIA_BUCKET.head(`backups/test/${retried.sourceId}/source.sql`)).toBeNull();
+}, 10000);
+
+it.each([false, true])("retries an external upload using only verified ciphertext (ciphertext missing: %s)", async missing => {
+  const bindings = { ...runtime, WEBDAV_URL: "https://dav.example.test/backups/", WEBDAV_USERNAME: "fictional", WEBDAV_PASSWORD: "fictional" };
+  let failing = true, exports = 0, remote = new Uint8Array();
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).startsWith(bindings.WEBDAV_URL)) {
+      if (failing) throw new Error("Injected upload failure");
+      if (init?.method === "PUT") { remote = new Uint8Array(await new Response(init.body).arrayBuffer()); return new Response(null); }
+      return new Response(remote);
+    }
+    if (String(url) === signed) return download(); exports++; return complete();
+  }));
+  const body = { ...input, target: "webdav" }, job = await data(await send("/admin/backups", body, owner, bindings));
+  expect(job).toMatchObject({ status: "failed", downloadReady: true });
+  const stored = await state(job.id), prefix = `backups/test/${stored.sourceId}/`;
+  expect(await env.MEDIA_BUCKET.head(`${prefix}source.sql`)).toBeNull();
+  await env.MEDIA_BUCKET.delete([`${prefix}source.sql`, `${prefix}source.json`]); failing = false;
+  if (missing) {
+    await env.MEDIA_BUCKET.delete(`${prefix}${stored.result.file}.bin`);
+    const refused = await send(`/admin/backups/${job.id}/retry`, body, owner, bindings);
+    expect(refused.status).toBe(409);
+    expect((await refused.json() as { error: { code: string } }).error.code).toBe("BACKUP_OBJECT_CHANGED");
+    expect(await state(job.id)).toEqual(stored); expect(exports).toBe(1); return;
+  }
+  expect(await data(await send(`/admin/backups/${job.id}/retry`, body, owner, bindings))).toMatchObject({ status: "complete", downloadReady: true });
+  expect((await state(job.id)).result.file).toBe(stored.result.file);
+  expect(exports).toBe(1);
+}, 10000);
+
 it.each(["lease", "job"])("releases an interrupted backup whose initial %s write is still in flight", async blockedWrite => {
   const network = mockExport(), put = env.MEDIA_BUCKET.put.bind(env.MEDIA_BUCKET), controller = new AbortController(), ctx = createExecutionContext();
   let entered!: () => void, resume!: () => void, blocked = false;
@@ -384,13 +455,14 @@ it("cleans expired source prefixes abandoned by a retry without a source complet
   const job = await create(), abandoned = (await state(job.id)).sourceId; failure.mockRestore();
   expect(job.status).toBe("failed"); expect(await env.MEDIA_BUCKET.head(`backups/test/${abandoned}/source.sql`)).not.toBeNull();
   expect(await data(await send(`/admin/backups/${job.id}/retry`, input))).toMatchObject({ status: "complete" });
-  const current = (await state(job.id)).sourceId; expect(current).not.toBe(abandoned);
+  const { sourceId: current, result } = await state(job.id); expect(current).not.toBe(abandoned);
   vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 86400_000);
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
   owner = await login("Nova"); mockExport();
   expect(await data(await send("/admin/backups/cleanup", {}))).toEqual({ status: "complete", deleted: 1 });
   expect((await env.MEDIA_BUCKET.list({ prefix: `backups/test/${abandoned}/` })).objects).toHaveLength(0);
-  expect(await env.MEDIA_BUCKET.head(`backups/test/${current}/source.sql`)).not.toBeNull();
+  expect(await env.MEDIA_BUCKET.head(`backups/test/${current}/source.sql`)).toBeNull();
+  expect(await env.MEDIA_BUCKET.head(`backups/test/${current}/${result.file}.bin`)).not.toBeNull();
 }, 10000);
 
 it("protects the last WebDAV copy independently while expiring its R2 copy after a newer download backup", async () => {
@@ -771,7 +843,15 @@ it("records a disconnected request as failed and lets a later manual retry expor
 });
 
 it("shows an expired running task as interrupted and permits recovery without automatic execution", async () => {
-  const job = await create(), original = await state(job.id), expired = { ...original, status: "running", deadline: Date.now() - 1, result: undefined };
+  const put = env.MEDIA_BUCKET.put.bind(env.MEDIA_BUCKET);
+  const failure = vi.spyOn(env.MEDIA_BUCKET, "put").mockImplementation(async (key, value, options) => {
+    if (/\/encrypted-[^/]+\.bin$/.test(key)) throw new Error("Injected encryption interruption");
+    return put(key, value, options);
+  });
+  const job = await create(); failure.mockRestore();
+  expect(job).toMatchObject({ status: "failed", failure: { code: "BACKUP_ENCRYPTION_FAILED" } });
+  const original = await state(job.id), expired = { ...original, status: "running", deadline: Date.now() - 1, failure: undefined };
+  expect(await env.MEDIA_BUCKET.head(`backups/test/${original.sourceId}/source.sql`)).not.toBeNull();
   await env.MEDIA_BUCKET.put(stateKey(job.id), JSON.stringify(expired));
   await env.MEDIA_BUCKET.put("backup-control/test/lease.json", JSON.stringify({ jobId: job.id, attempt: original.attempt, deadline: expired.deadline }));
   const network = mockExport();
@@ -779,6 +859,8 @@ it("shows an expired running task as interrupted and permits recovery without au
   expect(network).not.toHaveBeenCalled();
   expect((await data(await send(`/admin/backups/${job.id}/retry`, input))).status).toBe("complete");
   expect(network).not.toHaveBeenCalled();
+  expect((await state(job.id)).sourceId).toBe(original.sourceId);
+  expect(await env.MEDIA_BUCKET.head(`backups/test/${original.sourceId}/source.sql`)).toBeNull();
 }, 15000);
 
 it("refuses changed ciphertext but allows the previously verified file to be downloaded after key rotation", async () => {

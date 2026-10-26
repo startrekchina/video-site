@@ -366,6 +366,15 @@ async function deleteSource(env: Env, id: string, signal: AbortSignal) {
   }
   await env.MEDIA_BUCKET.delete(sourceControlKey(env, id));
 }
+async function discardPlaintext(env: Env, job: Job, signal: AbortSignal) {
+  const prefix = `backups/${job.environment}/${job.sourceId}/`, plaintext = await env.MEDIA_BUCKET.head(`${prefix}source.sql`);
+  if (!plaintext) return;
+  const encrypted = await env.MEDIA_BUCKET.head(`${prefix}${job.result!.file}.bin`);
+  if (encrypted?.etag !== job.result!.etag || encrypted.size !== job.result!.byteLength) throw new Error("BACKUP_OBJECT_CHANGED");
+  await delay(Math.min(1100, Math.max(0, plaintext.uploaded.getTime() + 1100 - Date.now())), undefined, { signal });
+  await env.MEDIA_BUCKET.delete(`${prefix}source.sql`);
+}
+
 async function cleanupBackups(env: Env, current: Job | undefined, signal: AbortSignal) {
   signal.throwIfAborted();
   const pairs = backupKeys(env), protectedR2 = { id: "", time: 0 }, protectedExternal = new Map<string, { name: string; time: number }>();
@@ -392,6 +401,10 @@ async function cleanupBackups(env: Env, current: Job | undefined, signal: AbortS
   let deleted = 0, pending = 0, failed = false;
   for await (const stored of allJobs(env)) {
     signal.throwIfAborted(); const job = stored.value;
+    if (job.result && !job.r2Deleted && (job.status !== "running" || job.deadline <= Date.now())) {
+      try { await discardPlaintext(env, job, signal); }
+      catch { failed = true; signal.throwIfAborted(); }
+    }
     if (job.deleted || job.id === current?.id || job.status === "running" && job.deadline > Date.now()
       || (job.result?.source.createdAt ?? job.createdAt) >= Date.now() - settings.backupRetention * 1000) continue;
     const remote = job.receipt ?? job.pendingReceipt, time = job.result?.source.createdAt ?? job.createdAt;
@@ -477,7 +490,17 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
   if (previous?.status === "complete") throw rejected("BACKUP_ALREADY_COMPLETE", "这次备份已经成功，无需重试。");
   if (previous?.deleted || previous?.r2Deleted || previous?.externalClosedAt) throw rejected("BACKUP_NOT_READY", "这次备份已结束或加密文件已过期清理，请创建新备份。");
   if (previous?.status === "running" && previous.deadline > now) throw rejected("BACKUP_BUSY", "这次备份仍在进行，请稍后查看记录。");
-  const reused = previous && await env.MEDIA_BUCKET.head(sourceKey(previous));
+  let reused = false;
+  if (previous?.result) {
+    const encrypted = await env.MEDIA_BUCKET.head(`backups/${previous.environment}/${previous.sourceId}/${previous.result.file}.bin`);
+    if (encrypted?.etag !== previous.result.etag || encrypted.size !== previous.result.byteLength) {
+      throw rejected("BACKUP_OBJECT_CHANGED", "加密文件缺失或已被改动，请保留原记录并创建新备份。");
+    }
+    reused = true;
+  } else if (previous) {
+    reused = !!await env.MEDIA_BUCKET.head(sourceKey(previous))
+      && !!await env.MEDIA_BUCKET.head(`backups/${previous.environment}/${previous.sourceId}/source.sql`);
+  }
   const job: Job = { id: previous?.id ?? scheduledId ?? newJobId(now),
     environment: environment(env), createdAt: previous?.createdAt ?? now, startedAt: now, updatedAt: now,
     deadline: now + settings.backupTaskTimeout * 1000, attempt: crypto.randomUUID(),
@@ -539,6 +562,8 @@ async function runBackup(requestSignal: AbortSignal, env: Env, ctx: ExecutionCon
         job.pendingReceipt = intended;
         // Publish the immutable encrypted artifact and intended remote object before the first external write.
         await save();
+        try { await discardPlaintext(env, job, signal); }
+        catch { job.cleanup = { status: "failed", deleted: 0 }; signal.throwIfAborted(); }
         job.receipt = await uploadBackup(env, target, job.result, signal);
         delete job.pendingReceipt;
       }

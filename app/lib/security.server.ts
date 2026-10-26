@@ -25,7 +25,7 @@ export function checkWrite(request: Request, env: Env) {
 export function safeNext(value: string | null, origin: string, fallback = "/account") {
   if (!value || value.length > 2048 || !value.startsWith("/") || value.startsWith("//") || /[\\\x00-\x1f]/.test(value)) return fallback;
   const url = new URL(value, origin);
-  return url.origin === new URL(origin).origin ? `${url.pathname}${url.search}` : fallback;
+  return url.origin === new URL(origin).origin && !url.pathname.startsWith("//") ? `${url.pathname}${url.search}` : fallback;
 }
 
 export async function readJson(request: Request): Promise<Record<string, unknown>> {

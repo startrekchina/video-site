@@ -13,6 +13,7 @@ function expectSecurityHeaders(res: Response) {
   expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
   expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
   expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+  expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'none'");
 }
 
 describe("worker responses", () => {

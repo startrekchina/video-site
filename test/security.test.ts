@@ -22,3 +22,13 @@ it("uses host-only secure cookies on deployed HTTPS and accepts only safe relati
   for (const value of ["//evil.invalid", "/\\evil.invalid", "https://evil.invalid", "/\u0000evil", "x".repeat(2049)]) expect(safeNext(value, env.APP_ORIGIN)).toBe("/account");
   expect(safeNext("/invites?view=mine", env.APP_ORIGIN)).toBe("/invites?view=mine");
 });
+
+it("rejects return targets that become protocol-relative after URL normalization", () => {
+  for (const value of ["/..//evil.invalid", "/.//evil.invalid", "/%2e%2e//evil.invalid", "/a/../..//evil.invalid?view=mine", "/a/..///evil.invalid"]) {
+    const next = safeNext(value, env.APP_ORIGIN);
+    expect(next, value).toBe("/account");
+    expect(new URL(next, env.APP_ORIGIN).origin).toBe(new URL(env.APP_ORIGIN).origin);
+  }
+  expect(safeNext("/title/../invites?view=mine", env.APP_ORIGIN)).toBe("/invites?view=mine");
+  expect(safeNext("/search?q=https%3A%2F%2Fexample.test", env.APP_ORIGIN)).toBe("/search?q=https%3A%2F%2Fexample.test");
+});

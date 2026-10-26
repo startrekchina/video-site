@@ -1,6 +1,6 @@
 import { APIError } from "better-auth/api";
 import type { Comment, Reply, SortKey, Vote } from "./discussion";
-import { createRequestIdentity, type D1Reader } from "./member.server";
+import { createRequestIdentity, liveMemberSql, type D1Reader } from "./member.server";
 import { checkWrite, readJson } from "./security.server";
 import { settings } from "./settings.server";
 
@@ -137,9 +137,13 @@ export async function discussionHttp(request: Request, env: Env, identity = crea
     if (current.member.role !== "admin") fail("FORBIDDEN", "FORBIDDEN", "需要管理员权限。");
     if (!current.value[0].results.length) missing();
     // B 6.12.4: one statement removes the record, and the foreign key cascades take a comment's replies and every related vote with it.
-    const saved = await (replyId ? db.prepare("DELETE FROM comment_replies WHERE id = ?1 AND comment_id IN (SELECT id FROM comments WHERE playable_unit_id = ?2)")
-      : db.prepare("DELETE FROM comments WHERE id = ?1 AND playable_unit_id = ?2")).bind(target, unitId).run();
-    if (!saved.meta.changes) missing();
+    const saved = await db.prepare(`${replyId ? "DELETE FROM comment_replies WHERE id = ?1 AND comment_id IN (SELECT id FROM comments WHERE playable_unit_id = ?2)"
+      : "DELETE FROM comments WHERE id = ?1 AND playable_unit_id = ?2"} AND EXISTS (SELECT 1 ${liveMemberSql} AND p.role = 'admin')`)
+      .bind(target, unitId, current.member.user_id, current.session.id, new Date().toISOString()).run();
+    if (!saved.meta.changes) {
+      if ((await read(async () => null)).member.role !== "admin") fail("FORBIDDEN", "FORBIDDEN", "需要管理员权限。");
+      missing();
+    }
     return respond(request, { data: { deleted: true } });
   }
   const value = request.method === "PUT" ? body.value : null;

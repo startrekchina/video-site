@@ -1,4 +1,4 @@
-import { APIError, createAuthEndpoint, createAuthMiddleware, createEmailVerificationToken, getSession } from "better-auth/api";
+import { APIError, createAuthEndpoint, createAuthMiddleware, createEmailVerificationToken, freshSessionMiddleware, getSession } from "better-auth/api";
 import { createAuth } from "./auth.server";
 import { registerWithInvitation, sha256 } from "./registration.server";
 import { createRequestIdentity, memberById, memberForSession, type RequestIdentity } from "./member.server";
@@ -33,7 +33,7 @@ export function createSiteAuth(env: Env, identity: RequestIdentity) {
           if (previous?.state === "completed") {
             if (previous.identity_key !== identity || previous.code_hash !== codeHash) attemptToken = undefined;
           } else if (previous?.state === "failed" && (previous.identity_key !== identity || previous.code_hash !== codeHash)) {
-            // An unfinished native identity still belongs to its original attempt.
+            // Keep proof of ownership; registration validates credentials before rebinding an unfinished identity.
             const exists = await env.DB.prepare('SELECT id FROM "user" WHERE id = ?').bind(previous.expected_user_id).first();
             if (!exists) attemptToken = undefined;
           }
@@ -76,6 +76,32 @@ export function createSiteAuth(env: Env, identity: RequestIdentity) {
       }
       if (ctx.path === "/two-factor/verify-totp" || ctx.path === "/two-factor/verify-backup-code") {
         await readMember();
+      }
+      if (ctx.path === "/change-email" || ctx.path === "/passkey/delete-passkey") await freshSessionMiddleware(ctx);
+      if (ctx.path === "/two-factor/enable" && (ctx.body?.method === undefined || ctx.body.method === "totp")) {
+        const adapter = ctx.context.adapter, userId = ctx.context.session!.user.id;
+        const pending = await adapter.findOne<{ verified: boolean }>({ model: "twoFactor", where: [{ field: "userId", value: userId }] });
+        if (pending?.verified === false) {
+          const native = createAuth(env);
+          const uri = await native.api.getTOTPURI({ headers: request.headers, body: { password: ctx.body?.password } });
+          const { backupCodes } = await native.api.viewBackupCodes({ body: { userId } });
+          return ctx.json({ method: "totp", ...uri, backupCodes });
+        }
+        const conflict = () => new APIError("CONFLICT", { code: "TOTP_SETUP_CONFLICT", message: "绑定已由另一请求开始，请重新打开绑定页面。" });
+        const { create, update } = adapter;
+        // This request may only create the first setup; native enable must not overwrite a concurrent winner.
+        adapter.update = async options => { if (options.model === "twoFactor") throw conflict(); return update(options); };
+        adapter.create = async options => {
+          try { return await create(options); }
+          catch (error) {
+            if (options.model === "twoFactor") {
+              for (let cause: unknown = error; cause instanceof Error; cause = cause.cause) {
+                if (cause.message.includes("UNIQUE constraint failed: twoFactor.userId")) throw conflict();
+              }
+            }
+            throw error;
+          }
+        };
       }
       if (ctx.path === "/change-password" && ctx.body?.revokeOtherSessions !== true) {
         throw new APIError("BAD_REQUEST", { code: "SESSION_REVOCATION_REQUIRED", message: "修改密码时必须同时退出其他设备。" });
