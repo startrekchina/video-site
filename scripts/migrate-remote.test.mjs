@@ -7,6 +7,25 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { remoteMigrationSql } from "./migrate-remote.mjs";
 
+test("pending migrations preserve existing original and quality media records", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec("PRAGMA foreign_keys = ON");
+    const names = readdirSync("migrations").filter(name => name.endsWith(".sql")).sort();
+    const pending = names.findIndex(name => name === "0021_playlist_short_ids.sql");
+    assert.ok(pending > 0);
+    for (const name of names.slice(0, pending)) db.exec(remoteMigrationSql(name, readFileSync(`migrations/${name}`, "utf8")));
+    db.exec(`INSERT INTO works (id,kind,tmdb_id) VALUES ('fictional-work','movie',910001);
+      INSERT INTO playable_units (id,kind,work_id,tmdb_id,duration_seconds) VALUES ('fictional-unit','movie','fictional-work',910001,4);`);
+    const insert = db.prepare("INSERT INTO media_files (id,playable_unit_id,format,variant,object_key,byte_length,checksum_sha256,duration_seconds,video_codec,audio_codec,bitrate,r2_etag) VALUES (?,'fictional-unit','mp4',?,?,100,'fictional-checksum',4,?,'aac',200,'fictional-version')");
+    for (const [variant, codec] of [["original", "h264"], ["1080p", "h264"], ["720p", "h264"], ["480p", "h264"]]) insert.run(`fictional-${variant}`, variant, `fictional-${variant}.mp4`, codec);
+    const before = db.prepare("SELECT * FROM media_files ORDER BY id").all();
+    for (const name of names.slice(pending)) db.exec(remoteMigrationSql(name, readFileSync(`migrations/${name}`, "utf8")));
+    assert.deepEqual(db.prepare("SELECT * FROM media_files ORDER BY id").all(), before);
+    assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+  } finally { db.close(); }
+});
+
 for (const mode of ["staging", "production"]) test(`remote migration runs from a fresh checkout (${mode})`, t => {
   const temporaryRoot = resolve(tmpdir());
   const directory = mkdtempSync(join(temporaryRoot, "video-site-remote-migration-test-"));

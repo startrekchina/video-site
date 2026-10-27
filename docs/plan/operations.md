@@ -294,7 +294,7 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 
 #### 6.9.5 远程数据库迁移与运维工程细节
 
-- **媒体迁移 0022**：代码基线 `6ecce6b` 的文件会删除原画记录；本地未提交草稿仍按 H.264 判断原画，也与目标 VP9 主档规则不符，须完成方案、实现及测试对齐后再执行。目标保留媒体记录和 R2 对象，只撤下不合规的已验证状态；已执行环境不重跑或改写迁移历史，须核对实际脚本版本、数据与数据库备份后决定增量处理。旧删除版本后的关联重建需合规 VP9 主档，旧媒体 ID 无法从文件推断，详见[导入说明](../import-media.md#迁移-0022-与现有媒体)。实际状态须查询目标数据库，不能由文档中的待验状态推断；推送 `dev` 会自动触发 staging 迁移，纯文档提交也须核对该风险。云端操作另行授权。
+- **媒体迁移 0022**：迁移集不包含该清理脚本，不通过数据库迁移删除原画记录，不补空迁移或重排编号。未执行环境不再执行，已执行环境保留应用历史，删除源文件不回滚其数据影响。代码中的 VP9 主档规则及必要恢复仍待实现，详见[导入说明](../import-media.md#迁移-0022-与现有媒体)。推送 `dev` 仍走既有 staging 自动检查、剩余迁移与部署流程，不更改或绕过流水线；查询执行状态与实际数据恢复不是本次移除文件的前置条件，恢复写入须另行授权。
 
 - **staging 云端构建**：仅监听 `startrekchina/video-site` 的 `dev`，关闭其他分支/PR 预览；Node 24.21.0、pnpm 12.6.0，使用锁文件安装依赖。构建命令为 `bash scripts/build-staging.sh`，先下载固定版本并校验 SHA-256 的 Linux FFmpeg（生成测试媒体与转换 ASS 用）到被忽略的 `.cloudflare/build-tools`，再依次运行 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm test`、`pnpm test:tools`、`pnpm build:staging`，构建时把平台提供的 `WORKERS_CI_COMMIT_SHA` 写入成员页脚的构建提交，发布后可用它核对来源 SHA；自生成媒体仍不提交到 Git。部署命令为 `pnpm db:migrate:staging && pnpm deploy:staging:prebuilt --message "GitHub dev $WORKERS_CI_COMMIT_SHA"`，迁移继续使用 cf。任一步失败即停止，不改用本机上传或静默忽略失败；核对来源 SHA、迁移结果、实际生效版本和受影响入口后才能认定发布成功。
 - **GitHub PR 检查**：`.github/workflows/ci.yml` 在每个 PR 及手动触发时于 GitHub Actions 运行 `pnpm typecheck`、`pnpm test`、`pnpm test:tools` 和 `pnpm build`（development），Node/pnpm 版本与 staging 构建一致，ffmpeg 取 Ubuntu 软件源版本。只读权限、不使用 Secrets、不迁移或部署；`dev` 推送仍由 staging 构建把关，两者互不替代。
