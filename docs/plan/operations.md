@@ -294,6 +294,8 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 
 #### 6.9.5 远程数据库迁移与运维工程细节
 
+- **媒体迁移 0022**：代码基线 `6ecce6b` 的文件会删除原画记录；本地未提交草稿仍按 H.264 判断原画，也与目标 VP9 主档规则不符，须完成方案、实现及测试对齐后再执行。目标保留媒体记录和 R2 对象，只撤下不合规的已验证状态；已执行环境不重跑或改写迁移历史，须核对实际脚本版本、数据与数据库备份后决定增量处理。旧删除版本后的关联重建需合规 VP9 主档，旧媒体 ID 无法从文件推断，详见[导入说明](../import-media.md#迁移-0022-与现有媒体)。实际状态须查询目标数据库，不能由文档中的待验状态推断；推送 `dev` 会自动触发 staging 迁移，纯文档提交也须核对该风险。云端操作另行授权。
+
 - **staging 云端构建**：仅监听 `startrekchina/video-site` 的 `dev`，关闭其他分支/PR 预览；Node 24.21.0、pnpm 12.6.0，使用锁文件安装依赖。构建命令为 `bash scripts/build-staging.sh`，先下载固定版本并校验 SHA-256 的 Linux FFmpeg（生成测试媒体与转换 ASS 用）到被忽略的 `.cloudflare/build-tools`，再依次运行 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm test`、`pnpm test:tools`、`pnpm build:staging`，构建时把平台提供的 `WORKERS_CI_COMMIT_SHA` 写入成员页脚的构建提交，发布后可用它核对来源 SHA；自生成媒体仍不提交到 Git。部署命令为 `pnpm db:migrate:staging && pnpm deploy:staging:prebuilt --message "GitHub dev $WORKERS_CI_COMMIT_SHA"`，迁移继续使用 cf。任一步失败即停止，不改用本机上传或静默忽略失败；核对来源 SHA、迁移结果、实际生效版本和受影响入口后才能认定发布成功。
 - **GitHub PR 检查**：`.github/workflows/ci.yml` 在每个 PR 及手动触发时于 GitHub Actions 运行 `pnpm typecheck`、`pnpm test`、`pnpm test:tools` 和 `pnpm build`（development），Node/pnpm 版本与 staging 构建一致，ffmpeg 取 Ubuntu 软件源版本。只读权限、不使用 Secrets、不迁移或部署；`dev` 推送仍由 staging 构建把关，两者互不替代。
 - **Wrangler 补充发布边界**：固定 Wrangler 4.150.0；4.151.0 引用的 workerd 版本尚不能从 npm 安装。`scripts/prepare-staging-wrangler.mjs` 使用与 cf 一致的官方 Build Output 解析器和配置转换函数，拒绝非 staging、多 Worker、Container、缺失产物及尚未适配的模块类型；配置仅生成在被忽略的 `.cloudflare/wrangler-staging/wrangler.json`。发布使用既有 ESM 拆分模块及静态素材，不重新打包、不保留手写资源映射；Wrangler 默认保留线上 Secrets，不使用 Secrets 文件。文本变量、绑定、域名、Cron 和日志设置以构建产物为准，production 仍使用 cf 且未获发布授权。
@@ -312,13 +314,13 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 | 项目 | 估算 |
 | --- | --- |
 | Workers Paid | 5 美元/月 |
-| R2 存储（四档 MP4 合计，约 2.7 TB） | 约 40 美元/月 |
+| R2 存储（原生主档与可选档位） | 主档容量尚未计量，合计费用待样片核定 |
 | R2 出口流量 | 免费 |
 | R2 读写操作和 D1 | 在这个规模下基本都在免费额度内 |
 | 邮件发信（注册验证、找回、通知） | 使用站长已购买的发件服务；实际套餐限额和追加费用按已购服务核对，不再按其他服务商的免费额度估算 |
-| Cloudflare 小计 | 约 45 美元/月；邮件服务的已有支出及追加费用需另计，是否满足 50 美元总预算以实际费用核对 |
+| Cloudflare 小计 | 原生主档与选用档位合计后核定；邮件服务的已有支出及追加费用需另计，是否满足 50 美元总预算以实际费用核对 |
 
-四档容量按全库约 720 小时、`2160p` 只覆盖有 4K 母版的约 180 小时（约占 1 TB）粗估，未做样片实测，实际取决于压制码率和准备了哪些档位；正式片源上传前按实际合计复核，接近预算时由站长决定减少档位。
+原生主档与向下档位的总容量须按 [B 6.6](../detailed-requirements.md#66-播放与媒体分发)的制作组合和样片实测计算，不按每集固定四档或原画保留源码率估算。全库时长约 720 小时的参考尚未结合实际 VP9/AVC 编码结果，不能据此确认总预算；正式片源上传前按实际合计复核，接近预算时由站长决定制作取舍，涉及已确认组合的调整须先确认需求。
 
 ## 验证方法
 
