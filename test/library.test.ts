@@ -22,7 +22,7 @@ beforeEach(async () => {
   await env.DB.batch([
     ...[["episode-two", 2, 930002], ["episode-three", 3, 930003]].map(([id, number, tmdb]) => env.DB.prepare(`INSERT INTO playable_units
       (id, kind, work_id, season_id, episode_number, tmdb_id, duration_seconds, title_zh) VALUES (?, 'episode', 'series', 'season', ?, ?, 4, ?)`).bind(id, number, tmdb, `虚构第 ${number} 集`)),
-    ...["episode-unit", "episode-two", "movie-unit"].map(id => env.DB.prepare("INSERT INTO media_files VALUES (?, ?, 'mp4', '720p', ?, 4, 'hash', 4, 'h264', 'aac', 100, 'fictional-version')")
+    ...["episode-unit", "episode-two", "movie-unit"].map(id => env.DB.prepare("INSERT INTO media_files VALUES (?, ?, 'mp4', 'original', ?, 4, 'hash', 4, 'vp9', 'aac', 100, 'fictional-version')")
       .bind(`media-${id}`, id, `fictional-private-${id}`)),
   ]);
 });
@@ -184,7 +184,7 @@ it("shows a plain progress bar instead of segments for queues over 24 units", as
   await env.DB.batch(Array.from({ length: 23 }, (_, index) => [`extra-${index + 4}`, index + 4] as const).flatMap(([unit, number]) => [
     env.DB.prepare(`INSERT INTO playable_units (id, kind, work_id, season_id, episode_number, tmdb_id, duration_seconds) VALUES (?, 'episode', 'series', 'season', ?, ?, 4)`)
       .bind(unit, number, 930100 + number),
-    env.DB.prepare("INSERT INTO media_files VALUES (?, ?, 'mp4', '720p', ?, 4, 'hash', 4, 'h264', 'aac', 100, 'fictional-version')").bind(`media-${unit}`, unit, `fictional-private-${unit}`)]));
+    env.DB.prepare("INSERT INTO media_files VALUES (?, ?, 'mp4', 'original', ?, 4, 'hash', 4, 'vp9', 'aac', 100, 'fictional-version')").bind(`media-${unit}`, unit, `fictional-private-${unit}`)]));
   const id = await create(); await add(id, { workId: "series" });
   // E1, E2 and the 23 extra episodes play; E3 has no source and does not count.
   const html = await watchPage(`/series/ld/s1/e1?playlist=${id}`);

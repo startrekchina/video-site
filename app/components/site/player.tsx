@@ -55,10 +55,8 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
   }, [unitId]);
   useEffect(() => {
     let art: Artplayer | undefined, tracks = source.tracks, selected = source.tracks[0]?.id ?? "off";
-    // A remembered quality wins; otherwise the highest tier this browser reports it can decode (B 6.6). Every tier stays in the menu,
-    // and failure checks and reconnects stay on the current quality.
-    const probe = document.createElement("video");
-    let quality = source.qualities.find(item => item.label === rememberedQuality()) ?? source.qualities.find(item => probe.canPlayType(item.type) !== "") ?? source.qualities[0];
+    // A remembered quality wins; otherwise use the original. Failures reconnect on the chosen quality.
+    let quality = source.qualities.find(item => item.label === rememberedQuality()) ?? source.qualities[0];
     // failed latches one HEAD per failure; restoreTo holds the position a reconnect returns to once.
     // ready gates position tracking: the element reports 0 before the saved start is applied, and again while switching quality.
     let disposed = false, ready = false, failed = false, playing = false, switching = false, position = startSeconds, restoreTo: number | null = null;

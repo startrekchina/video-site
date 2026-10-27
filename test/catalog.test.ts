@@ -20,7 +20,7 @@ async function seedContinuations(userId = "nova") {
       (id,kind,work_id,season_id,episode_number,tmdb_id,duration_seconds,title_en)
       VALUES (?,'episode',?,?,?,?,4,?)`).bind(id, work, season, number, tmdb, `Fictional ${id}`)),
     ...["episode-unit", "episode-two", "episode-completed", "episode-unverified", "episode-zero", "outpost-unit", "movie-unit"].map(id =>
-      env.DB.prepare("INSERT INTO media_files VALUES (?,?,'mp4', '720p',?,4,'hash',4,'h264','aac',100,?)")
+      env.DB.prepare("INSERT INTO media_files VALUES (?,?,'mp4', 'original',?,4,'hash',4,'vp9','aac',100,?)")
         .bind(`media-${id}`, id, `fictional-private-${id}`, id === "episode-unverified" ? null : "fictional-verified-version")),
     ...[
       ["episode-unit", 2, 0, 100], ["episode-two", 1, 0, 300], ["episode-completed", 4, 1, 600],
@@ -160,7 +160,7 @@ it("maps named public data, literal bilingual search, seasons, unavailable media
   await seedCatalog(env.DB);
   await env.DB.batch([
     env.DB.prepare("UPDATE works SET title_zh = NULL, poster_asset = '/private/file' WHERE id = 'series'"),
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4', '720p','fictional-private-object',4,'hash',4,'h264','aac',100,'fictional-verified-version')"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4', 'original','fictional-private-object',4,'hash',4,'vp9','aac',100,'fictional-verified-version')"),
     env.DB.prepare("INSERT INTO watch_progress VALUES ('nova','episode-unit',2,0,100,1)"),
     env.DB.prepare("INSERT INTO playable_units (id,kind,work_id,season_id,episode_number,tmdb_id,duration_seconds,title_en) VALUES ('episode-two','episode','series','season',2,930002,4,'Unused Detail')"),
   ]);
@@ -185,7 +185,7 @@ it("returns only configured first episodes with actual MP4 sources for a member 
   expect(homeStages(await catalog(env.DB, "nova")).items).toEqual([]);
   await env.DB.batch([
     env.DB.prepare("UPDATE works SET tmdb_id = 103516 WHERE id = 'series'"),
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4', '720p','fictional-private-object',4,'hash',4,'h264','aac',100,'fictional-verified-version')"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4', 'original','fictional-private-object',4,'hash',4,'vp9','aac',100,'fictional-verified-version')"),
   ]);
   expect(homeStages(await catalog(env.DB, "nova", "", { home: true }))).toMatchObject({ label: "推荐起点", items: [{ unit: { id: "episode-unit" } }] });
 });
@@ -194,7 +194,7 @@ it.each([null, ""])("keeps a video with verified version %s out of play links an
   await seedCatalog(env.DB);
   await env.DB.batch([
     env.DB.prepare("UPDATE works SET tmdb_id = 103516 WHERE id = 'series'"),
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4', '720p','fictional-private-object',4,'hash',4,'h264','aac',100,?)").bind(version),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4', 'original','fictional-private-object',4,'hash',4,'vp9','aac',100,?)").bind(version),
     env.DB.prepare("INSERT INTO watch_progress VALUES ('nova','episode-unit',2,0,100,1)"),
   ]);
   for (const target of [undefined, { kind: "series", tmdbId: 103516 } as const]) {
@@ -207,6 +207,14 @@ it.each([null, ""])("keeps a video with verified version %s out of play links an
   expect(homeStages(home).items).toEqual([]);
   await env.DB.prepare("UPDATE media_files SET r2_etag = 'fictional-verified-version' WHERE id = 'source'").run();
   expect(homeStages(await catalog(env.DB, "nova", "", { home: true })).items.map(item => item.unit.id)).toEqual(["episode-unit"]);
+});
+
+it.each([["original", "h264"], ["720p", "h264"]])("does not offer a verified %s/%s as a replacement for a VP9 original", async (variant, codec) => {
+  await seedCatalog(env.DB);
+  await env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4',?,'fictional-private-object',4,'hash',4,?,'aac',100,'fictional-verified-version')").bind(variant, codec).run();
+  const work = (await catalog(env.DB, "nova")).find(work => work.slug === "series")!;
+  expect(work.units[0].playable).toBe(false);
+  expect(homeStages([work]).items).toEqual([]);
 });
 
 it("sends guests to login before rejecting a repeated playlist parameter on a watch page", async () => {
@@ -257,7 +265,7 @@ async function seedSeason(userId: string, progress: [string, number, number, num
   await env.DB.batch([
     ...units.slice(1).map((id, index) => env.DB.prepare(`INSERT INTO playable_units (id,kind,work_id,season_id,episode_number,tmdb_id,duration_seconds,title_en)
       VALUES (?,'episode','series','season',?,?,4,?)`).bind(id, index + 2, 930102 + index, `Fictional ${id}`)),
-    ...[...units.filter(id => id !== "episode-three"), "movie-unit"].map(id => env.DB.prepare("INSERT INTO media_files VALUES (?,?,'mp4', '720p',?,4,'hash',4,'h264','aac',100,'fictional-verified-version')")
+    ...[...units.filter(id => id !== "episode-three"), "movie-unit"].map(id => env.DB.prepare("INSERT INTO media_files VALUES (?,?,'mp4', 'original',?,4,'hash',4,'vp9','aac',100,'fictional-verified-version')")
       .bind(`media-${id}`, id, `fictional-private-${id}`)),
   ]);
   await setProgress(userId, progress);

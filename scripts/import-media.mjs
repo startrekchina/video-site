@@ -244,13 +244,14 @@ export async function preflight({ environment, mappingPath, env = process.env, r
     check(!seen.has(id), `${id} 媒体重复。`);
     seen.add(id);
     check(Array.isArray(item.subtitles) && item.subtitles.length <= 32, `${id} subtitles 必须是至多 32 项的数组。`);
-    // videos maps quality tiers to files; each tier must use its codec and match the highest tier's duration (B 6.6).
+    // The original is required; optional tiers use their fixed codec and match its duration (B 6.6).
     check(item.videos && typeof item.videos === "object" && !Array.isArray(item.videos) && Object.keys(item.videos).length > 0, `${id} videos 必须是按档位列出文件的非空对象。`);
+    check(Object.hasOwn(item.videos, "original"), `${id} videos 必须包含 original 原生主档。`);
     const videos = [];
     for (const tier of Object.keys(qualityTiers).filter(tier => tier in item.videos)) {
       const video = await inspectMp4(localFile(item.videos[tier], dirname(mappingPath)));
       check(video.videoCodec === qualityTiers[tier], `${id}/${tier}：须为 ${qualityTiers[tier] === "vp9" ? "VP9" : "H.264"} 视频，请先转码。`);
-      check(!videos.length || Math.abs(video.durationSeconds - videos[0].durationSeconds) <= settings.qualityDurationTolerance, `${id}/${tier}：时长与 ${videos[0]?.tier} 相差超过 ${settings.qualityDurationTolerance} 秒。`);
+      check(!videos.length || Math.abs(video.durationSeconds - videos[0].durationSeconds) <= settings.qualityDurationTolerance, `${id}/${tier}：时长与 original 相差超过 ${settings.qualityDurationTolerance} 秒。`);
       videos.push({ tier, ...video });
     }
     check(videos.length === Object.keys(item.videos).length, `${id} videos 只能使用 ${Object.keys(qualityTiers).join("、")} 档位。`);
@@ -332,7 +333,7 @@ export function catalogQueries(result) {
       VALUES (?,?,(SELECT id FROM works WHERE kind=? AND tmdb_id=?),${season ? "(SELECT s.id FROM seasons s JOIN works w ON w.id=s.work_id WHERE w.kind='series' AND w.tmdb_id=? AND s.season_number=?)" : "NULL"},?,?,?,?,?,?,?,?)
       ON CONFLICT(${season ? "season_id,episode_number" : "work_id"}) WHERE kind='${season ? "episode" : "movie"}' DO UPDATE SET
       tmdb_id=excluded.tmdb_id,title_zh=excluded.title_zh,title_en=excluded.title_en,overview_zh=excluded.overview_zh,overview_en=excluded.overview_en,air_date=excluded.air_date,
-      duration_seconds=CASE WHEN EXISTS(SELECT 1 FROM media_files WHERE playable_unit_id=playable_units.id AND format='mp4') THEN playable_units.duration_seconds ELSE excluded.duration_seconds END`,
+      duration_seconds=CASE WHEN EXISTS(SELECT 1 FROM media_files WHERE playable_unit_id=playable_units.id AND format='mp4' AND variant='original') THEN playable_units.duration_seconds ELSE excluded.duration_seconds END`,
       params: [`${work.kind}_${work.tmdbId}_${season ? `s${season.seasonNumber}_e${unit.episodeNumber}` : "unit"}`,season ? "episode" : "movie",work.kind,work.tmdbId,...(season ? [work.tmdbId,season.seasonNumber] : []),unit.episodeNumber,unit.tmdbId,unit.durationSeconds,unit.titleZh,unit.titleEn,unit.overviewZh,unit.overviewEn,unit.airDate] });
   }
   return queries;

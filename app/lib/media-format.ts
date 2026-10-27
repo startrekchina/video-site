@@ -65,8 +65,8 @@ export function validateVtt(bytes: Uint8Array, label = "字幕") {
   return { bytes: new TextEncoder().encode(text.endsWith("\n") ? text : `${text}\n`), cueCount };
 }
 
-// Quality tiers from high to low with the video codec each must use (B 6.6); the file suffix names the tier.
-export const qualityTiers = { "2160p": "vp9", "1080p": "vp9", "720p": "h264", "480p": "h264" } as const;
+// The required native-resolution main comes first, followed by optional tiers from high to low (B 6.6).
+export const qualityTiers = { original: "vp9", "2160p": "vp9", "1080p": "vp9", "720p": "h264", "480p": "h264" } as const;
 export type QualityTier = keyof typeof qualityTiers;
 
 // SUB1 track keys: <zh-CN|zh-TW>.<main|bilingual>[.<suffix>]; an extra track of a kind adds only its suffix to the kind's label.

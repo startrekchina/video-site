@@ -20,7 +20,7 @@ export const settings = {
   commentMaxLength: 1000,
   commentsPerPage: 10,
   repliesPerBatch: 10,
-  // A lower quality tier links and is offered only within this many seconds of the unit's highest verified tier (B 6.6).
+  // Optional tiers link and are offered only within this many seconds of the original (B 6.6).
   qualityDurationTolerance: 1,
   // Colors must match the CHECK in migrations/0015_danmaku.sql.
   danmaku: {

@@ -36,13 +36,12 @@ vi.mock("react-router", async original => ({ ...await original<typeof import("re
   useLocation: () => state.location, useNavigationType: () => state.navigation }));
 vi.mock("@/components/ui/button", () => ({ Button: () => null }));
 
-const h264 = 'video/mp4; codecs="avc1.640028, mp4a.40.2"', vp9uhd = 'video/mp4; codecs="vp09.00.51.08, mp4a.40.2"', vp9hd = 'video/mp4; codecs="vp09.00.41.08, mp4a.40.2"';
-const source: PlaybackSource = { qualities: [{ label: "720p", url: "/media/source", type: h264 }], tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
+const source: PlaybackSource = { qualities: [{ label: "原画", url: "/media/source" }], tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
 const danmaku = { maxLength: settings.danmaku.maxLength, lockTime: settings.rateLimits.danmaku.minInterval, colors: [...settings.danmaku.colors],
   blockWordLimit: settings.danmaku.blockWordLimit, blockWordMaxLength: settings.danmaku.blockWordMaxLength };
 const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>();
 let cleanups: (void | (() => void))[] = [], blobs = 0;
-const page = { visibilityState: "visible", listeners: new Map<string, () => void>(), undecodable: new Set<string>() };
+const page = { visibilityState: "visible", listeners: new Map<string, () => void>() };
 const emit = (event: string) => Promise.all((state.handlers.get(event) ?? []).map(handler => handler()));
 beforeEach(() => {
   vi.clearAllMocks();
@@ -59,10 +58,9 @@ beforeEach(() => {
   blobs = 0;
   vi.stubGlobal("fetch", fetch);
   vi.stubGlobal("location", { origin: "http://localhost:6120" });
-  page.visibilityState = "visible"; page.listeners.clear(); page.undecodable.clear();
+  page.visibilityState = "visible"; page.listeners.clear();
   const on = (type: string, handler: () => void) => { page.listeners.set(type, handler); };
-  vi.stubGlobal("document", { get visibilityState() { return page.visibilityState; }, addEventListener: on, removeEventListener: vi.fn(),
-    createElement: () => ({ canPlayType: (type: string) => page.undecodable.has(type) ? "" : "probably" }) });
+  vi.stubGlobal("document", { get visibilityState() { return page.visibilityState; }, addEventListener: on, removeEventListener: vi.fn() });
   vi.stubGlobal("window", { addEventListener: on, removeEventListener: vi.fn() });
   vi.stubGlobal("URL", Object.assign(class extends URL {}, { createObjectURL: vi.fn(() => `blob:fictional-${++blobs}`), revokeObjectURL: vi.fn() }));
 });
@@ -228,7 +226,7 @@ it("keeps a member's pause across a reconnect and reports a blocked automatic re
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请点击播放"), reconnect: false });
 });
 
-const tiers: PlaybackSource = { ...source, qualities: [{ label: "2160p", url: "/media/source", type: vp9uhd }, { label: "1080p", url: "/media/p1080", type: vp9hd }, { label: "720p", url: "/media/p720", type: h264 }] };
+const tiers: PlaybackSource = { ...source, qualities: [{ label: "原画", url: "/media/source" }, { label: "2160p", url: "/media/p2160" }, { label: "1080p", url: "/media/p1080" }, { label: "720p", url: "/media/p720" }] };
 type Control = { name: string; html: string; selector: { html: string; default: boolean }[]; onSelect: (item: { html: string }) => Promise<string> };
 const control = () => (state.options as { controls: Control[] }).controls[0];
 function remember(label: string | null) {
@@ -241,26 +239,19 @@ it("shows no quality control when a unit has a single tier", async () => {
   expect((state.options as { controls: unknown[] }).controls).toEqual([]);
 });
 
-it("starts on the remembered quality when the unit has it and on the highest tier otherwise", async () => {
+it("starts on the remembered quality when the unit has it and on the original otherwise", async () => {
   remember("720p"); await mount({ source: tiers });
   expect(state.options).toMatchObject({ url: "http://localhost:6120/media/p720" });
-  expect(control()).toMatchObject({ name: "quality", html: "720p", selector: [{ html: "2160p", default: false }, { html: "1080p", default: false }, { html: "720p", default: true }] });
+  expect(control()).toMatchObject({ name: "quality", html: "720p", selector: [{ html: "原画", default: false }, { html: "2160p", default: false }, { html: "1080p", default: false }, { html: "720p", default: true }] });
   cleanups.forEach(cleanup => cleanup?.()); state.effects.length = 0; state.refs.length = 0; state.refIndex = 0;
   remember("480p"); await mount({ source: tiers });
-  expect(state.options).toMatchObject({ url: "http://localhost:6120/media/source" }); expect(control().html).toBe("2160p");
+  expect(state.options).toMatchObject({ url: "http://localhost:6120/media/source" }); expect(control().html).toBe("原画");
 });
 
-it("starts on the highest tier this browser can decode yet still lists every tier", async () => {
-  const remount = async () => { cleanups.forEach(cleanup => cleanup?.()); state.effects.length = 0; state.refs.length = 0; state.refIndex = 0; await mount({ source: tiers }); };
-  // A device that decodes 1080p VP9 but not 2160p starts on 1080p.
-  remember(null); page.undecodable.add(vp9uhd); await mount({ source: tiers });
-  expect(state.options).toMatchObject({ url: "http://localhost:6120/media/p1080" });
-  expect(control()).toMatchObject({ html: "1080p", selector: [{ html: "2160p", default: false }, { html: "1080p", default: true }, { html: "720p", default: false }] });
-  page.undecodable.add(vp9hd); await remount();
-  expect(state.options).toMatchObject({ url: "http://localhost:6120/media/p720" }); expect(control().html).toBe("720p");
-  // When nothing reports decodable the highest tier is still the start; a failure is left to the member.
-  page.undecodable.add(h264); await remount();
+it("defaults to the original regardless of optional codec support and still lists every tier", async () => {
+  remember(null); await mount({ source: tiers });
   expect(state.options).toMatchObject({ url: "http://localhost:6120/media/source" });
+  expect(control()).toMatchObject({ html: "原画", selector: [{ html: "原画", default: true }, { html: "2160p", default: false }, { html: "1080p", default: false }, { html: "720p", default: false }] });
 });
 
 it("switches quality in place, remembers it, keeps the position through the switch and recovers on the chosen quality", async () => {
