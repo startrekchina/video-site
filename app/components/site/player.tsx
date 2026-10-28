@@ -4,6 +4,7 @@ import type { Danmu, Result as DanmakuPlugin } from "artplayer-plugin-danmuku";
 import type { Danmaku } from "@/lib/danmaku.server";
 import { danmakuVisible, saveDanmakuSettings, savedDanmakuSettings, subscribeDanmakuFilter, type DanmakuLimits } from "@/lib/danmaku-client";
 import { libraryRequest } from "@/lib/library-client";
+import { qualityTiers, type QualityTier } from "@/lib/media-format";
 import type { PlaybackSource } from "@/lib/playback.server";
 import { loadSubtitle, mediaErrorMessage } from "@/lib/playback-client";
 import { toast } from "@/components/ui/toast";
@@ -16,6 +17,11 @@ const emitterMinWidth = 820;
 const qualityKey = "player-quality";
 function rememberedQuality() { try { return localStorage.getItem(qualityKey); } catch { return null; } }
 function rememberQuality(label: string) { try { localStorage.setItem(qualityKey, label); } catch { /* Keep the choice for this page only. */ } }
+// Set once this browser fails to decode VP9, so later units open on H.264 instead of failing first (B 6.6).
+const vp9Key = "player-vp9-unsupported";
+function vp9Unsupported() { try { return localStorage.getItem(vp9Key) === "1"; } catch { return false; } }
+function markVp9Unsupported(unsupported: boolean) { try { if (unsupported) localStorage.setItem(vp9Key, "1"); else localStorage.removeItem(vp9Key); } catch { /* The next unit falls back again. */ } }
+const isVp9 = (label: string) => qualityTiers[label === "原画" ? "original" : label as QualityTier] === "vp9";
 // revision is shared with the page so manual marks and reports use the same expectedRevision.
 export type ProgressReporting = { revision: { current: number }; interval: number; duration: number | null; onSaved: (saved: SavedProgress) => void };
 // A video failure's button is the only way back, so its toast stays until the player recovers or unmounts.
@@ -55,8 +61,10 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
   }, [unitId]);
   useEffect(() => {
     let art: Artplayer | undefined, tracks = source.tracks, selected = source.tracks[0]?.id ?? "off";
-    // A remembered quality wins; otherwise use the original. Failures reconnect on the chosen quality.
-    let quality = source.qualities.find(item => item.label === rememberedQuality()) ?? source.qualities[0];
+    // A remembered quality wins, otherwise the original; a browser that cannot decode VP9 starts on the highest H.264 tier.
+    const remembered = source.qualities.find(item => item.label === rememberedQuality()) ?? source.qualities[0];
+    const fallback = source.qualities.find(item => !isVp9(item.label));
+    let quality = vp9Unsupported() && isVp9(remembered.label) ? fallback ?? remembered : remembered;
     // failed latches one HEAD per failure; restoreTo holds the position a reconnect returns to once.
     // ready gates position tracking: the element reports 0 before the saved start is applied, and again while switching quality.
     let disposed = false, ready = false, failed = false, playing = false, switching = false, position = startSeconds, restoreTo: number | null = null;
@@ -141,6 +149,8 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
       const next = source.qualities.find(item => item.label === label);
       if (disposed || !art || !next || next === quality) return;
       quality = next; rememberQuality(label);
+      // Choosing a VP9 tier by hand tries it again; another failure falls back and marks the browser once more.
+      if (isVp9(label)) markVp9Unsupported(false);
       if (failed) { retry.current(); return; }
       switching = true;
       try { await art.switchQuality(absolute(next.url)); }
@@ -150,6 +160,9 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
       } finally { switching = false; }
     });
     const danmakuPath = `/units/${unitId}/danmaku`;
+    const qualityControl = () => ({ name: "quality", position: "right", index: 10, style: { marginRight: "10px" }, html: quality.label,
+      selector: source.qualities.map(item => ({ html: item.label, default: item === quality })),
+      async onSelect(item: { html: string | HTMLElement }) { await switchQuality(String(item.html)); return quality.label; } });
     void Promise.all([import("artplayer"), import("artplayer-plugin-danmuku").catch(() => null)]).then(([{ default: Artplayer }, danmakuModule]) => {
       if (disposed || !container.current) return;
       const danmakuPlugin = danmakuModule?.default;
@@ -159,9 +172,7 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
         moreVideoAttr: { preload: "metadata" }, subtitle: { url: "", type: "vtt", encoding: "utf-8", escape: true, style: { fontSize: "clamp(14px,3.2cqw,28px)" } },
         settings: [{ name: "subtitle-lang", html: "字幕", selector: subtitles(), onSelect(item) { select(String(item.id)); return String(item.html); } }],
         // A unit with a single tier gets no quality control.
-        controls: source.qualities.length > 1 ? [{ name: "quality", position: "right", index: 10, style: { marginRight: "10px" }, html: quality.label,
-          selector: source.qualities.map(item => ({ html: item.label, default: item === quality })),
-          async onSelect(item) { await switchQuality(String(item.html)); return quality.label; } }] : [],
+        controls: source.qualities.length > 1 ? [qualityControl()] : [],
         plugins: danmakuPlugin ? [danmakuPlugin({
           // A failed read leaves this page without danmaku; playback goes on.
           danmuku: async () => {
@@ -214,8 +225,19 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
         restoreTo = null;
         if (failed || disposed) return;
         failed = true;
-        const status = await fetch(absolute(quality.url), { method: "HEAD", credentials: "same-origin", cache: "no-store" }).then(response => response.status, () => 0);
-        if (!disposed && failed) say(mediaErrorMessage(status), status === 401 || status === 403 ? "login" : "video");
+        const failing = quality, code = player.video.error?.code;
+        const status = await fetch(absolute(failing.url), { method: "HEAD", credentials: "same-origin", cache: "no-store" }).then(response => response.status, () => 0);
+        if (disposed || !failed) return;
+        // A reachable VP9 file the element cannot decode (3) or play (4) is a browser limit, not a broken connection (B 6.6).
+        if (status === 200 && (code === 3 || code === 4) && isVp9(failing.label)) {
+          markVp9Unsupported(true);
+          if (!fallback) { show("本设备无法播放该片源。"); return; }
+          quality = fallback; retry.current();
+          if (source.qualities.length > 1) player.controls.update(qualityControl());
+          say(`本设备无法播放该清晰度，已切换到 ${fallback.label}。`);
+          return;
+        }
+        say(mediaErrorMessage(status), status === 401 || status === 403 ? "login" : "video");
       });
       // Pauses caused by a failure, a reconnect reload or a quality switch are not the member's choice.
       player.on("video:play", () => { playing = true; });

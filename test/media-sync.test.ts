@@ -10,10 +10,11 @@ import { playbackSource } from "@/lib/playback.server";
 import { probeD1 } from "./fixtures/d1-probe";
 import { asVp9 } from "./fixtures/media";
 
-const key = "library/series/85948/S01/E01.mp4", subtitleKey = "library/series/85948/S01/E01.zh-CN.main.vtt";
+const key = "library/series/85948/S01/E01.webm", subtitleKey = "library/series/85948/S01/E01.zh-CN.main.vtt";
 const video = () => Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0));
+const webm = () => Uint8Array.from(atob(env.TEST_WEBM_BASE64), char => char.charCodeAt(0));
 const vtt = "WEBVTT\n\n00:00.000 --> 00:03.000\nA fictional signal.\n";
-const media = async () => { await seedCatalog(env.DB); await env.DB.prepare("UPDATE playable_units SET duration_seconds = NULL WHERE id = 'episode-unit'").run(); await env.MEDIA_BUCKET.put(key, asVp9(video())); };
+const media = async () => { await seedCatalog(env.DB); await env.DB.prepare("UPDATE playable_units SET duration_seconds = NULL WHERE id = 'episode-unit'").run(); await env.MEDIA_BUCKET.put(key, webm()); };
 const sha = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 
 it("accepts canonical TMDB names and multiple subtitle identities without guessing malformed names", () => {
@@ -59,7 +60,7 @@ it("labels synced subtitles by language and relabels older synced rows without t
     .toEqual(["中文", "繁体中文", "英文（sdh）", "English"]);
 });
 
-it("validates actual R2 MP4 and VTT, links placeholders, skips a repeat and preserves member progress", async () => {
+it("validates actual R2 WebM and VTT, links placeholders, skips a repeat and preserves member progress", async () => {
   await media(); await env.MEDIA_BUCKET.put(subtitleKey, vtt);
   await env.DB.prepare("INSERT INTO watch_progress VALUES ('nova','episode-unit',2,0,100,1)").run();
   expect((await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0]).toMatchObject({ durationSeconds: null, playable: false });
@@ -68,7 +69,7 @@ it("validates actual R2 MP4 and VTT, links placeholders, skips a repeat and pres
   expect(await env.DB.prepare("SELECT display_name FROM subtitle_tracks").first("display_name")).toBe("简中");
   expect((await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0]).toMatchObject({ durationSeconds: 4, playable: true, positionSeconds: 2, revision: 1 });
   const row = await env.DB.prepare("SELECT byte_length, checksum_sha256, r2_etag FROM media_files").first<{ byte_length: number; checksum_sha256: string; r2_etag: string }>();
-  expect(row?.byte_length).toBe(video().length); expect(row?.checksum_sha256).toMatch(/^[a-f0-9]{64}$/); expect(row?.r2_etag).toBeTruthy();
+  expect(row?.byte_length).toBe(webm().length); expect(row?.checksum_sha256).toMatch(/^[a-f0-9]{64}$/); expect(row?.r2_etag).toBeTruthy();
 });
 
 it("links the four subtitle kinds in B 6.6 order with extras after their kind and skips non-compliant subtitles", async () => {
@@ -85,18 +86,26 @@ const lasting = (seconds: number) => {
   if (bytes[at] === 1) view.setBigUint64(scaleAt + 4, BigInt(Math.round(seconds * scale))); else view.setUint32(scaleAt + 4, Math.round(seconds * scale));
   return bytes;
 };
-const tierKey = (tier: string) => `library/series/85948/S01/E01.${tier}.mp4`;
+// The WebM parser reads the duration from Info only, in milliseconds at ffmpeg's default timestamp scale.
+const webmLasting = (seconds: number) => {
+  const bytes = webm(), at = bytes.findIndex((_, n) => bytes[n] === 0x44 && bytes[n + 1] === 0x89 && bytes[n + 2] === 0x88) + 3;
+  new DataView(bytes.buffer).setFloat64(at, seconds * 1000);
+  return bytes;
+};
+const tierKey = (tier: string) => `library/series/85948/S01/E01.${tier}.${tier === "720p" || tier === "480p" ? "mp4" : "webm"}`;
 
-it("recognizes the unsuffixed original and only whitelisted optional tier names", () => {
+it("recognizes the unsuffixed original and only whitelisted optional tier names in their own container", () => {
   expect(mediaIdentity(tierKey("720p"))).toEqual({ kind: "series", tmdbId: 85948, season: 1, episode: 1, language: null, trackKey: null, variant: "720p" });
-  expect(mediaIdentity("library/movie/152/movie.2160p.mp4")?.variant).toBe("2160p");
-  for (const bare of ["library/series/85948/S01/E01.mp4", "library/movie/152/movie.mp4"]) expect(mediaIdentity(bare)?.variant).toBe("original");
+  expect(mediaIdentity("library/movie/152/movie.2160p.webm")?.variant).toBe("2160p");
+  for (const bare of [key, "library/movie/152/movie.webm"]) expect(mediaIdentity(bare)?.variant).toBe("original");
   for (const bad of ["360p", "720P", "1080i", "720p.720p", "original"]) expect(mediaIdentity(tierKey(bad))).toBeNull();
+  // VP9 tiers live in WebM and H.264 tiers in MP4 (B 6.6); the other container is not that tier.
+  for (const wrong of ["library/series/85948/S01/E01.mp4", "library/movie/152/movie.1080p.mp4", "library/movie/152/movie.720p.webm"]) expect(mediaIdentity(wrong)).toBeNull();
 });
 
 it("links the original first and optional tiers on the next pass without changing the unit duration", async () => {
   await media();
-  await env.MEDIA_BUCKET.put(tierKey("480p"), video()); await env.MEDIA_BUCKET.put(tierKey("1080p"), asVp9(lasting(4.5)));
+  await env.MEDIA_BUCKET.put(tierKey("480p"), video()); await env.MEDIA_BUCKET.put(tierKey("1080p"), webmLasting(4.5));
   expect(await syncMedia(env)).toMatchObject({ linked: 1, unattached: 2, failed: 0 });
   expect(await syncMedia(env)).toMatchObject({ linked: 2, skipped: 1 });
   expect(await syncMedia(env)).toMatchObject({ linked: 0, skipped: 3 });
@@ -108,12 +117,12 @@ it("links the original first and optional tiers on the next pass without changin
 
 it("uses only the original as the duration reference, enforces each codec, and requires a main file", async () => {
   await media(); expect(await syncMedia(env)).toMatchObject({ linked: 1 });
-  await env.MEDIA_BUCKET.put("library/movie/152/movie.mp4", asVp9(video()));
+  await env.MEDIA_BUCKET.put("library/movie/152/movie.webm", webm());
   expect(await syncMedia(env)).toMatchObject({ linked: 1 });
   // The 1080p variant is exactly at the tolerance boundary; it never replaces the main's duration.
-  await env.MEDIA_BUCKET.put(tierKey("1080p"), asVp9(lasting(5))); await env.MEDIA_BUCKET.put(tierKey("480p"), lasting(6.5));
+  await env.MEDIA_BUCKET.put(tierKey("1080p"), webmLasting(5)); await env.MEDIA_BUCKET.put(tierKey("480p"), lasting(6.5));
   await env.MEDIA_BUCKET.put(tierKey("2160p"), video());
-  await env.MEDIA_BUCKET.put("library/movie/152/movie.480p.mp4", video().slice(0, 32)); await env.MEDIA_BUCKET.put("library/movie/152/movie.1080p.mp4", video());
+  await env.MEDIA_BUCKET.put("library/movie/152/movie.480p.mp4", video().slice(0, 32)); await env.MEDIA_BUCKET.put("library/movie/152/movie.1080p.webm", video());
   await env.MEDIA_BUCKET.put("library/movie/152/movie.720p.mp4", asVp9(video()));
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
@@ -129,7 +138,7 @@ it("uses only the original as the duration reference, enforces each codec, and r
   expect(await env.DB.prepare("SELECT duration_seconds FROM playable_units WHERE id = 'episode-unit'").first("duration_seconds")).toBe(4);
   expect((await playbackSource(env.DB, episodeKey(1)))?.qualities.map(item => item.label)).toEqual(["原画", "1080p"]);
   expect((await playbackSource(env.DB, fixtureKeys.movie))?.qualities.map(item => item.label)).toEqual(["原画"]);
-  await env.MEDIA_BUCKET.delete("library/movie/152/movie.mp4");
+  await env.MEDIA_BUCKET.delete("library/movie/152/movie.webm");
   await env.MEDIA_BUCKET.put("library/movie/152/movie.480p.mp4", video());
   expect(await syncMedia(env)).toMatchObject({ linked: 0, unattached: 4, cleared: 1 });
   expect(await playbackSource(env.DB, fixtureKeys.movie)).toBeNull();
@@ -159,7 +168,7 @@ it("rejects a file in the wrong codec for its tier from its metadata without rea
 it.each(["h264", "vp9"])("revalidates an unchanged cached H.264 main record against its actual %s bytes without deleting its identity", async codec => {
   await media(); await syncMedia(env);
   const before = (await env.DB.prepare("SELECT * FROM media_files").first())!;
-  const object = (await env.MEDIA_BUCKET.put(key, codec === "vp9" ? asVp9(video()) : video()))!;
+  const object = (await env.MEDIA_BUCKET.put(key, codec === "vp9" ? webm() : video()))!;
   await env.DB.prepare("UPDATE media_files SET video_codec = 'h264', byte_length = ?, r2_etag = ?").bind(object.size, object.etag).run();
   expect(await playbackSource(env.DB, episodeKey(1))).toBeNull();
   expect((await catalog(env.DB, "nova")).find(work => work.slug === "series")?.units[0].playable).toBe(false);
@@ -168,7 +177,7 @@ it.each(["h264", "vp9"])("revalidates an unchanged cached H.264 main record agai
   expect(await env.MEDIA_BUCKET.head(key)).not.toBeNull();
   if (codec === "h264") {
     expect(await env.DB.prepare("SELECT r2_etag FROM media_files").first("r2_etag")).toBeNull();
-    await env.MEDIA_BUCKET.put(key, asVp9(video()));
+    await env.MEDIA_BUCKET.put(key, webm());
     expect(await syncMedia(env)).toMatchObject({ linked: 0, failed: 0 });
   }
   expect(await env.DB.prepare("SELECT id, video_codec FROM media_files").first()).toEqual({ id: before.id, video_codec: "vp9" });
@@ -235,7 +244,7 @@ it("relinks a retained original after the deleting version of 0022 without losin
 it("replaces the original in place, keeps ids and member data, and offers only tiers of its new duration", async () => {
   const { snapshot, before } = await linkedWithTier(2);
   const previous = (await env.DB.prepare("SELECT * FROM media_files WHERE variant = 'original'").first())!;
-  const longer = asVp9(lasting(6)), object = (await env.MEDIA_BUCKET.put(key, longer))!;
+  const longer = webmLasting(6), object = (await env.MEDIA_BUCKET.put(key, longer))!;
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   try { expect(await syncMedia(env)).toMatchObject({ linked: 0, replaced: 1, failed: 0, unattached: 0 }); } finally { info.mockRestore(); }
   expect(await env.DB.prepare("SELECT * FROM media_files WHERE variant = 'original'").first()).toEqual({
@@ -253,7 +262,7 @@ it("replaces the original in place, keeps ids and member data, and offers only t
 
 it("needs a second pass when the original and an optional tier are replaced together and keeps progress beyond a shorter duration", async () => {
   const { snapshot, before } = await linkedWithTier(3.5);
-  for (const objectKey of [key, tierKey("480p")]) await env.MEDIA_BUCKET.put(objectKey, objectKey === key ? asVp9(lasting(2)) : lasting(2));
+  for (const objectKey of [key, tierKey("480p")]) await env.MEDIA_BUCKET.put(objectKey, objectKey === key ? webmLasting(2) : lasting(2));
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
     // The lower tier lists first and is compared with the previous original's duration.
@@ -290,7 +299,7 @@ it("keeps the unit unavailable after an invalid replacement until a valid file i
     for (const objectKey of [key, subtitleKey]) expect(await env.MEDIA_BUCKET.head(objectKey)).not.toBeNull();
     expect(await syncMedia(env)).toMatchObject({ failed: 2 });
   } finally { warn.mockRestore(); }
-  const changed = asVp9(video()); changed[changed.length - 1] ^= 1;
+  const changed = webm(); changed[changed.length - 1] ^= 1;
   await env.MEDIA_BUCKET.put(key, changed); await env.MEDIA_BUCKET.put(subtitleKey, vtt.replace("fictional", "different"));
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   try { expect(await syncMedia(env)).toMatchObject({ replaced: 2, failed: 0 }); } finally { info.mockRestore(); }
@@ -324,7 +333,7 @@ it("clears versions of deleted objects only after a complete pass and restores t
   expect(await syncMedia(env)).toMatchObject({ cleared: 0, deferred: false });
   expect(await playable()).toBe(false);
   expect((await env.DB.prepare("SELECT r2_etag FROM media_files UNION ALL SELECT r2_etag FROM subtitle_tracks").all()).results).toEqual([{ r2_etag: null }, { r2_etag: null }]);
-  await env.MEDIA_BUCKET.put(key, asVp9(video())); await env.MEDIA_BUCKET.put(subtitleKey, vtt);
+  await env.MEDIA_BUCKET.put(key, webm()); await env.MEDIA_BUCKET.put(subtitleKey, vtt);
   expect(await syncMedia(env)).toMatchObject({ linked: 0, replaced: 0, failed: 0, cleared: 0 });
   expect(await playable()).toBe(true);
 });
@@ -405,7 +414,7 @@ it("drops the verified version of a row whose key no longer follows the naming r
 
 it("replaces valid changed content, rejects an unsafe subtitle and keeps both complete objects and D1 references", async () => {
   await media(); await env.MEDIA_BUCKET.put(subtitleKey, vtt); await syncMedia(env);
-  const changed = asVp9(video()); changed[changed.length - 1] ^= 1; await env.MEDIA_BUCKET.put(key, changed);
+  const changed = webm(); changed[changed.length - 1] ^= 1; await env.MEDIA_BUCKET.put(key, changed);
   await env.MEDIA_BUCKET.put(subtitleKey, vtt.replace("A fictional signal.", "<script>unsafe</script>"));
   expect(await syncMedia(env)).toMatchObject({ linked: 0, replaced: 1, failed: 1 });
   expect(await env.DB.prepare("SELECT checksum_sha256 FROM media_files").first<string>("checksum_sha256")).toBe(sha(changed));
@@ -415,13 +424,13 @@ it("replaces valid changed content, rejects an unsafe subtitle and keeps both co
 });
 
 it.each(["checksum", "length"])("replaces %s mismatches in place and logs logical identities without exposing storage details", async mismatch => {
-  const movieKey = "library/movie/152/movie.mp4", traditionalKey = "library/series/85948/S01/E01.zh-TW.main.vtt";
+  const movieKey = "library/movie/152/movie.webm", traditionalKey = "library/series/85948/S01/E01.zh-TW.main.vtt";
   await media();
-  await env.MEDIA_BUCKET.put(movieKey, asVp9(video()));
+  await env.MEDIA_BUCKET.put(movieKey, webm());
   for (const objectKey of [subtitleKey, traditionalKey]) await env.MEDIA_BUCKET.put(objectKey, vtt);
   expect(await syncMedia(env)).toMatchObject({ linked: 4, replaced: 0 });
   if (mismatch === "checksum") {
-    const changed = asVp9(video()); changed[changed.length - 1] ^= 1;
+    const changed = webm(); changed[changed.length - 1] ^= 1;
     for (const objectKey of [key, movieKey]) await env.MEDIA_BUCKET.put(objectKey, changed);
     for (const objectKey of [subtitleKey, traditionalKey]) await env.MEDIA_BUCKET.put(objectKey, vtt.replace("fictional", "different"));
   } else await env.DB.batch([
@@ -461,7 +470,7 @@ it.each(["checksum", "length"])("replaces %s mismatches in place and logs logica
   } finally { warn.mockRestore(); info.mockRestore(); }
 });
 
-it("rejects partial/changed/aborted MP4 and never publishes invalid or unknown resources", async () => {
+it("rejects partial/changed/aborted video and never publishes invalid or unknown resources", async () => {
   await media(); const head = (await env.MEDIA_BUCKET.head(key))!;
   await expect(inspectR2Media(env.MEDIA_BUCKET, key, head, "original", AbortSignal.abort())).rejects.toThrow();
   await env.MEDIA_BUCKET.put(key, video().slice(0, 32));
@@ -469,6 +478,19 @@ it("rejects partial/changed/aborted MP4 and never publishes invalid or unknown r
   await env.MEDIA_BUCKET.put("library/series/999999/S01/E01.720p.mp4", video());
   expect(await syncMedia(env)).toMatchObject({ linked: 0, failed: 1, unknown: 1 });
   expect((await env.DB.prepare("SELECT id FROM media_files").all()).results).toHaveLength(0);
+});
+
+it("rejects tiers whose audio has more than two channels in either container", async () => {
+  await media(); expect(await syncMedia(env)).toMatchObject({ linked: 1 });
+  // Stereo is the ceiling (B 6.6): iOS Safari plays 5.1 Opus silently.
+  const surroundWebm = webm(), channels = surroundWebm.findIndex((_, n) => surroundWebm[n] === 0x9f && surroundWebm[n + 1] === 0x81 && surroundWebm[n + 2] === 2) + 2;
+  surroundWebm[channels] = 6;
+  const surroundMp4 = video(), entry = surroundMp4.findIndex((_, n) => String.fromCharCode(...surroundMp4.subarray(n, n + 4)) === "mp4a") + 4;
+  new DataView(surroundMp4.buffer).setUint16(entry + 16, 6);
+  await env.MEDIA_BUCKET.put(tierKey("1080p"), surroundWebm); await env.MEDIA_BUCKET.put(tierKey("480p"), surroundMp4);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try { expect(await syncMedia(env)).toMatchObject({ linked: 0, failed: 2 }); } finally { warn.mockRestore(); }
+  expect((await playbackSource(env.DB, episodeKey(1)))?.qualities.map(item => item.label)).toEqual(["原画"]);
 });
 
 it("keeps D1 association atomic on a failed commit and retries the retained R2 object", async () => {

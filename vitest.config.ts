@@ -9,8 +9,8 @@ import { defineConfig } from "vitest/config";
 // Tests use the committed placeholder secrets so they never depend on a developer's .dev.vars.
 const testSecrets = parseEnv(readFileSync(".dev.vars.example", "utf8")) as Record<string, string>;
 const testMigrations = await readD1Migrations("./migrations");
-const mediaFixture = "test/fixtures/media/signal-test.mp4";
-if (!existsSync(mediaFixture)) execFileSync(process.execPath, ["scripts/gen-test-media.mjs"], { stdio: "inherit" });
+const mediaFixture = "test/fixtures/media/signal-test.mp4", webmFixture = "test/fixtures/media/signal-test.webm";
+if (!existsSync(mediaFixture) || !existsSync(webmFixture)) execFileSync(process.execPath, ["scripts/gen-test-media.mjs"], { stdio: "inherit" });
 
 export default defineConfig({
   plugins: [
@@ -19,7 +19,7 @@ export default defineConfig({
     cloudflareTest({
       main: "./workers/app.ts",
       experimental: { newConfig: true },
-      miniflare: { d1Databases: ["TEST_RESTORE_DB"], bindings: { ...testSecrets, TEST_MIGRATIONS: testMigrations, TEST_MEDIA_BASE64: readFileSync(mediaFixture).toString("base64") } },
+      miniflare: { d1Databases: ["TEST_RESTORE_DB"], bindings: { ...testSecrets, TEST_MIGRATIONS: testMigrations, TEST_MEDIA_BASE64: readFileSync(mediaFixture).toString("base64"), TEST_WEBM_BASE64: readFileSync(webmFixture).toString("base64") } },
     }),
   ],
   // Vitest does not load vite.config.ts; a fixed fictional commit keeps footer assertions stable.

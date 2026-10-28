@@ -23,7 +23,7 @@ beforeEach(async () => {
   } finally { vi.unstubAllGlobals(); }
   await seedCatalog(env.DB);
   // Only the episode has media (100 s); the movie has none.
-  await env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4', 'original','fictional-object',20,'hash',100,'vp9','aac',100,'fictional-version')").run();
+  await env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','webm', 'original','fictional-object',20,'hash',100,'vp9','opus',100,'fictional-version')").run();
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -121,7 +121,7 @@ it("refuses guests, unverified and banned members", async () => {
 });
 
 it("keeps five seconds between sends and sixty an hour per member, refunding nothing on deletion", async () => {
-  await env.DB.prepare("INSERT INTO media_files VALUES ('movie-source','movie-unit','mp4', 'original','fictional-movie',20,'hash',100,'vp9','aac',100,'fictional-version')").run();
+  await env.DB.prepare("INSERT INTO media_files VALUES ('movie-source','movie-unit','webm', 'original','fictional-movie',20,'hash',100,'vp9','opus',100,'fictional-version')").run();
   const start = Date.now(), gap = minInterval * 1000;
   at(start);
   expect((await emit()).status).toBe(200);

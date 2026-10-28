@@ -6,6 +6,7 @@ declare global {
     interface Env {
       TEST_MIGRATIONS: D1Migration[];
       TEST_MEDIA_BASE64: string;
+      TEST_WEBM_BASE64: string;
       TEST_RESTORE_DB: D1Database;
     }
   }

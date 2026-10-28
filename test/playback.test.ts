@@ -1,6 +1,5 @@
 import { env, exports } from "cloudflare:workers";
 import { createHash } from "node:crypto";
-import { asVp9 } from "./fixtures/media";
 import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { playbackHttp, playbackSource } from "@/lib/playback.server";
 import { syncMedia } from "@/lib/media-sync.server";
@@ -16,7 +15,7 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
   try { await member("Kepler"); cookie = await login("Kepler"); } finally { vi.unstubAllGlobals(); }
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','mp4','original','fictional-private-object',20,'hash',4,'vp9','aac',100,NULL)"),
+    env.DB.prepare("INSERT INTO media_files VALUES ('source','episode-unit','webm','original','fictional-private-object',20,'hash',4,'vp9','opus',100,NULL)"),
     env.DB.prepare("INSERT INTO subtitle_tracks VALUES ('zh','episode-unit','zh','vtt','中文','zh','fictional-private-subtitle',8,'hash',NULL)"),
     env.DB.prepare("INSERT INTO subtitle_tracks VALUES ('foreign','movie-unit','en','vtt','English','en','fictional-foreign-subtitle',8,'hash',NULL)"),
   ]);
@@ -42,7 +41,7 @@ async function expectHidden(response: Response, status: number) {
 it("implements full GET/HEAD/Range/If-Range and private headers over real R2 bytes", async () => {
   const response = await http(video); expect(response.status).toBe(200); expect(await bytesText(response)).toBe("0123456789abcdefghij");
   expect(response.headers.get("Content-Length")).toBe("20"); expect(response.headers.get("Cache-Control")).toBe("private, no-store");
-  expect(response.headers.get("Content-Type")).toBe("video/mp4"); expect(response.headers.get("Accept-Ranges")).toBe("bytes");
+  expect(response.headers.get("Content-Type")).toBe("video/webm"); expect(response.headers.get("Accept-Ranges")).toBe("bytes");
   expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff"); expect(response.headers.get("X-Robots-Tag")).toBe("noindex");
   const etag = response.headers.get("ETag")!; expect(etag).toMatch(/^".+"$/u); expect(response.headers.get("Last-Modified")).toBeTruthy();
   const head = await http(video, { method: "HEAD", headers: { Range: "bytes=1-2" } }); expect(head.status).toBe(200); expect(await bytesText(head)).toBe("");
@@ -163,8 +162,8 @@ it.each(["video", "subtitle"])("rejects a %s replaced while the request is being
 });
 
 it("serves a same-name replacement at the same address only after the scan validates it", async () => {
-  const key = "library/series/85948/S01/E01.mp4";
-  const original = asVp9(Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0)));
+  const key = "library/series/85948/S01/E01.webm";
+  const original = Uint8Array.from(atob(env.TEST_WEBM_BASE64), char => char.charCodeAt(0));
   await env.DB.prepare("UPDATE media_files SET object_key = ?, byte_length = ?, checksum_sha256 = ?, r2_etag = NULL WHERE id = 'source'")
     .bind(key, original.length, createHash("sha256").update(original).digest("hex")).run();
   const changed = original.slice(); changed[changed.length - 1] ^= 1;
@@ -199,7 +198,7 @@ it("lists only verified sources for a unit from D1 without touching R2", async (
 it("lists the required original before verified tiers and authorizes each tier per request", async () => {
   const tier = await env.MEDIA_BUCKET.put("fictional-private-tier", "tier-bytes");
   await env.DB.batch([["p480", "480p", tier!.etag], ["p2160", "2160p", tier!.etag], ["p1080", "1080p", null]].map(([id, variant, etag]) => env.DB.prepare(
-    "INSERT INTO media_files VALUES (?,'episode-unit','mp4',?,?,10,'hash',4,?,'aac',20,?)").bind(id, variant, id === "p480" ? "fictional-private-tier" : `fictional-private-${id}`, variant === "480p" ? "h264" : "vp9", etag)));
+    "INSERT INTO media_files VALUES (?,'episode-unit',?,?,?,10,'hash',4,?,'aac',20,?)").bind(id, variant === "480p" ? "mp4" : "webm", variant, id === "p480" ? "fictional-private-tier" : `fictional-private-${id}`, variant === "480p" ? "h264" : "vp9", etag)));
   expect((await playbackSource(env.DB, episodeKey(1)))?.qualities).toEqual([{ label: "原画", url: video }, { label: "2160p", url: "/media/p2160" }, { label: "480p", url: "/media/p480" }]);
   const response = await http("/media/p480", { headers: { Range: "bytes=0-3" } });
   expect(response.status).toBe(206); expect(await bytesText(response)).toBe("tier");
@@ -215,7 +214,7 @@ it("lists the required original before verified tiers and authorizes each tier p
 it("offers only tiers within the duration tolerance of the original", async () => {
   const tier = await env.MEDIA_BUCKET.put("fictional-private-tier", "tier-bytes");
   await env.DB.batch(([["p2160", "2160p", 5], ["p1080", "1080p", 4.9], ["p480", "480p", 2.9]] as const).map(([id, variant, duration]) => env.DB.prepare(
-    "INSERT INTO media_files VALUES (?,'episode-unit','mp4',?,?,10,'hash',?,?,'aac',20,?)").bind(id, variant, `fictional-private-${id}`, duration, variant === "480p" ? "h264" : "vp9", tier!.etag)));
+    "INSERT INTO media_files VALUES (?,'episode-unit',?,?,?,10,'hash',?,?,'aac',20,?)").bind(id, variant === "480p" ? "mp4" : "webm", variant, `fictional-private-${id}`, duration, variant === "480p" ? "h264" : "vp9", tier!.etag)));
   expect((await playbackSource(env.DB, episodeKey(1)))?.qualities).toEqual([{ label: "原画", url: video }, { label: "2160p", url: "/media/p2160" }, { label: "1080p", url: "/media/p1080" }]);
   await expectHidden(await http("/media/p480", {}, ""), 401);
 });
