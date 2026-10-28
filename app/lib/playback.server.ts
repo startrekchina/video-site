@@ -1,4 +1,5 @@
 import { APIError } from "better-auth/api";
+import type { UnitKey } from "./catalog.server";
 import { createRequestIdentity, liveMemberSql, type D1Reader } from "./member.server";
 import { settings } from "./settings.server";
 
@@ -15,17 +16,24 @@ async function storage<T>(read: () => Promise<T>) {
   try { return await read(); } catch { return fail("SERVICE_UNAVAILABLE", "MEDIA_UNAVAILABLE", "媒体服务暂时不可用，请稍后重试。"); }
 }
 
+// The unit a page path names, found inside the page's single batch.
+const unitId = `(SELECT u.id FROM playable_units u JOIN works w ON w.id = u.work_id LEFT JOIN seasons s ON s.id = u.season_id
+  WHERE w.kind = ? AND w.tmdb_id = ? AND (u.kind = 'movie' OR (s.season_number = ? AND u.episode_number = ?)))`;
+
 // Verified sources come from D1 only; every media request checks the current R2 version itself.
-export async function playbackSource(db: D1Reader, unitId: string): Promise<PlaybackSource | null> {
-  const [files, tracks] = await db.batch<{ id: string; variant: string; language: string; display_name: string }>([
-    db.prepare("SELECT id, variant FROM media_files WHERE playable_unit_id = ? AND format = 'mp4' AND r2_etag IS NOT NULL AND r2_etag <> ''").bind(unitId),
-    db.prepare(`SELECT id, language, display_name FROM subtitle_tracks WHERE playable_unit_id = ? AND format = 'vtt'
-      AND r2_etag IS NOT NULL AND r2_etag <> '' ORDER BY language, track_key`).bind(unitId),
+export async function playbackSource(db: D1Reader, unit: UnitKey): Promise<PlaybackSource | null> {
+  const key = [unit.kind, unit.tmdbId, unit.kind === "series" ? unit.season : null, unit.kind === "series" ? unit.episode : null];
+  const [files, tracks] = await db.batch<{ id: string; variant: string; duration_seconds: number; language: string; display_name: string }>([
+    db.prepare(`SELECT id, variant, duration_seconds FROM media_files WHERE playable_unit_id = ${unitId} AND format = 'mp4' AND r2_etag IS NOT NULL AND r2_etag <> ''`).bind(...key),
+    // B 6.6 order: 简中, 简英, 繁中, 繁英; extra tracks follow their kind.
+    db.prepare(`SELECT id, language, display_name FROM subtitle_tracks WHERE playable_unit_id = ${unitId} AND format = 'vtt'
+      AND r2_etag IS NOT NULL AND r2_etag <> '' ORDER BY language, track_key GLOB language || '.bilingual*', track_key`).bind(...key),
   ]);
   const linked = files.results.filter(file => variants.includes(file.variant)).sort((a, b) => variants.indexOf(a.variant) - variants.indexOf(b.variant));
   // Tiers never stand in for a missing original.
   if (linked[0]?.variant !== "original") return null;
-  const qualities = linked.map(file => ({ label: file.variant === "original" ? "原画" : file.variant, url: `/media/${file.id}` }));
+  // After the original is replaced, a tier of another duration stays hidden until its own replacement passes the scan.
+  const qualities = linked.filter(file => Math.abs(file.duration_seconds - linked[0].duration_seconds) <= settings.qualityDurationTolerance).map(file => ({ label: file.variant === "original" ? "原画" : file.variant, url: `/media/${file.id}` }));
   return { url: qualities[0].url, qualities, tracks: tracks.results.map(track => ({ id: track.id, language: track.language, displayName: track.display_name, url: `/subtitles/${track.id}` })) };
 }
 

@@ -1,6 +1,7 @@
 import { exports } from "cloudflare:workers";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { member, login } from "./fixtures/auth";
+import { dependencies } from "../package.json";
 
 const fetchPath = (path: string) => exports.default.fetch(`http://example.com${path}`);
 
@@ -12,6 +13,7 @@ function expectSecurityHeaders(res: Response) {
   expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
   expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
   expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+  expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'none'");
 }
 
 describe("worker responses", () => {
@@ -67,6 +69,26 @@ describe("worker responses", () => {
       const about = await exports.default.fetch("http://localhost:6120/about", { headers: { Cookie: cookie } });
       expect(await about.text()).not.toContain("我有邀请码");
     } finally { vi.unstubAllGlobals(); }
+  });
+  it("shows members the build, edge node and Ray ID of the request that loaded the root data", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+    try {
+      await member(); const cookie = await login();
+      const page = (path: string, ray?: string, cf?: { colo: string }) => exports.default.fetch(new Request(`http://localhost:6120${path}`, { headers: { Cookie: cookie, ...ray ? { "cf-ray": `${ray}-HKG` } : {} }, cf }));
+      const shownRay = (html: string) => html.match(/>请求 ID<\/dt><dd[^>]*>([^<]+)</)?.[1];
+      const account = await page("/account", "a4c64beabe4d8478", { colo: "HKG" }), html = await account.text();
+      expect(html).toContain('href="https://github.com/startrekchina/video-site/commit/0123456789abcdef0123456789abcdef01234567"'); expect(html).toMatch(/>0123456<\/a>/);
+      expect(html).toMatch(/>边缘节点<\/dt><dd[^>]*>HKG</); expect(shownRay(html)).toBe("a4c64beabe4d8478");
+      for (const name of ["react-router", "react", "@base-ui/react"] as const) expect(html).toContain(`>${name}@${dependencies[name]}</li>`);
+      expect(html).not.toMatch(/>(剧集|单集|电影)<\/dt>/);
+      const bare = await (await page("/account")).text(); expect(bare).toMatch(/>边缘节点<\/dt><dd[^>]*>—</); expect(shownRay(bare)).toBe("—");
+      const missing = await page("/missing-star", "b5d75cfbcf5e9589"); expect(missing.status).toBe(404); expect(shownRay(await missing.text())).toBe("b5d75cfbcf5e9589");
+      const [first, second] = [await page("/account.data", "c6e86d0cd06fa69a"), await page("/account.data", "d7f97e1de170b7ab")];
+      expect(await first.text()).toContain("c6e86d0cd06fa69a"); expect(await second.text()).toContain("d7f97e1de170b7ab");
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("keeps the bare footer for guests", async () => {
+    for (const path of ["/", "/about", "/login"]) expect(await (await fetchPath(path)).text()).not.toMatch(/>(构建|边缘节点|请求 ID)<\/dt>/);
   });
   it("exposes the guarded native session endpoint", async () => {
     const res = await fetchPath("/api/auth/get-session");
@@ -127,7 +149,9 @@ describe("worker responses", () => {
     expect(html).toContain("正确密码加一个未使用的备用码");
     expect(html).toContain("管理员也无法替你重设");
     expect(html).not.toMatch(/href="\/recover"|注册时拿到的任意一个恢复码|24 小时内有效|连续认证失败时/);
-    expect(html).toContain('name="theme"');
+    // B 6.11: one header toggle, no three-way selector in the footer.
+    expect(html).toContain('aria-label="切换深浅色"');
+    expect(html).not.toContain('name="theme"');
     expect(html).not.toMatch(/href="\/(series|movies|library|playlists|invites|account|admin)(?:["#?\/])/);
     expect(html).not.toMatch(/PROTO|proto\/frontend-v1|站长待填/);
     expect(html.indexOf("localStorage.getItem('site-theme')")).toBeLessThan(html.indexOf('rel="stylesheet"'));

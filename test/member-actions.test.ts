@@ -2,10 +2,12 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { symmetricEncrypt } from "better-auth/crypto";
 import { createAuth } from "@/lib/auth.server";
+import { authHttp } from "@/lib/auth-http.server";
+import { sha256 } from "@/lib/registration.server";
 import { adminHttp } from "@/lib/admin.server";
 import { invitationsHttp } from "@/lib/invitations.server";
 import { accountHttp } from "@/lib/account.server";
-import { login, member, request, uncached } from "./fixtures/auth";
+import { cookies, login, member, password, request, uncached } from "./fixtures/auth";
 
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => Response.json(String(input).includes("/siteverify") ? { success: true, hostname: "localhost", action: "auth" } : { status: "error" }))); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -24,6 +26,44 @@ const adminPost = (id: string, action: string, anti: { cookie: string }, body: o
   adminHttp(request(`/admin/members/${id}/${action}`, body, anti.cookie), env);
 const issue = (anti: { cookie: string }, operationId = crypto.randomUUID()) =>
   invitationsHttp(request("/invites/create", { operationId }, anti.cookie), env);
+
+it("rejects an invitation replay after secret rotation without changing the original invitation or charging again", async () => {
+  const user = await member("Kepler"), cookie = await login("Kepler"), operationId = crypto.randomUUID();
+  const first = await (await issue({ cookie }, operationId)).json() as { data: { id: string; code: string } };
+  const stored = () => env.DB.prepare("SELECT * FROM invitations WHERE issuer_user_id = ?").bind(user.id).all();
+  const before = (await stored()).results;
+  expect(before).toHaveLength(1);
+  expect(before[0].code_hash).toBe(await sha256(first.data.code));
+  const rotated = { ...env, BETTER_AUTH_SECRET: "fictional-rotated-auth-secret-for-review-2026" };
+  const signedIn = await authHttp(request("/api/auth/sign-in/username", { username: "Kepler", password }), rotated);
+  expect(signedIn.status).toBe(200);
+  const rotatedCookie = cookies(signedIn);
+  await expect(invitationsHttp(request("/invites/create", { operationId }, rotatedCookie), rotated))
+    .rejects.toMatchObject({ statusCode: 409, body: { code: "INVITATION_REPLAY_UNAVAILABLE" } });
+  expect((await stored()).results).toEqual(before);
+  expect((await invitationsHttp(request(`/invites/${first.data.id}/revoke`, {}, rotatedCookie), rotated)).status).toBe(200);
+  const freshResponse = await invitationsHttp(request("/invites/create", { operationId: crypto.randomUUID() }, rotatedCookie), rotated);
+  expect(freshResponse.status).toBe(200);
+  const fresh = await freshResponse.json() as { data: { id: string; code: string } };
+  expect(await env.DB.prepare("SELECT code_hash FROM invitations WHERE id = ?").bind(fresh.data.id).first("code_hash")).toBe(await sha256(fresh.data.code));
+});
+
+it("removes expired admin counters without weakening the active budget or deleting other operation counters", async () => {
+  const admin = await setupAdmin(), target = await member(), now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now);
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO rate_limit_counters VALUES (?, 'admin', ?, 29, ?)").bind(`admin:${admin.user.id}`, now - 1000, now + 59000),
+    env.DB.prepare("INSERT INTO rate_limit_counters VALUES ('admin:expired', 'admin', ?, 30, ?)").bind(now - 60000, now),
+    env.DB.prepare("INSERT INTO rate_limit_counters VALUES ('admin:active', 'admin', ?, 7, ?)").bind(now - 1000, now + 59000),
+    env.DB.prepare("INSERT INTO rate_limit_counters VALUES ('danmaku:kept', 'danmaku', ?, 1, ?)").bind(now - 3600000, now),
+  ]);
+  expect((await adminPost(target.id, "quota", admin, { total: 9 })).status).toBe(200);
+  await expect(adminPost(target.id, "quota", admin, { total: 10 })).rejects.toMatchObject({ statusCode: 429, body: { code: "ADMIN_RATE_LIMITED" } });
+  expect(await env.DB.prepare("SELECT sum(count) AS n FROM rate_limit_counters WHERE key = ? AND operation = 'admin'").bind(`admin:${admin.user.id}`).first<number>("n")).toBe(30);
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM rate_limit_counters WHERE key = 'admin:expired'").first<number>("n")).toBe(0);
+  expect(await env.DB.prepare("SELECT count FROM rate_limit_counters WHERE key = 'admin:active'").first<number>("count")).toBe(7);
+  expect(await env.DB.prepare("SELECT count FROM rate_limit_counters WHERE key = 'danmaku:kept'").first<number>("count")).toBe(1);
+});
 
 it("serves real admin totals, filtered pages and invitation trees without credentials", async () => {
   const admin = await setupAdmin(); const root = await member("Root"); await member("Branch", true, root.id);

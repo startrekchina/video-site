@@ -1,15 +1,16 @@
 import { APIError } from "better-auth/api";
+import { generateRandomString } from "better-auth/crypto";
 import { displayTitle, episodeCode } from "./catalog";
-import { codes, playableMedia, posterPath } from "./catalog.server";
+import { codes, playableMedia, posterPath, unitPath, workHref, type UnitKey } from "./catalog.server";
 import { createRequestIdentity, type D1Reader } from "./member.server";
 import { checkWrite, readJson } from "./security.server";
 import { settings } from "./settings.server";
 
 type Target = { workId: string; unitId: null } | { workId: null; unitId: string };
 type HeadRow = { id: string; title: string; visibility: "private" | "members"; revision: number; updated_at: number; own: number; owner: string };
-type UnitRow = { item: string; id: string; kind: "movie" | "episode"; playable: number; completed: number; title_zh: string | null; title_en: string | null; poster_asset: string | null;
+type UnitRow = { item: string; id: string; kind: "movie" | "episode"; playable: number; completed: number; title_zh: string | null; title_en: string | null; year: number | null; poster_asset: string | null;
   tmdb_id: number; season_number: number | null; episode_number: number | null; unit_title_zh: string | null; unit_title_en: string | null };
-type ItemRow = { id: string; slug: string; kind: "movie" | "series"; title_zh: string | null; title_en: string | null; year: number | null; poster_asset: string | null; tmdb_id: number;
+type ItemRow = { id: string; kind: "movie" | "series"; title_zh: string | null; title_en: string | null; year: number | null; poster_asset: string | null; tmdb_id: number;
   season_count: number; unit_id: string | null; season_number: number | null; episode_number: number | null; unit_title_zh: string | null; unit_title_en: string | null };
 type ListRow = { id: string; title: string; visibility: "private" | "members"; updated_at: number; owner: string; count: number; posters: string };
 
@@ -20,6 +21,8 @@ const respond = (request: Request, body: object, status = 200) => Response.json(
 const code = (row: { tmdb_id: number; season_number: number | null; episode_number: number | null }) =>
   [codes[row.tmdb_id], episodeCode({ seasonNumber: row.season_number ?? 0, number: row.episode_number ?? 0 })].filter(Boolean).join(" · ");
 const workTitle = (row: { title_zh: string | null; title_en: string | null }) => row.title_zh || row.title_en || "标题暂缺";
+const rowHref = (row: { kind: string; tmdb_id: number; season_number: number | null; episode_number: number | null }) => unitPath(row.kind === "movie"
+  ? { kind: "movie", tmdbId: row.tmdb_id } : { kind: "series", tmdbId: row.tmdb_id, season: row.season_number ?? 0, episode: row.episode_number ?? 0 });
 
 // An item names exactly one target: a work (series or movie) or an episode; movies join as works (B 6.5).
 function target(body: Record<string, unknown>): Target {
@@ -30,7 +33,10 @@ function target(body: Record<string, unknown>): Target {
 const found = "SELECT EXISTS(SELECT 1 FROM works WHERE id = ?1) OR EXISTS(SELECT 1 FROM playable_units WHERE id = ?2 AND kind = 'episode') AS found";
 function title(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
-  return text && [...text].length <= settings.playlistTitleMax && !/\p{Cc}/u.test(text) ? text : invalid(`片单名称需为 1–${settings.playlistTitleMax} 个字符。`);
+  if (!text || [...text].length > settings.playlistTitleMax) return invalid(`片单名称需为 1–${settings.playlistTitleMax} 个字符。`);
+  if (/[\p{Cc}\p{Bidi_Control}]/u.test(text)) return invalid("片单名称不能包含控制字符。");
+  if (!/[^\p{White_Space}\p{Default_Ignorable_Code_Point}]/u.test(text)) return invalid("片单名称需包含可见内容。");
+  return text;
 }
 const visibility = (value: unknown) => value === "private" || value === "members" ? value : invalid();
 
@@ -40,17 +46,17 @@ const head = (db: D1Reader, userId: string, id: string) => db.prepare(`SELECT l.
     WHERE l.id = ?1 AND (l.owner_user_id = ?2 OR l.visibility = 'members')`).bind(id, userId);
 // Every item's units in stored order, a series in season and episode order, with the viewer's own progress (never the owner's).
 const expansion = (db: D1Reader, userId: string, id: string) => db.prepare(`SELECT e.item, u.id, u.kind, EXISTS(${playableMedia}) AS playable, coalesce(p.completed, 0) AS completed,
-    w.title_zh, w.title_en, w.poster_asset, w.tmdb_id, s.season_number, u.episode_number, u.title_zh AS unit_title_zh, u.title_en AS unit_title_en
+    w.title_zh, w.title_en, w.year, w.poster_asset, w.tmdb_id, s.season_number, u.episode_number, u.title_zh AS unit_title_zh, u.title_en AS unit_title_en
   FROM (SELECT id AS item, position, playable_unit_id AS unit FROM playlist_items WHERE playlist_id = ?1 AND playable_unit_id IS NOT NULL
     UNION ALL SELECT i.id, i.position, pu.id FROM playlist_items i JOIN playable_units pu ON pu.work_id = i.work_id WHERE i.playlist_id = ?1) e
   JOIN playable_units u ON u.id = e.unit JOIN works w ON w.id = u.work_id LEFT JOIN seasons s ON s.id = u.season_id
   LEFT JOIN watch_progress p ON p.playable_unit_id = u.id AND p.user_id = ?2
   ORDER BY e.position, s.season_number, u.episode_number, u.id`).bind(id, userId);
-// B 6.7.2: playable units keep their first appearance. Finished units stay so a watch page can find its place; callers skip them.
+// B 6.7.2: playable units keep their first appearance. Finished units stay so a watch page can find and show its place; playback skips them.
 function queue(rows: UnitRow[]) {
   const seen = new Set<string>();
-  return rows.filter(row => row.playable && !seen.has(row.id) && seen.add(row.id)).map(row => ({ id: row.id, completed: Boolean(row.completed), poster: posterPath(row.poster_asset),
-    label: row.kind === "movie" ? "电影" : code(row), title: row.kind === "movie" ? workTitle(row) : displayTitle({ titleZh: row.unit_title_zh, titleEn: row.unit_title_en }) }));
+  return rows.filter(row => row.playable && !seen.has(row.id) && seen.add(row.id)).map(row => ({ id: row.id, href: rowHref(row), completed: Boolean(row.completed), poster: posterPath(row.poster_asset),
+    label: row.kind === "movie" ? "电影" : code(row), year: row.kind === "movie" ? row.year : null, title: row.kind === "movie" ? workTitle(row) : displayTitle({ titleZh: row.unit_title_zh, titleEn: row.unit_title_en }) }));
 }
 
 export async function playlists(db: D1Reader, userId: string, scope: "mine" | "members") {
@@ -65,7 +71,7 @@ export async function playlists(db: D1Reader, userId: string, scope: "mine" | "m
 }
 export async function playlistPage(db: D1Reader, userId: string, id: string) {
   const [heads, items, units] = await db.batch([head(db, userId, id),
-    db.prepare(`SELECT i.id, w.id AS slug, w.kind, w.title_zh, w.title_en, w.year, w.poster_asset, w.tmdb_id, (SELECT count(*) FROM seasons s WHERE s.work_id = w.id) AS season_count,
+    db.prepare(`SELECT i.id, w.kind, w.title_zh, w.title_en, w.year, w.poster_asset, w.tmdb_id, (SELECT count(*) FROM seasons s WHERE s.work_id = w.id) AS season_count,
       pu.id AS unit_id, s.season_number, pu.episode_number, pu.title_zh AS unit_title_zh, pu.title_en AS unit_title_en
       FROM playlist_items i LEFT JOIN playable_units pu ON pu.id = i.playable_unit_id LEFT JOIN seasons s ON s.id = pu.season_id JOIN works w ON w.id = coalesce(i.work_id, pu.work_id)
       WHERE i.playlist_id = ? ORDER BY i.position`).bind(id),
@@ -74,18 +80,19 @@ export async function playlistPage(db: D1Reader, userId: string, id: string) {
   if (!list) return null;
   const rows = units.results as UnitRow[], order = queue(rows);
   return { playlist: { id: list.id, title: list.title, visibility: list.visibility, revision: list.revision, own: Boolean(list.own), owner: list.owner, updatedAt: list.updated_at },
-    items: (items.results as ItemRow[]).map(row => ({ id: row.id, poster: posterPath(row.poster_asset), href: row.unit_id ? `/watch/${row.unit_id}` : `/title/${row.slug}`,
+    items: (items.results as ItemRow[]).map(row => ({ id: row.id, poster: posterPath(row.poster_asset), href: row.unit_id ? rowHref(row) : workHref(row.kind, row.tmdb_id),
       kicker: row.unit_id ? code(row) : row.kind === "movie" ? `电影 · ${row.year ?? "—"}` : `整部剧集 · ${row.season_count} 季`,
       title: row.unit_id ? displayTitle({ titleZh: row.unit_title_zh, titleEn: row.unit_title_en }) : workTitle(row), sub: row.unit_id ? workTitle(row) : row.title_en ?? "",
       watched: (row.unit_id !== null || row.kind === "movie") && rows.some(unit => unit.item === row.id && unit.completed === 1) })),
     // B 6.7.2: play from the first unfinished unit; when none is left the member stays on the playlist page.
-    start: order.find(unit => !unit.completed)?.id ?? null, queued: order.length };
+    start: order.find(unit => !unit.completed)?.href ?? null, queued: order.length };
 }
-// A watch page's place in a playlist queue: the next unfinished playable unit after it, or null at the end.
-export async function playlistQueue(db: D1Reader, userId: string, id: string, unitId: string) {
+// A watch page's place among the playlist's playable units, each unit's watched state, and the next unfinished unit after it (null at the end).
+export async function playlistQueue(db: D1Reader, userId: string, id: string, unit: UnitKey) {
   const [heads, units] = await db.batch([head(db, userId, id), expansion(db, userId, id)]);
-  const list = heads.results[0] as HeadRow | undefined, order = queue(units.results as UnitRow[]), at = order.findIndex(unit => unit.id === unitId);
-  return list && at >= 0 ? { id: list.id, title: list.title, next: order.slice(at + 1).find(unit => !unit.completed) ?? null } : null;
+  const list = heads.results[0] as HeadRow | undefined, order = queue(units.results as UnitRow[]), href = unitPath(unit), position = order.findIndex(item => item.href === href);
+  return list && position >= 0 ? { id: list.id, title: list.title, position, watched: order.map(unit => unit.completed),
+    next: order.slice(position + 1).find(unit => !unit.completed) ?? null } : null;
 }
 
 // Personal library writes: the member comes from the session, and only the owner can change a playlist.
@@ -124,7 +131,8 @@ export async function libraryHttp(request: Request, env: Env, identity = createR
     const item = body.item === undefined ? null : target(body.item && typeof body.item === "object" && !Array.isArray(body.item) ? body.item as Record<string, unknown> : invalid());
     const current = await read(reader => reader.batch<{ found: number }>([reader.prepare(found).bind(item?.workId ?? null, item?.unitId ?? null)]));
     if (item && !current.value[0].results[0].found) missing("作品或单集不存在。");
-    const playlistId = crypto.randomUUID();
+    // shortcut: a primary-key collision (~n/2e14) fails the request instead of retrying; add a retry if playlists reach millions.
+    const playlistId = generateRandomString(8, "a-z", "A-Z", "0-9");
     await db.batch([db.prepare("INSERT INTO playlists (id, owner_user_id, title, visibility, revision, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)")
       .bind(playlistId, current.member.user_id, name, scope, now, now),
       ...item ? [db.prepare("INSERT INTO playlist_items (id, playlist_id, work_id, playable_unit_id, position) VALUES (?, ?, ?, ?, 0)").bind(crypto.randomUUID(), playlistId, item.workId, item.unitId)] : []]);

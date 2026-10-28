@@ -1,4 +1,4 @@
-import { validateVtt } from "../app/lib/media-format.ts";
+import { subtitleTrack, validateVtt } from "../app/lib/media-format.ts";
 export { validateVtt } from "../app/lib/media-format.ts";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -16,6 +16,12 @@ export const UPLOAD_BLOCKER = "媒体由站长独立上传；使用 catalog 初�
 
 function check(condition, message) {
   if (!condition) throw Object.assign(new Error(message), { name: "ImportInputError" });
+}
+
+// TMDB dates stay YYYY-MM-DD text; an empty or missing date becomes null.
+function tmdbDate(value, message) {
+  check(value == null || value === "" || typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(value), message);
+  return value || null;
 }
 
 function fields(value, allowed, label) {
@@ -108,10 +114,8 @@ export async function inspectMp4(path) {
 }
 
 async function subtitle(input, base, logicalId, warnings) {
-  fields(input, ["language", "displayName", "trackKey", "sourcePath"], `${logicalId} 字幕`);
-  check(typeof input.language === "string" && /^(zh|en)(?:-[A-Za-z0-9]{2,8})*$/u.test(input.language) && input.language.length <= 35, `${logicalId}：字幕只接受中文或英文。`);
-  check(typeof input.trackKey === "string" && /^[A-Za-z0-9][\w.-]{0,63}$/u.test(input.trackKey), `${logicalId}：trackKey 无效。`);
-  check(typeof input.displayName === "string" && input.displayName.trim() && input.displayName.length <= 160 && !/[\u0000-\u001f\u007f<>]/u.test(input.displayName), `${logicalId}：displayName 无效。`);
+  fields(input, ["language", "trackKey", "sourcePath"], `${logicalId} 字幕`);
+  check(["zh-CN", "zh-TW"].includes(input.language) && typeof input.trackKey === "string" && subtitleTrack(`${input.language}.${input.trackKey}`), `${logicalId}：字幕语言只能是 zh-CN 或 zh-TW，轨道只能是 main（中文）或 bilingual（中英双语），同类附加轨道加后缀，如 main.alt。`);
   const path = localFile(input.sourcePath, base), label = `${logicalId}/${basename(path)}`;
   check([".vtt", ".ass"].includes(extname(path).toLowerCase()), `${label}：仅支持 VTT/ASS。`);
   let bytes = await smallFile(path, label);
@@ -129,7 +133,7 @@ async function subtitle(input, base, logicalId, warnings) {
   }
   const validated = validateVtt(bytes, label);
   validated.bytes = Buffer.from(validated.bytes);
-  return { language: input.language, displayName: input.displayName, trackKey: input.trackKey, ...validated, byteLength: validated.bytes.length, checksumSha256: sha256(validated.bytes) };
+  return { language: input.language, trackKey: input.trackKey, ...validated, byteLength: validated.bytes.length, checksumSha256: sha256(validated.bytes) };
 }
 
 async function manifest(repository) {
@@ -253,8 +257,7 @@ export async function preflight({ environment, mappingPath, env = process.env, r
   for (const entry of entries.filter(entry => entry.seasonNumber === null)) {
     const path = `${entry.kind === "movie" ? "movie" : "tv"}/${entry.tmdbId}`;
     const { english, localized } = await metadata(request, path, data => data.id === entry.tmdbId, entry.kind === "movie");
-    const date = english[entry.kind === "movie" ? "release_date" : "first_air_date"];
-    check(date == null || date === "" || typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(date), `${entry.id} 首映日期无效。`);
+    const date = tmdbDate(english[entry.kind === "movie" ? "release_date" : "first_air_date"], `${entry.id} 首映日期无效。`);
     works.push({ ...entry, ...localized, year: date ? Number(date.slice(0, 4)) : null });
     workDetails.set(entry.id, english);
     if (entry.kind === "movie") {
@@ -291,13 +294,13 @@ export async function preflight({ environment, mappingPath, env = process.env, r
       const checked = await Promise.allSettled(episodes.slice(at, at + 4).map(async unit => {
         const { english, localized } = await metadata(request, unit.path, data => data.id === unit.tmdbId && data.season_number === unit.seasonNumber && data.episode_number === unit.episodeNumber);
         check(english.runtime == null || typeof english.runtime === "number" && Number.isFinite(english.runtime) && english.runtime >= 0, "TMDB 单集时长无效。");
-        Object.assign(unit, localized, { durationSeconds: english.runtime > 0 ? english.runtime * 60 : null });
+        Object.assign(unit, localized, { durationSeconds: english.runtime > 0 ? english.runtime * 60 : null, airDate: tmdbDate(english.air_date, "TMDB 单集首播日期无效。") });
       }));
       for (const result of checked) if (result.status === "rejected") throw result.reason;
     }
   }
   return { environment, simulatedTmdb: Boolean(tmdbMockUrl), works, seasons, media, warnings, ...(allUnits ? {
-    units: [...unitDetails].map(([id, unit]) => ({ id, workId: unit.workId, seasonId: unit.seasonId ?? null, episodeNumber: unit.episodeNumber ?? null, tmdbId: unit.tmdbId, durationSeconds: unit.durationSeconds ?? null, titleZh: unit.titleZh ?? null, titleEn: unit.titleEn ?? null, overviewZh: unit.overviewZh ?? null, overviewEn: unit.overviewEn ?? null })),
+    units: [...unitDetails].map(([id, unit]) => ({ id, workId: unit.workId, seasonId: unit.seasonId ?? null, episodeNumber: unit.episodeNumber ?? null, tmdbId: unit.tmdbId, durationSeconds: unit.durationSeconds ?? null, titleZh: unit.titleZh ?? null, titleEn: unit.titleEn ?? null, overviewZh: unit.overviewZh ?? null, overviewEn: unit.overviewEn ?? null, airDate: unit.airDate ?? null })),
   } : {}) };
 }
 
@@ -314,12 +317,12 @@ export function catalogQueries(result) {
   for (const unit of result.units) {
     const work = works.get(unit.workId), season = unit.seasonId ? seasons.get(unit.seasonId) : null;
     check(work && (!unit.seasonId || season), "资料清单缺少作品或季。");
-    queries.push({ sql: `INSERT INTO playable_units (id,kind,work_id,season_id,episode_number,tmdb_id,duration_seconds,title_zh,title_en,overview_zh,overview_en)
-      VALUES (?,?,(SELECT id FROM works WHERE kind=? AND tmdb_id=?),${season ? "(SELECT s.id FROM seasons s JOIN works w ON w.id=s.work_id WHERE w.kind='series' AND w.tmdb_id=? AND s.season_number=?)" : "NULL"},?,?,?,?,?,?,?)
+    queries.push({ sql: `INSERT INTO playable_units (id,kind,work_id,season_id,episode_number,tmdb_id,duration_seconds,title_zh,title_en,overview_zh,overview_en,air_date)
+      VALUES (?,?,(SELECT id FROM works WHERE kind=? AND tmdb_id=?),${season ? "(SELECT s.id FROM seasons s JOIN works w ON w.id=s.work_id WHERE w.kind='series' AND w.tmdb_id=? AND s.season_number=?)" : "NULL"},?,?,?,?,?,?,?,?)
       ON CONFLICT(${season ? "season_id,episode_number" : "work_id"}) WHERE kind='${season ? "episode" : "movie"}' DO UPDATE SET
-      tmdb_id=excluded.tmdb_id,title_zh=excluded.title_zh,title_en=excluded.title_en,overview_zh=excluded.overview_zh,overview_en=excluded.overview_en,
+      tmdb_id=excluded.tmdb_id,title_zh=excluded.title_zh,title_en=excluded.title_en,overview_zh=excluded.overview_zh,overview_en=excluded.overview_en,air_date=excluded.air_date,
       duration_seconds=CASE WHEN EXISTS(SELECT 1 FROM media_files WHERE playable_unit_id=playable_units.id AND format='mp4' AND variant='original') THEN playable_units.duration_seconds ELSE excluded.duration_seconds END`,
-      params: [`${work.kind}_${work.tmdbId}_${season ? `s${season.seasonNumber}_e${unit.episodeNumber}` : "unit"}`,season ? "episode" : "movie",work.kind,work.tmdbId,...(season ? [work.tmdbId,season.seasonNumber] : []),unit.episodeNumber,unit.tmdbId,unit.durationSeconds,unit.titleZh,unit.titleEn,unit.overviewZh,unit.overviewEn] });
+      params: [`${work.kind}_${work.tmdbId}_${season ? `s${season.seasonNumber}_e${unit.episodeNumber}` : "unit"}`,season ? "episode" : "movie",work.kind,work.tmdbId,...(season ? [work.tmdbId,season.seasonNumber] : []),unit.episodeNumber,unit.tmdbId,unit.durationSeconds,unit.titleZh,unit.titleEn,unit.overviewZh,unit.overviewEn,unit.airDate] });
   }
   return queries;
 }

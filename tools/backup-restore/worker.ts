@@ -41,9 +41,22 @@ export default {
       const body = await readJson(request), target = { db: env.RESTORE_DB, id: env.RESTORE_TARGET_DATABASE_ID };
       const key = `backup-restore-control/${env.APP_ENV}/${target.id}.json`, previous = await env.MEDIA_BUCKET.get(key);
       if (previous && previous.size > 1024) { await previous.body.cancel(); throw new Error("RESTORE_STATE_INVALID"); }
-      const state = previous ? await previous.json<{ deadline: number; updatedAt: number }>() : null;
+      const state = previous ? await previous.json<{ deadline: number; updatedAt: number; plaintextKey?: string }>() : null;
       if (state && (!Number.isSafeInteger(state.deadline) || !Number.isSafeInteger(state.updatedAt))) throw new Error("RESTORE_STATE_INVALID");
       if (state && state.deadline > Date.now()) return json({ error: "RESTORE_BUSY" }, 409);
+      if (state?.plaintextKey !== undefined) {
+        const match = /^backup-restore\/(staging|production)\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\/source\.sql$/u.exec(state.plaintextKey);
+        if (!match || match[1] !== env.APP_ENV) throw new Error("RESTORE_STATE_INVALID");
+        const clearing = (async () => {
+          const plaintext = await env.MEDIA_BUCKET.head(state.plaintextKey!);
+          if (plaintext) {
+            await delay(Math.max(0, plaintext.uploaded.getTime() + 1100 - Date.now()));
+            await env.MEDIA_BUCKET.delete(state.plaintextKey!);
+          }
+        })();
+        ctx.waitUntil(clearing.catch(() => { console.error("restore_plaintext_cleanup_failed"); }));
+        try { await clearing; } catch { throw new Error("RESTORE_PLAINTEXT_CLEANUP_FAILED"); }
+      }
       if (state) await delay(Math.max(0, state.updatedAt + 1100 - Date.now()), undefined, { signal });
       signal.throwIfAborted();
       const restoreId = crypto.randomUUID(), plaintextKey = body.action === "restore" && ["staging", "production"].includes(env.APP_ENV)
@@ -82,6 +95,9 @@ export default {
       }
       return json({ error: "RESTORE_INVALID_INPUT" }, 400);
     } catch (error) {
+      if (error instanceof Error && error.message === "RESTORE_PLAINTEXT_CLEANUP_FAILED") {
+        return json({ error: error.message, message: "上次恢复的明文暂存未能清理，请检查存储后重试；原清理记录仍保留。" }, 503);
+      }
       const importError = error instanceof Error ? /^RESTORE_IMPORT_REJECTED (D1_[A-Z0-9_]{1,60})$/u.exec(error.message)?.[1] : undefined;
       return json({ error: "RESTORE_FAILED", ...(importError ? { importError } : {}), message: "恢复操作未完成，保持目标隔离并检查阶段结果；不要切换数据库或开放服务。" }, 500);
     }

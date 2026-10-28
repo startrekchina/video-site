@@ -37,7 +37,9 @@ const time = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", dateS
 const message = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
 
 function JobStatus({ job }: { job: Job }) {
-  if (job.deleted) return <Tag>已过期清理</Tag>;
+  if (job.deleted) return <Tag>{job.externalClosedAt ? "已结束" : "已过期清理"}</Tag>;
+  if (job.externalPending) return <Tag>旧位置待处理</Tag>;
+  if (job.externalClosedAt) return <Tag>旧位置已处理</Tag>;
   if (job.status === "complete") return <Tag className="text-success">成功</Tag>;
   if (job.status === "running") return <Tag>进行中</Tag>;
   return <Tag className="text-destructive">失败</Tag>;
@@ -49,6 +51,7 @@ export default function BackupsPage({ loaderData: state }: Route.ComponentProps)
   const [target, setTarget] = useState<BackupTarget>("download"), [busy, setBusy] = useState(false), [saving, setSaving] = useState(false);
   // undefined: no dialog; null: a new backup; a job: retrying that job.
   const [confirming, setConfirming] = useState<Job | null | undefined>();
+  const [closingExternal, setClosingExternal] = useState<Job>();
   const [scheduleEnabled, setScheduleEnabled] = useState(state.schedule.enabled), [scheduleTarget, setScheduleTarget] = useState<ExternalBackupTarget>(savedTarget);
   const [frequency, setFrequency] = useState<BackupFrequency>(state.schedule.frequency), [intervalDays, setIntervalDays] = useState(state.schedule.intervalDays ?? 7);
   const [weekday, setWeekday] = useState(state.schedule.weekday ?? 1), [scheduleTime, setScheduleTime] = useState(state.schedule.time);
@@ -70,17 +73,27 @@ export default function BackupsPage({ loaderData: state }: Route.ComponentProps)
     try {
       const made = await call<Job>(job ? `/admin/backups/${job.id}/retry` : "/admin/backups", { target: job?.target ?? target, maintenanceConfirmed: true });
       if (made.status !== "complete") toast.add({ title: made.failure?.message ?? "备份没有完成。", type: "error" });
-      else toast.add({ title: (made.target === "download" ? "备份完成。" : `已备份到 ${labels[made.target]}。`) + (made.cleanup?.status === "failed" ? "过期清理未全部完成。" : ""), type: "success" });
+      else toast.add({ title: (made.target === "download" ? "备份完成。" : `已备份到 ${labels[made.target]}。`) + (made.cleanup?.status === "failed" ? "过期清理未全部完成。" : made.cleanup?.status === "pending" ? "旧位置还有待处理记录。" : ""), type: "success" });
     } catch (error) { toast.add({ title: message(error, "备份没有完成。"), type: "error" }); }
     finally { setBusy(false); setConfirming(undefined); revalidator.revalidate(); }
   }
   async function cleanup() {
     setBusy(true);
     try {
-      const result = await call<{ status: string; deleted: number }>("/admin/backups/cleanup", {});
+      const result = await call<{ status: string; deleted: number; pending?: number }>("/admin/backups/cleanup", {});
       if (result.status === "complete") toast.add({ title: result.deleted ? `清理完成，删除了 ${result.deleted} 份过期备份。` : "没有需要清理的过期备份。", type: "success" });
+      else if (result.status === "pending") toast.add({ title: `当前位置清理完成，另有 ${result.pending} 条旧位置记录待处理。`, type: "info" });
       else toast.add({ title: "清理未全部完成，请检查保存位置配置和历史密钥。", type: "error" });
     } catch (error) { toast.add({ title: message(error, "清理没有完成。"), type: "error" }); }
+    finally { setBusy(false); revalidator.revalidate(); }
+  }
+  async function closeExternal() {
+    if (!closingExternal || busy) return;
+    setBusy(true);
+    try {
+      await call<Job>(`/admin/backups/${closingExternal.id}/close-external`, { confirmed: true, updatedAt: closingExternal.updatedAt });
+      setClosingExternal(undefined); toast.add({ title: "已记录旧位置处理结果，未删除远端文件。", type: "success" });
+    } catch (error) { toast.add({ title: message(error, "未能保存处理结果，请刷新后重试。"), type: "error" }); }
     finally { setBusy(false); revalidator.revalidate(); }
   }
   async function saveSchedule(event: FormEvent) {
@@ -146,16 +159,20 @@ export default function BackupsPage({ loaderData: state }: Route.ComponentProps)
       </form>
     </Panel>
     <Separator /><Panel><PanelHeader><PanelTitle>备份记录</PanelTitle><Button size="sm" variant="ghost" disabled={busy || revalidator.state !== "idle"} onClick={() => revalidator.revalidate()}><RefreshCwIcon />刷新</Button></PanelHeader>
-      {!state.items.length ? <Empty className="rounded-none py-12"><EmptyHeader><EmptyMedia variant="icon"><ArchiveIcon /></EmptyMedia><EmptyTitle>还没有备份记录</EmptyTitle></EmptyHeader></Empty>
+      {!!state.invalidJobs.length && <p role="status" className="p-4 text-sm text-destructive">有 {state.invalidJobs.length} 条备份记录损坏，相关备份暂不可下载或重试。清理操作暂不可用，请检查存储记录。</p>}
+      {!state.items.length ? <Empty className="rounded-none py-12"><EmptyHeader><EmptyMedia variant="icon"><ArchiveIcon /></EmptyMedia><EmptyTitle>{state.invalidJobs.length ? "暂无可读取的备份记录" : "还没有备份记录"}</EmptyTitle></EmptyHeader></Empty>
         : <div className="divide-y divide-line">{state.items.map(job => <article key={job.id} className="space-y-1.5 p-4">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2"><h2 className="text-sm font-medium">{time(job.backupTime ?? job.createdAt)}</h2><span className="text-sm text-muted-foreground">{labels[job.target]}</span><JobStatus job={job} /></div>
-            {(job.downloadReady || job.status === "failed" && !job.r2Deleted) && <div className="flex gap-2">
+            {(job.downloadReady || job.externalPending || job.status === "failed" && !job.r2Deleted && !job.externalClosedAt) && <div className="flex flex-wrap gap-2">
               {job.downloadReady && <Button variant="outline" size="sm" render={<a href={`/admin/backups/${job.id}/download`} download />}><DownloadIcon />下载</Button>}
-              {job.status === "failed" && !job.r2Deleted && <Button variant="outline" size="sm" disabled={busy || running || !state.targets[job.target]} onClick={() => setConfirming(job)}><RotateCcwIcon />重试</Button>}
+              {job.status === "failed" && !job.r2Deleted && !job.externalClosedAt && !job.externalPending && <Button variant="outline" size="sm" disabled={busy || running || !state.targets[job.target]} onClick={() => setConfirming(job)}><RotateCcwIcon />重试</Button>}
+              {job.externalPending && <Button variant="outline" size="sm" disabled={busy || running} onClick={() => setClosingExternal(job)}>确认旧位置已处理</Button>}
             </div>}
           </div>
           {job.failure && <p role="status" className="text-sm text-destructive">{job.failure.message}</p>}
+          {job.externalPending && <p role="status" className="text-sm text-muted-foreground">原保存位置已变更或未配置。请先迁移或清理旧位置副本，再确认处理结果。</p>}
+          {job.externalClosedAt && <p className="text-sm text-muted-foreground">{time(job.externalClosedAt)} 已确认旧位置完成迁移或清理；本站未删除远端文件。</p>}
           {job.r2Deleted && !job.deleted && <p className="text-sm text-muted-foreground">站内加密文件已过期清理。</p>}
           {job.cleanup?.status === "failed" && <p className="text-sm text-muted-foreground">过期清理未全部完成。</p>}
           <details className="text-xs text-muted-foreground"><summary className="w-fit cursor-pointer py-0.5">详细信息</summary>
@@ -176,6 +193,11 @@ export default function BackupsPage({ loaderData: state }: Route.ComponentProps)
         <DialogDescription>保存到 {labels[confirming?.target ?? target]}。导出期间成员查询可能暂时不可用，请保持本页打开直到完成。</DialogDescription></DialogHeader>
       <DialogFooter><Button variant="outline" disabled={busy} onClick={() => setConfirming(undefined)}>取消</Button>
         <StatusButton status={busy ? "loading" : "idle"} onClick={() => void start()}>{confirming ? "重试" : "开始备份"}</StatusButton></DialogFooter>
+    </DialogContent></Dialog>
+    <Dialog open={!!closingExternal} onOpenChange={open => { if (!open && !busy) setClosingExternal(undefined); }}><DialogContent showCloseButton={!busy}>
+      <DialogHeader><DialogTitle>确认旧位置已处理？</DialogTitle><DialogDescription>请先将这份备份迁移到可恢复的位置，或在旧位置完成清理。确认后本站停止追踪旧位置副本并保留记录，不会删除远端文件；站内副本继续按保留规则处理。</DialogDescription></DialogHeader>
+      <DialogFooter><Button variant="outline" disabled={busy} onClick={() => setClosingExternal(undefined)}>取消</Button>
+        <StatusButton status={busy ? "loading" : "idle"} onClick={() => void closeExternal()}>我已完成迁移或清理</StatusButton></DialogFooter>
     </DialogContent></Dialog>
   </Page>;
 }

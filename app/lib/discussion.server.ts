@@ -1,6 +1,6 @@
 import { APIError } from "better-auth/api";
 import type { Comment, Reply, SortKey, Vote } from "./discussion";
-import { createRequestIdentity, type D1Reader } from "./member.server";
+import { createRequestIdentity, liveMemberSql, type D1Reader } from "./member.server";
 import { checkWrite, readJson } from "./security.server";
 import { settings } from "./settings.server";
 
@@ -117,12 +117,15 @@ export async function discussionHttp(request: Request, env: Env, identity = crea
     if (!found.results.length || (to && !answered)) missing();
     const { member } = current, row = { id: crypto.randomUUID(), body: content, created_at: now, author: member.displayUsername ?? member.username,
       admin: Number(member.role === "admin"), mine: 1, likes: 0, vote: 0 as const };
-    // A comment or target reply deleted since the check takes the insert with it: nothing is written and the reply is refused.
+    // Allocate the cursor in the write, so slow requests and equal clocks cannot insert behind a reader's cursor.
+    // The trigger retains this watermark after deletion; a missing comment/target still refuses the insert.
     const saved = await db.prepare(`INSERT INTO comment_replies (id, comment_id, author_user_id, reply_to_user_id, body_markdown, created_at)
-      SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM comments WHERE id = ?2)
-        AND (?7 IS NULL OR EXISTS (SELECT 1 FROM comment_replies WHERE id = ?7 AND comment_id = ?2))`)
-      .bind(row.id, commentId, member.user_id, answered?.author_user_id ?? null, content, now, to).run();
+      SELECT ?1, ?2, ?3, ?4, ?5, max(?6, coalesce((SELECT created_at + 1 FROM comment_reply_cursors WHERE comment_id = ?2), ?6))
+      WHERE EXISTS (SELECT 1 FROM comments WHERE id = ?2)
+        AND (?7 IS NULL OR EXISTS (SELECT 1 FROM comment_replies WHERE id = ?7 AND comment_id = ?2)) RETURNING created_at`)
+      .bind(row.id, commentId, member.user_id, answered?.author_user_id ?? null, content, Date.now(), to).run<{ created_at: number }>();
     if (!saved.meta.changes) missing();
+    row.created_at = saved.results[0].created_at;
     return respond(request, { data: { ...item(row), replyTo: answered?.name ?? null } satisfies Reply });
   }
   const column = replyId ? "reply_id" : "comment_id", target = replyId ?? commentId;
@@ -134,9 +137,13 @@ export async function discussionHttp(request: Request, env: Env, identity = crea
     if (current.member.role !== "admin") fail("FORBIDDEN", "FORBIDDEN", "需要管理员权限。");
     if (!current.value[0].results.length) missing();
     // B 6.12.4: one statement removes the record, and the foreign key cascades take a comment's replies and every related vote with it.
-    const saved = await (replyId ? db.prepare("DELETE FROM comment_replies WHERE id = ?1 AND comment_id IN (SELECT id FROM comments WHERE playable_unit_id = ?2)")
-      : db.prepare("DELETE FROM comments WHERE id = ?1 AND playable_unit_id = ?2")).bind(target, unitId).run();
-    if (!saved.meta.changes) missing();
+    const saved = await db.prepare(`${replyId ? "DELETE FROM comment_replies WHERE id = ?1 AND comment_id IN (SELECT id FROM comments WHERE playable_unit_id = ?2)"
+      : "DELETE FROM comments WHERE id = ?1 AND playable_unit_id = ?2"} AND EXISTS (SELECT 1 ${liveMemberSql} AND p.role = 'admin')`)
+      .bind(target, unitId, current.member.user_id, current.session.id, new Date().toISOString()).run();
+    if (!saved.meta.changes) {
+      if ((await read(async () => null)).member.role !== "admin") fail("FORBIDDEN", "FORBIDDEN", "需要管理员权限。");
+      missing();
+    }
     return respond(request, { data: { deleted: true } });
   }
   const value = request.method === "PUT" ? body.value : null;

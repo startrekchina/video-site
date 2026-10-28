@@ -8,6 +8,9 @@ export const fixtureIds = {
   seasons: { first: "season", other: "other-season" },
   units: { movie: "movie-unit", episode: "episode-unit" },
 } as const;
+// The fixture works borrow mapped TMDB ids so they have page paths (B 6.11): /series/ld, /series/pic and /movies/the-motion-picture.
+export const fixtureKeys = { movie: { kind: "movie", tmdbId: 152 }, series: { kind: "series", tmdbId: 85948 }, otherSeries: { kind: "series", tmdbId: 85949 } } as const;
+export const episodeKey = (episode: number) => ({ ...fixtureKeys.series, season: 1, episode });
 
 // Fictional identities and catalogue entries only; hashes cannot authenticate a member.
 export const memberStatements = (db: D1Database, id: string, username: string) => [
@@ -37,14 +40,14 @@ export async function seedCatalog(db: D1Database) {
   await db.batch([
     ...memberStatements(db, ids.members.nova, "Nova"),
     ...memberStatements(db, ids.members.quinn, "Quinn"),
-    work(ids.works.movie, "movie", 910001, "测试信号", "Signal Test"),
-    work(ids.works.series, "series", 920001, "虚构勘测队", "Fictional Survey"),
-    work(ids.works.otherSeries, "series", 920002, "虚构观测站", "Fictional Outpost"),
+    work(ids.works.movie, "movie", 152, "测试信号", "Signal Test"),
+    work(ids.works.series, "series", 85948, "虚构勘测队", "Fictional Survey"),
+    work(ids.works.otherSeries, "series", 85949, "虚构观测站", "Fictional Outpost"),
     season(ids.seasons.first, ids.works.series, 940001),
     season(ids.seasons.other, ids.works.otherSeries, 940002),
     db.prepare(`INSERT INTO playable_units
       (id, kind, work_id, tmdb_id, duration_seconds)
-      VALUES (?, ?, ?, ?, ?)`).bind(ids.units.movie, "movie", ids.works.movie, 910001, 4),
+      VALUES (?, ?, ?, ?, ?)`).bind(ids.units.movie, "movie", ids.works.movie, 152, 4),
     db.prepare(`INSERT INTO playable_units
       (id, kind, work_id, season_id, episode_number, tmdb_id, duration_seconds, title_zh, title_en)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(

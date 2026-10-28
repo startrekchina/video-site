@@ -26,9 +26,9 @@ export function noticeToast(notice: Notice, actions: { reconnect: () => void; lo
 }
 
 // autoplay tries to start once the saved start is applied; onEnded and children (an overlay on the video) serve the next-up prompt.
-export function Player({ unitId, source, startSeconds, autoplay = false, progress, danmaku, subtitle, onSubtitleChange, onTracksChange, onEnded, children }: { unitId: string; source: PlaybackSource; startSeconds: number; autoplay?: boolean; progress: ProgressReporting; danmaku: DanmakuLimits; subtitle: string; onSubtitleChange: (id: string) => void; onTracksChange: (tracks: PlaybackSource["tracks"]) => void; onEnded?: () => void; children?: React.ReactNode }) {
+export function Player({ unitId, source, startSeconds, autoplay = false, progress, danmaku, onEnded, children }: { unitId: string; source: PlaybackSource; startSeconds: number; autoplay?: boolean; progress: ProgressReporting; danmaku: DanmakuLimits; onEnded?: () => void; children?: React.ReactNode }) {
   const container = useRef<HTMLDivElement>(null), retry = useRef<() => void>(() => {});
-  const frame = useRef<HTMLDivElement>(null), selectSubtitle = useRef<(id: string) => void>(() => {});
+  const frame = useRef<HTMLDivElement>(null);
   // Holds the danmaku emitter below the video when the control bar is too narrow; the plugin moves it back in fullscreen.
   const emitter = useRef<HTMLDivElement>(null);
   // Only video failures offer reconnecting (or signing in again after 401/403); subtitle failures are retried by choosing the track again.
@@ -54,7 +54,7 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
     return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
   }, [unitId]);
   useEffect(() => {
-    let art: Artplayer | undefined, tracks = source.tracks, selected = subtitle;
+    let art: Artplayer | undefined, tracks = source.tracks, selected = source.tracks[0]?.id ?? "off";
     // Failure checks and reconnects stay on the current quality; a remembered quality this unit lacks falls back to the original.
     let quality = source.qualities.find(item => item.label === rememberedQuality()) ?? source.qualities[0];
     // failed latches one HEAD per failure; restoreTo holds the position a reconnect returns to once.
@@ -91,8 +91,8 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
           // Any failure turns subtitles off, so choosing the same track again retries it.
           const fail = (message: string, remove = false) => {
             if (!art) return;
-            if (remove) { tracks = tracks.filter(item => item.id !== track.id); onTracksChange(tracks); }
-            selected = "off"; onSubtitleChange("off"); art.subtitle.show = false;
+            if (remove) tracks = tracks.filter(item => item.id !== track.id);
+            selected = "off"; art.subtitle.show = false;
             art.setting.update({ name: "subtitle-lang", html: "字幕", selector: subtitles() });
             say(message, "subtitle");
           };
@@ -111,11 +111,9 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
     const select = (id: string) => {
       if (id === selected) return;
       selected = id;
-      onSubtitleChange(id);
       if (id === "off" && art) art.subtitle.show = false;
       void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕。", "subtitle"));
     };
-    selectSubtitle.current = select;
     // Reports go out on an interval while the position moves, and on pause, end, hiding the page or leaving the unit; one at a time.
     // A refused (409) report is dropped, not replayed: only a later position change reports again.
     let reporting = false, reported = startSeconds;
@@ -132,6 +130,9 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
     const timer = setInterval(() => report(), progress.interval * 1000);
     const hidden = () => { if (document.visibilityState === "hidden") report(true); }, leave = () => report(true);
     document.addEventListener("visibilitychange", hidden); window.addEventListener("pagehide", leave);
+    // ArtPlayer updates its focus only on clicks, so after a click on the video it would keep taking Space and the arrows from page controls reached with Tab.
+    const blur = (event: FocusEvent) => { if (art && !art.template.$player.contains(event.target as Node)) (art as { isFocus: boolean }).isFocus = false; };
+    document.addEventListener("focusin", blur);
     // The recovery canplay handler below restores the position and the play state.
     retry.current = () => { if (art && !disposed) { failed = false; restoreTo = position; show(null); art.url = absolute(quality.url); } };
     // Serialize reloads so the next switch snapshots the restored position, play state and rate.
@@ -199,7 +200,8 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
         placeEmitter();
       } else say("弹幕加载失败，刷新页面可重试。");
       player.once("ready", () => {
-        if (startSeconds > 0 && startSeconds < player.duration) player.seek = startSeconds;
+        // The page has no resume line; the player says where it picks up.
+        if (startSeconds > 0 && startSeconds < player.duration) { player.seek = startSeconds; player.notice.show = `从上次的位置继续（${Math.round(startSeconds / player.duration * 100)}%）`; }
         position = player.currentTime; ready = true;
         if (autoplay) void player.play().catch(() => say("浏览器阻止自动播放，请点击播放。"));
       });
@@ -232,10 +234,9 @@ export function Player({ unitId, source, startSeconds, autoplay = false, progres
       void changeSubtitle().catch(() => say("字幕加载失败，请再次选择该字幕。", "subtitle"));
     }).catch(() => say("播放器加载失败，请刷新页面。"));
     return () => {
-      report(true); clearInterval(timer); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("pagehide", leave);
-      disposed = true; selectSubtitle.current = () => {}; offDanmaku(); art?.destroy(false);
+      report(true); clearInterval(timer); document.removeEventListener("visibilitychange", hidden); document.removeEventListener("focusin", blur); window.removeEventListener("pagehide", leave);
+      disposed = true; offDanmaku(); art?.destroy(false);
     };
   }, [unitId]);
-  useEffect(() => selectSubtitle.current(subtitle), [subtitle]);
   return <div ref={frame} data-slot="player-frame" className="screen-line-top screen-line-bottom relative z-[41] bg-black text-white [--player-bottom:calc(3.5rem+env(safe-area-inset-bottom,0px))] sm:[--player-bottom:calc(1rem+env(safe-area-inset-bottom,0px))]"><div className="player-surface relative aspect-video w-full max-h-[max(6rem,100svh-var(--player-top,15rem)-var(--player-bottom)-var(--player-emitter,0px))]"><div ref={container} className="size-full" />{children}</div><div ref={emitter} className="px-2 pb-2 empty:hidden" /></div>;
 }

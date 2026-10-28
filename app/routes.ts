@@ -6,7 +6,9 @@ export default [index("routes/home.tsx"), route("about", "routes/about.tsx"), ro
   route("admin/backups", "routes/backups.tsx"),
   route("series", "routes/catalog.tsx", { id: "series" }), route("movies", "routes/catalog.tsx", { id: "movies" }),
   route("search", "routes/catalog.tsx", { id: "search" }),
-  route("title/:id", "routes/title.tsx"), route("watch/:id", "routes/watch.tsx"),
+  // B 6.11: /series/tng[/s3], /series/tng/s3/e15, /movies/beyond[/watch]; the loaders parse s<n> and e<m>.
+  route("series/:code/:season?", "routes/title.tsx", { id: "series-title" }), route("movies/:slug", "routes/title.tsx", { id: "movie-title" }),
+  route("series/:code/:season/:episode", "routes/watch.tsx", { id: "series-watch" }), route("movies/:slug/watch", "routes/watch.tsx", { id: "movie-watch" }),
   route("library", "routes/library.tsx"), route("playlists", "routes/playlists.tsx"), route("playlists/:id", "routes/playlist.tsx"),
   route("*", "routes/not-found.tsx", { id: "not-found" }),
 ] satisfies RouteConfig;

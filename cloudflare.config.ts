@@ -23,7 +23,6 @@ function environment(mode: string) {
         resource: "video-site-dev",
         mediaBucket: "video-site-dev-media",
         d1Id: LOCAL_D1_ID,
-        rateLimitBase: 1000,
         appOrigin: process.env.APP_ORIGIN ?? "http://localhost:6120",
         turnstileSiteKey: CLOUDFLARE_TEST_TURNSTILE_SITE_KEY,
         emailApiBaseUrl: "https://postal.example.test",
@@ -37,7 +36,6 @@ function environment(mode: string) {
         resource: requiredEnv("STAGING_D1_DATABASE_NAME"),
         mediaBucket: requiredEnv("STAGING_MEDIA_BUCKET_NAME"),
         d1Id: requiredEnv("STAGING_D1_DATABASE_ID"),
-        rateLimitBase: 2000,
         appOrigin: requiredEnv("STAGING_APP_ORIGIN"),
         turnstileSiteKey: requiredEnv("STAGING_TURNSTILE_SITE_KEY"),
         emailApiBaseUrl: requiredEnv("STAGING_EMAIL_API_BASE_URL"),
@@ -51,7 +49,6 @@ function environment(mode: string) {
         resource: requiredEnv("PRODUCTION_D1_DATABASE_NAME"),
         mediaBucket: requiredEnv("PRODUCTION_MEDIA_BUCKET_NAME"),
         d1Id: requiredEnv("PRODUCTION_D1_DATABASE_ID"),
-        rateLimitBase: 3000,
         appOrigin: "https://video.startrekchina.org",
         turnstileSiteKey: requiredEnv("PRODUCTION_TURNSTILE_SITE_KEY"),
         emailApiBaseUrl: requiredEnv("PRODUCTION_EMAIL_API_BASE_URL"),
@@ -66,9 +63,6 @@ function environment(mode: string) {
 
 export default defineConfig(({ mode = "development" }) => {
   const e = environment(mode);
-  const rateLimit = (offset: number, limit: number) =>
-    bindings.rateLimit({ namespace: String(e.rateLimitBase + offset), simple: { limit, period: 60 } });
-
   return {
     worker: {
       name: e.worker,
@@ -100,10 +94,6 @@ export default defineConfig(({ mode = "development" }) => {
         EMAIL_REPLY_TO: bindings.text(e.emailReplyTo),
         DB: bindings.d1({ name: e.resource, id: e.d1Id }),
         MEDIA_BUCKET: bindings.r2({ name: e.mediaBucket }),
-        // Auxiliary only: quotas are decided by exact D1 counters (requirements 6.3.2).
-        AUTH_RATE_LIMITER: rateLimit(1, 10),
-        ADMIN_RATE_LIMITER: rateLimit(3, 30),
-        EMAIL_RATE_LIMITER: rateLimit(4, 5),
         BETTER_AUTH_SECRET: bindings.secret(),
         TURNSTILE_SECRET_KEY: bindings.secret(),
         BACKUP_ENCRYPTION_KEY: bindings.secret(),

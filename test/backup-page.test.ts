@@ -21,6 +21,14 @@ beforeEach(async () => {
   owner = await login("Nova"); ordinary = await login("Kepler"); admin = await login("Vega");
 });
 afterEach(() => vi.unstubAllGlobals());
+it("explains a page of damaged records and keeps older records reachable", async () => {
+  const prefix = String(Number.MAX_SAFE_INTEGER - Date.now()).padStart(16, "0");
+  await Promise.all(Array.from({ length: 21 }, () => env.MEDIA_BUCKET.put(`backup-control/test/jobs/${prefix}-${crypto.randomUUID()}.json`, "{broken")));
+  const response = await send("/admin/backups", owner); expect(response.status).toBe(200);
+  const html = await response.text(); expect(html).toContain("条备份记录损坏");
+  expect(html).toContain("暂无可读取的备份记录"); expect(html).not.toContain("还没有备份记录");
+  expect(html).toContain("更早的记录"); expect(html).toContain("/admin/backups?after=");
+});
 it("renders the backup page only for the owner and hides the entry from other administrators", async () => {
   const page = await send("/admin/backups", owner); expect(page.status).toBe(200);
   const html = await page.text(); expect(html).toContain("数据备份"); expect(html).toContain("创建备份");

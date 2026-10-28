@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import { setTimeout as delay } from "node:timers/promises";
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
 import { backupKeyId, backupKeys } from "./backup-keys.server";
-import { backupFingerprint, decryptBackupForRestore, restorePlaintextKey, type BackupScope } from "./backup-storage.server";
+import { consumeBackup, decryptBackupForRestore, restorePlaintextKey, type BackupScope } from "./backup-storage.server";
 
 const requireValid = (value: unknown) => { if (!value) throw new Error("RESTORE_VALIDATION_FAILED"); };
 // D1 import fails with D1_RESET_DO when an export inserts child rows before a rebuilt parent table, despite its
@@ -18,8 +18,9 @@ function importRejection(error: unknown) {
 }
 type RecoveryEnv = Pick<Env, "APP_ENV" | "BACKUP_DATABASE_ID" | "BACKUP_ACCOUNT_ID" | "MEDIA_BUCKET" | "BACKUP_KEYRING" | "BACKUP_ENCRYPTION_KEY" | "BETTER_AUTH_SECRET"> & { D1_IMPORT_TOKEN: string };
 const businessTables = ["works", "seasons", "playable_units", "media_files", "subtitle_tracks", "user", "account", "member_profiles", "invitations",
-  "passkey", "watch_progress", "favorites", "playlists", "playlist_items", "comments", "comment_replies", "discussion_votes", "danmaku"] as const;
+  "passkey", "watch_progress", "favorites", "playlists", "playlist_items", "comments", "comment_replies", "comment_reply_cursors", "discussion_votes", "danmaku"] as const;
 async function metadata(response: Response) {
+  if (!response.ok) { await response.body?.cancel(); throw new Error("RESTORE_VALIDATION_FAILED"); }
   requireValid(response.ok && response.body);
   const reader = response.body!.getReader(), parts: Uint8Array[] = []; let length = 0;
   try {
@@ -48,13 +49,15 @@ export async function restoreBackup(env: RecoveryEnv, target: { db: D1Database; 
   const inventory = backupKeys(env), encryption = inventory.find(pair => pair.keyId === keys.keyId), authentication = inventory.find(pair => pair.authKeyId === keys.authKeyId);
   requireValid(encryption && authentication);
   // Only a new, isolated database is eligible. Never drop tables to make an existing target look empty.
-  const tables = await target.db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all();
+  const tables = await target.db.prepare("SELECT name FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*'").all();
   requireValid(tables.results.length === 0);
   const restoreId = operation?.id ?? crypto.randomUUID(), sqlKey = restorePlaintextKey(scope.environment, restoreId);
-  let decrypting: ReturnType<typeof decryptBackupForRestore> | undefined, removing: Promise<void> | undefined;
+  let decrypting: ReturnType<typeof decryptBackupForRestore> | undefined, reading: Promise<void> | undefined, uploading: Promise<void> | undefined, removing: Promise<void> | undefined;
   // Wait for an in-flight R2 write before deletion so cancellation cannot leave a late plaintext object behind.
   const cleanup = () => removing ??= (async () => {
     await decrypting?.catch(() => {});
+    await reading?.catch(() => {});
+    await uploading?.catch(() => {});
     const plaintext = await env.MEDIA_BUCKET.head(sqlKey);
     if (plaintext) {
       await delay(Math.max(0, plaintext.uploaded.getTime() + 1100 - Date.now()));
@@ -67,26 +70,50 @@ export async function restoreBackup(env: RecoveryEnv, target: { db: D1Database; 
     signal.throwIfAborted();
     decrypting = decryptBackupForRestore(env.MEDIA_BUCKET, scope, file, encryption!.backupKey, signal, restoreId);
     const decrypted = await decrypting;
+    signal.throwIfAborted();
     requireValid(decrypted.source.authKeyId === authentication!.authKeyId);
     const endpoint = `https://api.cloudflare.com/client/v4/accounts/${env.BACKUP_ACCOUNT_ID}/d1/database/${target.id}/import`;
     const call = async (body: object) => metadata(await fetch(endpoint, { method: "POST", redirect: "manual", signal,
       headers: { Authorization: `Bearer ${env.D1_IMPORT_TOKEN}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }));
     const staged = async () => {
+      signal.throwIfAborted();
       const object = await env.MEDIA_BUCKET.get(decrypted.sqlKey, { onlyIf: { etagMatches: decrypted.sqlEtag } });
+      if (object && "body" in object && (signal.aborted || object.size !== decrypted.source.byteLength)) await object.body.cancel();
+      signal.throwIfAborted();
       requireValid(object && "body" in object && object.size === decrypted.source.byteLength); return (object as R2ObjectBody).body;
     };
     // D1 identifies the upload by the MD5 of the exact bytes it receives, preamble included.
-    const md5 = createHash("md5").update(importPreamble), reader = (await staged()).getReader();
-    for (let part = await reader.read(); !part.done; part = await reader.read()) md5.update(part.value);
+    const md5 = createHash("md5").update(importPreamble);
+    reading = (async () => { await consumeBackup(await staged(), signal, chunk => { md5.update(chunk); }); })();
+    await reading;
     const etag = md5.digest("hex"), length = importPreamble.byteLength + decrypted.source.byteLength;
     const init = await call({ action: "init", etag });
+    signal.throwIfAborted();
     requireValid(typeof init.filename === "string" && init.filename.length > 0 && init.filename.length <= 1024);
     if (init.upload_url) {
-      const body = await staged(), stream = new FixedLengthStream(length), writer = stream.writable.getWriter();
-      const piping = writer.write(importPreamble).then(() => { writer.releaseLock(); return body.pipeTo(stream.writable, { signal }); });
-      const uploaded = await fetch(uploadUrl(init.upload_url), { method: "PUT", signal, redirect: "manual",
-        headers: { "Content-Length": String(length) }, body: stream.readable });
-      await uploaded.body?.cancel(); await piping; requireValid(uploaded.ok);
+      const url = uploadUrl(init.upload_url), stream = new FixedLengthStream(length), writer = stream.writable.getWriter();
+      const stop = new AbortController(), combined = AbortSignal.any([signal, stop.signal]);
+      const cancel = () => { void writer.abort().catch(() => {}); };
+      combined.addEventListener("abort", cancel, { once: true });
+      uploading = (async () => {
+        let body: ReadableStream<Uint8Array> | undefined;
+        try {
+          body = await staged(); combined.throwIfAborted(); await writer.write(importPreamble);
+          await consumeBackup(body, combined, chunk => writer.write(chunk)); await writer.close();
+        } catch (error) { stop.abort(); throw error; }
+        finally { await body?.cancel().catch(() => {}); writer.releaseLock(); }
+      })();
+      const sending = (async () => {
+        try {
+          const uploaded = await fetch(url, { method: "PUT", signal: combined, redirect: "manual",
+            headers: { "Content-Length": String(length) }, body: stream.readable });
+          await uploaded.body?.cancel(); requireValid(uploaded.ok);
+        } catch (error) { stop.abort(); throw error; }
+      })();
+      const results = await Promise.allSettled([uploading, sending]);
+      combined.removeEventListener("abort", cancel);
+      if (results[1].status === "rejected") throw results[1].reason;
+      if (results[0].status === "rejected") throw results[0].reason;
     }
     let state = await call({ action: "ingest", etag, filename: init.filename }), bookmark: string | undefined;
     while (state.status !== "complete") {
@@ -127,25 +154,25 @@ export async function validateRestoredDatabase(db: D1Database, bucket: R2Bucket,
   const integrity = await db.prepare("PRAGMA quick_check").all<Record<string, string>>();
   requireValid(integrity.results.length === 1 && Object.values(integrity.results[0])[0] === "ok");
   requireValid((await db.prepare("PRAGMA foreign_key_check").all()).results.length === 0);
+  let mediaPending = 0;
   for (const table of ["media_files", "subtitle_tracks"]) {
     let offset = 0;
     while (true) {
-      const page = await db.prepare(`SELECT id, object_key, byte_length, checksum_sha256, r2_etag FROM ${table} ORDER BY id LIMIT 25 OFFSET ?`).bind(offset)
-        .all<{ id: string; object_key: string; byte_length: number; checksum_sha256: string; r2_etag: string | null }>();
+      const page = await db.prepare(`SELECT id, object_key, byte_length, r2_etag FROM ${table} ORDER BY id LIMIT 25 OFFSET ?`).bind(offset)
+        .all<{ id: string; object_key: string; byte_length: number; r2_etag: string | null }>();
       for (const media of page.results) {
         signal.throwIfAborted(); requireValid(media.object_key.startsWith("library/") && !media.object_key.split("/").includes(".."));
-        const head = await bucket.head(media.object_key); requireValid(head && head.size === media.byte_length);
+        const head = await bucket.head(media.object_key); requireValid(head);
         // This exact version was fully hashed by media sync before its ETag entered the authenticated snapshot.
-        if (media.r2_etag && media.r2_etag === head!.etag) continue;
-        const object = await bucket.get(media.object_key, { onlyIf: { etagMatches: head!.etag } }); requireValid(object && "body" in object);
-        const result = await backupFingerprint((object as R2ObjectBody).body, signal, media.byte_length);
-        requireValid(result.sha256 === media.checksum_sha256 && result.byteLength === media.byte_length);
-        await db.prepare(`UPDATE ${table} SET r2_etag = ? WHERE id = ?`).bind(head!.etag, media.id).run();
+        if (media.r2_etag === head!.etag && media.byte_length === head!.size) continue;
+        // Any other version waits for the media scan after the switch, which validates it like a same-name replacement (B 6.8).
+        if (media.r2_etag) await db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE id = ?`).bind(media.id).run();
+        mediaPending++;
       }
       offset += page.results.length; if (page.results.length < 25) break;
     }
   }
-  return { schemaVersion, business: await restoredBusinessSummary(db), mediaVerified: true as const };
+  return { schemaVersion, business: await restoredBusinessSummary(db), mediaVerified: true as const, mediaPending };
 }
 
 export async function sanitizeRestoredCredentials(db: D1Database, oldSecret: string, newSecret: string) {

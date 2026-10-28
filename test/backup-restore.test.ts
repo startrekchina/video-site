@@ -7,7 +7,9 @@ import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
 import { backupKeyId } from "@/lib/backup-keys.server";
 import { decryptBackupForRestore, encryptBackup, stageBackup } from "@/lib/backup-storage.server";
 import { restoreBackup, restoredBusinessSummary, sanitizeRestoredCredentials, validateRestoredDatabase, verifyRestoredCredentials } from "@/lib/backup-restore.server";
+import { syncMedia } from "@/lib/media-sync.server";
 import { login, member } from "./fixtures/auth";
+import { seedCatalog } from "./fixtures/catalog";
 
 const signal = () => new AbortController().signal;
 const runtime = { ...env, APP_ENV: "test", BACKUP_ACCOUNT_ID: "a".repeat(32), BACKUP_DATABASE_ID: "00000000-0000-4000-8000-000000000000", D1_IMPORT_TOKEN: "fictional-import-token" };
@@ -23,6 +25,70 @@ async function artifact(sql = "CREATE TABLE fictional (value TEXT);") {
   return encryptBackup(env.MEDIA_BUCKET, scope, env.BACKUP_ENCRYPTION_KEY, signal());
 }
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+it.each(["CREATE VIEW occupied AS SELECT 1 AS value", "CREATE TABLE xcf_data (value TEXT)"])("refuses an occupied restore target before reading backup data: %s", async schema => {
+  const file = await artifact(), get = vi.spyOn(env.MEDIA_BUCKET, "get"), network = vi.fn(); vi.stubGlobal("fetch", network);
+  await target.db.prepare(schema).run();
+  await expect(restoreBackup(runtime, target, file.source, file.file, { keyId: file.keyId, authKeyId: file.source.authKeyId! }, signal())).rejects.toThrow();
+  expect(get).not.toHaveBeenCalled(); expect(network).not.toHaveBeenCalled();
+});
+
+it("cancels an unsuccessful import metadata response and removes the plaintext", async () => {
+  const file = await artifact(), cancel = vi.fn();
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new ReadableStream({ cancel }), { status: 500 })));
+  await expect(restoreBackup(runtime, target, file.source, file.file, { keyId: file.keyId, authKeyId: file.source.authKeyId! }, signal())).rejects.toThrow();
+  expect(cancel).toHaveBeenCalledOnce();
+  expect((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
+});
+
+it.each(["reject", "http-error"])("settles the upload producer and closes plaintext readers when upload fails: %s", async failure => {
+  const file = await artifact(), get = env.MEDIA_BUCKET.get.bind(env.MEDIA_BUCKET), bodies: ReadableStream[] = [];
+  vi.spyOn(env.MEDIA_BUCKET, "get").mockImplementation(async (key, options) => {
+    const object = await get(key, options);
+    if (key.startsWith("backup-restore/") && object && "body" in object) bodies.push(object.body);
+    return object;
+  });
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
+    if (String(url).startsWith("https://fixture-upload.example.test/")) {
+      if (failure === "reject") throw new Error("fictional-upload-failure");
+      return new Response(null, { status: 500 });
+    }
+    return Response.json({ success: true, result: { filename: "fixture.sql", upload_url: "https://fixture-upload.example.test/sql" } });
+  }));
+  await expect(restoreBackup(runtime, target, file.source, file.file, { keyId: file.keyId, authKeyId: file.source.authKeyId! }, signal())).rejects.toThrow();
+  expect(bodies).toHaveLength(3); expect(bodies.map(body => body.locked)).toEqual([false, false, false]);
+  expect((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
+  expect(await env.MEDIA_BUCKET.head(`backups/test/${file.source.id}/${file.file}.bin`)).not.toBeNull();
+});
+
+it("stops reading plaintext when cancellation occurs during the MD5 pass", async () => {
+  const file = await artifact(), get = env.MEDIA_BUCKET.get.bind(env.MEDIA_BUCKET), controller = new AbortController(), cancel = vi.fn(), network = vi.fn();
+  let reads = 0, passes = 0;
+  vi.spyOn(env.MEDIA_BUCKET, "get").mockImplementation(async (key, options) => {
+    const object = await get(key, options);
+    if (!key.startsWith("backup-restore/") || !object || !("body" in object)) return object;
+    if (++passes !== 2) return object;
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    const body = new ReadableStream<Uint8Array>({ pull(stream) {
+      stream.enqueue(bytes.slice(reads, ++reads)); if (reads === 2) controller.abort();
+    }, cancel }, { highWaterMark: 0 });
+    return new Proxy(object, { get: (real, property) => property === "body" ? body : Reflect.get(real, property) });
+  });
+  vi.stubGlobal("fetch", network);
+  await expect(restoreBackup(runtime, target, file.source, file.file, { keyId: file.keyId, authKeyId: file.source.authKeyId! }, controller.signal)).rejects.toThrow();
+  expect(reads).toBe(2); expect(cancel).toHaveBeenCalledOnce(); expect(network).not.toHaveBeenCalled();
+  expect((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
+});
+
+it("does not begin an upload when cancellation arrives with the init response", async () => {
+  const file = await artifact(), controller = new AbortController(), network = vi.fn(async () => {
+    controller.abort(); return Response.json({ success: true, result: { filename: "fixture.sql", upload_url: "https://fixture-upload.example.test/sql" } });
+  });
+  vi.stubGlobal("fetch", network);
+  await expect(restoreBackup(runtime, target, file.source, file.file, { keyId: file.keyId, authKeyId: file.source.authKeyId! }, controller.signal)).rejects.toThrow();
+  expect(network).toHaveBeenCalledOnce();
+  expect((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
+});
 
 it("restores an encrypted SQL fixture into the isolated binding with identical business digests, then clears credentials without losing devices or discussions", async () => {
   const user = await member(), now = Date.now();
@@ -163,6 +229,27 @@ it("fails validation on missing media or a mismatched schema", async () => {
     env.DB.prepare("INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256) VALUES ('fictional', 'fictional', 'en', 'vtt', 'English', 'en.main', 'library/missing.vtt', 10, ?)").bind("a".repeat(64)),
   ]);
   await expect(validateRestoredDatabase(env.DB, env.MEDIA_BUCKET, file.source.schemaVersion, signal())).rejects.toThrow();
+});
+it("leaves media whose R2 version differs from the restore point to the media scan without reading it", async () => {
+  const file = await artifact(); await seedCatalog(env.DB);
+  const video = Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0)), vtt = "WEBVTT\n\n00:00.000 --> 00:03.000\nA fictional signal.\n";
+  const movie = "library/movie/152/movie.mp4", episode = "library/series/85948/S01/E01.mp4", track = "library/series/85948/S01/E01.zh-CN.main.vtt";
+  for (const key of [movie, episode]) await env.MEDIA_BUCKET.put(key, video);
+  await env.MEDIA_BUCKET.put(track, vtt);
+  expect(await syncMedia(env)).toMatchObject({ linked: 3 });
+  // The restore point recorded an earlier version of the episode's identical bytes; the subtitle was replaced after it.
+  await env.DB.prepare("UPDATE media_files SET r2_etag = 'fictional-earlier-version' WHERE object_key = ?").bind(episode).run();
+  await env.MEDIA_BUCKET.put(track, vtt.replace("fictional", "different"));
+  const get = vi.spyOn(env.MEDIA_BUCKET, "get");
+  for (let run = 0; run < 2; run++) {
+    expect(await validateRestoredDatabase(env.DB, env.MEDIA_BUCKET, file.source.schemaVersion, signal())).toMatchObject({ mediaVerified: true, mediaPending: 2 });
+  }
+  expect(get).not.toHaveBeenCalled();
+  const versions = async () => (await env.DB.prepare("SELECT object_key, r2_etag FROM media_files UNION ALL SELECT object_key, r2_etag FROM subtitle_tracks ORDER BY object_key")
+    .all<{ object_key: string; r2_etag: string | null }>()).results;
+  expect(await versions()).toEqual([{ object_key: movie, r2_etag: (await env.MEDIA_BUCKET.head(movie))!.etag }, { object_key: episode, r2_etag: null }, { object_key: track, r2_etag: null }]);
+  expect(await syncMedia(env)).toMatchObject({ linked: 0, skipped: 2, replaced: 1, failed: 0 });
+  for (const row of await versions()) expect(row.r2_etag).toBe((await env.MEDIA_BUCKET.head(row.object_key))!.etag);
 });
 it("preserves TOTP/passwords/devices/used quota and discussions while revoking sessions, challenges, unused invites and backup codes", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));

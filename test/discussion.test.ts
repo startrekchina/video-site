@@ -42,6 +42,33 @@ const reply = (id: string, commentId: string, author: string, createdAt: number)
 const vote = (user: string, target: { comment?: string; reply?: string }, value: 1 | -1) =>
   env.DB.prepare("INSERT INTO discussion_votes VALUES (?, ?, ?, ?)").bind(user, target.comment ?? null, target.reply ?? null, value);
 
+it("keeps replies committed late or after deletion beyond the last observed cursor", async () => {
+  const root = await post(`${unit}/comments`, "游标对话"), path = `${unit}/comments/${root.id}/replies`;
+  let entered!: () => void, release!: () => void;
+  const pending = new Promise<void>(resolve => { entered = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
+  const db = new Proxy(env.DB, { get: (real, key) => key !== "prepare" ? (value => typeof value === "function" ? value.bind(real) : value)(Reflect.get(real, key))
+    : (sql: string) => !sql.startsWith("INSERT INTO comment_replies") ? real.prepare(sql) : { bind: (...values: unknown[]) => ({ run: async () => {
+      entered(); await gate; return real.prepare(sql).bind(...values).run();
+    } }) } });
+  const time = Date.now(), clock = vi.spyOn(Date, "now").mockReturnValue(time), ctx = createExecutionContext();
+  const delayed = worker.fetch(request(path, { bodyMarkdown: "先申请后提交" }, cookie), { ...runtime, DB: db }, ctx);
+  try {
+    await pending; clock.mockReturnValue(time + 1000);
+    const first = await post(path, "先提交", other);
+    release(); const late = (await json<Reply>(await delayed)).data!; await waitOnExecutionContext(ctx);
+    expect(late.createdAt).toBeGreaterThan(first.createdAt);
+    const after = async (cursor: Reply) => (await json<{ items: Reply[] }>(await call("GET", `${path}?afterAt=${cursor.createdAt}&afterId=${cursor.id}`))).data!.items;
+    expect((await after(first)).map(item => item.id)).toEqual([late.id]);
+    expect((await call("DELETE", `${unit}/replies/${late.id}`, undefined, admin)).status).toBe(200);
+    clock.mockReturnValue(time);
+    const next = await post(path, "删除后续发"), sameTime = await post(path, "同毫秒续发");
+    expect(next.createdAt).toBeGreaterThan(late.createdAt); expect(sameTime.createdAt).toBeGreaterThan(next.createdAt);
+    expect((await after(late)).map(item => item.id)).toEqual([next.id, sameTime.id]);
+    expect((await call("DELETE", `${unit}/comments/${root.id}`, undefined, admin)).status).toBe(200);
+    expect(await count("comment_reply_cursors WHERE comment_id = ?", root.id)).toBe(0);
+  } finally { release(); clock.mockRestore(); }
+}, 60000);
+
 it("posts and reads comments as the session member with a checked body", async () => {
   const mine = await post(`${unit}/comments`, "  **好看**\r\n第二行  ");
   expect(mine).toMatchObject({ author: "Kepler", mine: true, admin: false, body: "**好看**\n第二行", likes: 0, vote: 0, replyCount: 0, replies: [] });

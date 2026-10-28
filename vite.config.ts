@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { cpSync, existsSync } from "node:fs";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { reactRouter } from "@react-router/dev/vite";
@@ -29,6 +30,8 @@ function syncReactRouterClientDir(): Plugin {
 
 export default defineConfig({
   plugins: [cloudflare({ viteEnvironment: { name: "ssr" } }), tailwindcss(), reactRouter(), syncReactRouterClientDir()],
+  // Workers Builds provides the source commit and local builds read the checkout; with neither, git throws and the build fails.
+  define: { __BUILD_COMMIT__: JSON.stringify(process.env.WORKERS_CI_COMMIT_SHA || execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()) },
   resolve: { tsconfigPaths: true },
   server: { host: "0.0.0.0", port: 6120, strictPort: true },
   preview: { host: "0.0.0.0", port: 6120, strictPort: true },

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Player, noticeToast } from "@/components/site/player";
 import Watch from "@/routes/watch";
-import { TabsTrigger } from "@/components/ui/tabs";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import type { PlaybackSource } from "@/lib/playback.server";
 import type { Episode, Work } from "@/lib/catalog";
@@ -15,8 +14,8 @@ const state = vi.hoisted(() => ({
   pageState: [] as unknown[], pageIndex: null as number | null, refIndex: 0, handlers: new Map<string, Handler[]>(),
   location: { state: null as unknown }, navigation: "POP", danmaku: null as unknown,
   art: { currentTime: 1234, duration: 4000, seek: 0, url: "", destroy: vi.fn(), hotkey: { add: vi.fn() },
-    on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() },
-    width: 1200, fullscreen: false, fullscreenWeb: false, template: { $controlsCenter: { name: "controls-center" } },
+    on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() }, notice: { show: "" },
+    width: 1200, fullscreen: false, fullscreenWeb: false, isFocus: false, template: { $controlsCenter: { name: "controls-center" }, $player: { contains: vi.fn((_node: unknown) => false) } },
     plugins: { artplayerPluginDanmuku: { reset: vi.fn(), mount: vi.fn(), option: {} as Record<string, unknown>, isHide: false } } },
 }));
 // Run the real effects and player wiring with only the browser/ArtPlayer boundary replaced.
@@ -68,14 +67,14 @@ beforeEach(() => {
 afterEach(() => { cleanups.forEach(cleanup => cleanup?.()); cleanups = []; vi.unstubAllGlobals(); });
 
 async function mount(props: Partial<Parameters<typeof Player>[0]> = {}) {
-  const callbacks = { onSubtitleChange: vi.fn(), onTracksChange: vi.fn() };
-  Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() }, danmaku, subtitle: "en", ...callbacks, ...props });
+  Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() }, danmaku, ...props });
   state.refs[0].current = {};
   cleanups = state.effects.map(effect => effect());
   await vi.dynamicImportSettled(); await new Promise(resolve => setTimeout(resolve, 0));
   if (!props.startSeconds) await emit("ready");
-  return callbacks;
 }
+// Subtitles are chosen only in the player's own settings menu.
+const choose = (id: string) => (state.options as { settings: { onSelect(item: { id: string; html: string }): string }[] }).settings[0].onSelect({ id, html: id });
 function elements(node: ReactNode, type: unknown): ReactElement<Record<string, unknown>>[] {
   if (Array.isArray(node)) return node.flatMap(child => elements(child, type));
   if (!isValidElement<Record<string, unknown>>(node)) return [];
@@ -94,17 +93,13 @@ it("plays the fixed session-authorized source and loads the chosen subtitle from
 
 it("removes a missing subtitle from the menu but keeps a transient failure selectable", async () => {
   fetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
-  let callbacks = await mount();
-  expect(callbacks.onTracksChange).toHaveBeenCalledExactlyOnceWith([]);
-  expect(callbacks.onSubtitleChange).toHaveBeenCalledExactlyOnceWith("off");
+  await mount();
   expect(state.art.subtitle.switch).not.toHaveBeenCalled(); expect(state.art.subtitle.show).toBe(false);
   expect(state.art.setting.update).toHaveBeenLastCalledWith({ name: "subtitle-lang", html: "字幕", selector: [{ html: "关闭", id: "off", default: true }] });
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("已从字幕选项中移除"), reconnect: false });
   cleanups.forEach(cleanup => cleanup?.()); state.effects.length = 0; state.refs.length = 0; state.refIndex = 0; vi.clearAllMocks();
   fetch.mockResolvedValueOnce(new Response(null, { status: 503 }));
-  callbacks = await mount();
-  expect(callbacks.onTracksChange).not.toHaveBeenCalled();
-  expect(callbacks.onSubtitleChange).toHaveBeenCalledExactlyOnceWith("off");
+  await mount();
   expect(state.art.setting.update).toHaveBeenLastCalledWith({ name: "subtitle-lang", html: "字幕", selector: [{ html: "English", id: "en", default: false }, { html: "关闭", id: "off", default: true }] });
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请再次选择该字幕"), reconnect: false });
 });
@@ -150,9 +145,8 @@ it("reconnects once to the last position and play state, and offers reconnecting
 it("never lets subtitle or late autoplay notices replace a video failure's reconnect", async () => {
   await mount(); state.message.mockClear();
   fetch.mockResolvedValueOnce(new Response(null, { status: 401 })); await emit("video:error");
-  const select = state.refs[3].current as (id: string) => void;
   fetch.mockResolvedValueOnce(new Response(null, { status: 401 }));
-  select("off"); select("en"); await new Promise(resolve => setTimeout(resolve, 0)); await new Promise(resolve => setTimeout(resolve, 0));
+  choose("off"); choose("en"); await new Promise(resolve => setTimeout(resolve, 0)); await new Promise(resolve => setTimeout(resolve, 0));
   expect(state.message).toHaveBeenCalledTimes(1);
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("登录已失效"), reconnect: false, login: true });
   // A resume attempt that rejects only after the restored range has failed again stays silent.
@@ -168,10 +162,10 @@ it("never lets subtitle or late autoplay notices replace a video failure's recon
 it("clears a subtitle notice after choosing the track again succeeds and keeps a deliberate seek to zero", async () => {
   // ArtPlayer itself failing to load the checked VTT also turns subtitles off so the same track can be chosen again.
   state.art.subtitle.switch.mockRejectedValueOnce(new Error("Fictional subtitle parse failure"));
-  const callbacks = await mount();
-  expect(callbacks.onSubtitleChange).toHaveBeenCalledExactlyOnceWith("off"); expect(state.art.subtitle.show).toBe(false);
+  await mount();
+  expect(state.art.subtitle.show).toBe(false);
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请再次选择该字幕"), reconnect: false });
-  (state.refs[3].current as (id: string) => void)("en"); await new Promise(resolve => setTimeout(resolve, 0)); await new Promise(resolve => setTimeout(resolve, 0));
+  choose("en"); await new Promise(resolve => setTimeout(resolve, 0)); await new Promise(resolve => setTimeout(resolve, 0));
   expect(state.art.subtitle.switch).toHaveBeenCalledTimes(2); expect(state.art.subtitle.show).toBe(true);
   expect(state.message).toHaveBeenLastCalledWith(null);
   await emit("video:timeupdate"); state.art.currentTime = 0; await emit("video:timeupdate");
@@ -329,36 +323,30 @@ it("keeps a quality failure's recovery notice when its resume also rejects", asy
   expect(state.message).toHaveBeenCalledExactlyOnceWith({ text: expect.stringContaining("片源暂时无法播放"), reconnect: true });
 });
 
-it("keeps watch page subtitle choices in step with a removed track without restarting the player", async () => {
+it("leaves subtitle choice to the player's own menu, which starts on the first listed track", async () => {
   const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "测试片", titleEn: "Test",
-    overviewZh: null, overviewEn: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true,
+    overviewZh: null, overviewEn: null, airDate: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true,
     positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 };
-  const work: Work = { slug: "test", kind: "movie", tmdbId: 1, titleZh: "测试片", titleEn: "Test", overviewZh: null,
+  const work: Work = { slug: "test", href: "/movies/test", kind: "movie", tmdbId: 1, titleZh: "测试片", titleEn: "Test", overviewZh: null,
     overviewEn: null, year: 2026, poster: "", code: "", seasonCount: 0, episodeCount: 1, watchedCount: 0,
     favorite: false, seasons: [], units: [unit] };
   const loaderData = { work, unit, source, previous: "", next: "", reportInterval: 15 as const, danmaku, admin: false };
-  const page = Watch({ loaderData, params: { id: unit.id }, matches: [
-    { id: "root", params: {}, pathname: "/", data: { member: null, catalog: null }, loaderData: { member: null, catalog: null }, handle: undefined },
-    { id: "routes/watch", params: { id: unit.id }, pathname: `/watch/${unit.id}`, data: loaderData, loaderData, handle: undefined },
+  const root = { member: null, catalog: null, commit: "0123456789abcdef0123456789abcdef01234567", ray: null, colo: null };
+  const page = Watch({ loaderData, params: { slug: "test" }, matches: [
+    { id: "root", params: {}, pathname: "/", data: root, loaderData: root, handle: undefined },
+    { id: "movie-watch", params: { slug: "test" }, pathname: "/movies/test/watch", data: loaderData, loaderData, handle: undefined },
   ] });
-  const render = () => {
-    state.pageIndex = 0;
-    const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
-    state.pageIndex = null;
-    return { player: elements(tree, Player)[0].props as Parameters<typeof Player>[0], tabs: elements(tree, TabsTrigger) };
-  };
-  let view = render();
-  expect(view.tabs.map(tab => tab.props.value)).toEqual(["en", "off"]);
-  expect(view.player.source).toBe(source);
-  fetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
+  state.pageIndex = 0;
+  const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
+  state.pageIndex = null;
+  // ArtPlayer keeps its hotkeys after a click even when Tab moves focus on, so a page control would lose its keys.
+  expect(elements(tree, "select")).toEqual([]);
+  expect((elements(tree, Player)[0].props as Parameters<typeof Player>[0]).source).toBe(source);
   state.effects.length = 0; state.refs.length = 0; state.refIndex = 0;
-  Player(view.player); state.refs[0].current = {};
-  cleanups = state.effects.map(effect => effect());
-  await vi.dynamicImportSettled(); await new Promise(resolve => setTimeout(resolve, 0));
-  view = render();
-  expect(view.tabs.map(tab => tab.props.value)).toEqual(["off"]);
-  expect(view.player.subtitle).toBe("off");
-  expect(state.art.destroy).not.toHaveBeenCalled();
+  await mount({ source: { ...source, tracks: [{ id: "zh", language: "zh-CN", displayName: "简中", url: "/subtitles/zh" }, { id: "zh-en", language: "zh-CN", displayName: "简英", url: "/subtitles/zh-en" }] } });
+  expect(fetch).toHaveBeenCalledExactlyOnceWith("http://localhost:6120/subtitles/zh", { credentials: "same-origin", cache: "no-store" });
+  expect(state.art.setting.update).toHaveBeenLastCalledWith({ name: "subtitle-lang", html: "字幕", selector: [
+    { html: "简中", id: "zh", default: true }, { html: "简英", id: "zh-en", default: false }, { html: "关闭", id: "off", default: false }] });
 });
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -429,6 +417,11 @@ it("tries to autoplay once the saved start is applied and leaves the play button
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请点击播放"), reconnect: false });
 });
 
+it("says where playback resumes from the saved start", async () => {
+  await mount({ startSeconds: 600 }); await emit("ready");
+  expect(state.art.seek).toBe(600); expect(state.art.notice.show).toBe("从上次的位置继续（15%）");
+});
+
 it("hands the end to the page after the final report and leaves fullscreen only for a next-up prompt", async () => {
   const art = Object.assign(state.art, { fullscreen: true, fullscreenWeb: false, notice: { show: "" } }), onEnded = vi.fn();
   respond({ data: { positionSeconds: 1000, completed: true, updatedAt: 1, revision: 1 } });
@@ -444,13 +437,13 @@ it("hands the end to the page after the final report and leaves fullscreen only 
 
 it("offers the next unit when playback ends and autoplays only after a fresh step from the prompt", () => {
   const episode = (id: string, number: number): Episode => ({ id, number, seasonNumber: 1, tmdbId: number, titleZh: `虚构第 ${number} 集`, titleEn: null,
-    overviewZh: null, overviewEn: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true, positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 });
+    overviewZh: null, overviewEn: null, airDate: null, runtimeMin: null, durationSeconds: 4, still: null, playable: true, positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 });
   const first = episode("episode-unit", 1), second = episode("episode-two", 2);
-  const work: Work = { slug: "series", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
+  const work: Work = { slug: "series", href: "/series/svy", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
     poster: "", code: "", seasonCount: 1, episodeCount: 2, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [first, second] }], units: [first, second] };
   const view = (unit: Episode, previous?: string, next?: string) => {
     const loaderData = { work, unit, source, previous, next, reportInterval: 15 as const, danmaku, admin: false };
-    const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
+    const page = Watch({ loaderData, params: { code: "svy", season: "s1", episode: `e${unit.number}` }, matches: [] as never });
     state.pageIndex = 0;
     const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
     state.pageIndex = null;
@@ -460,8 +453,8 @@ it("offers the next unit when playback ends and autoplays only after a fresh ste
   expect(player.autoplay).toBe(false); expect(player.children).toBeFalsy();
   player.onEnded!();
   player = view(first, undefined, second.id);
-  const prompt = player.children as ReactElement<{ unit: Episode; onCancel: () => void }>;
-  expect(prompt.props.unit).toBe(second);
+  const prompt = player.children as ReactElement<{ to: string; onCancel: () => void }>;
+  expect(prompt.props.to).toBe("/series/svy/s1/e2");
   prompt.props.onCancel(); expect(view(first, undefined, second.id).children).toBeFalsy();
   // The last unit has nothing to offer, so the end stays with the player.
   state.pageState.length = 0; expect(view(second, first.id).onEnded).toBeUndefined();
@@ -473,14 +466,14 @@ it("offers the next unit when playback ends and autoplays only after a fresh ste
 });
 
 it("lets a playlist queue decide what follows and end on the way back to the playlist", () => {
-  const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "虚构第 1 集", titleEn: null, overviewZh: null, overviewEn: null,
+  const unit: Episode = { id: "episode-unit", number: 1, seasonNumber: 1, tmdbId: 1, titleZh: "虚构第 1 集", titleEn: null, overviewZh: null, overviewEn: null, airDate: null,
     runtimeMin: null, durationSeconds: 4, still: null, playable: true, positionSeconds: 0, completed: false, updatedAt: 0, revision: 0 };
-  const work: Work = { slug: "series", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
+  const work: Work = { slug: "series", href: "/series/svy", kind: "series", tmdbId: 1, titleZh: "虚构勘测队", titleEn: "Fictional Survey", overviewZh: null, overviewEn: null, year: 2026,
     poster: "", code: "", seasonCount: 1, episodeCount: 1, watchedCount: 0, favorite: false, seasons: [{ id: "season", number: 1, episodes: [unit] }], units: [unit] };
-  const movie = { id: "movie-unit", completed: false, poster: "", label: "电影", title: "测试信号" };
+  const movie = { id: "movie-unit", href: "/movies/test/watch", completed: false, poster: "", label: "电影", year: null, title: "测试信号" };
   const view = (queue: { id: string; title: string; next: typeof movie | null }) => {
-    const loaderData = { work, unit, source, previous: undefined, next: undefined, reportInterval: 15 as const, danmaku, admin: false, queue };
-    const page = Watch({ loaderData, params: { id: unit.id }, matches: [] as never });
+    const loaderData = { work, unit, source, previous: undefined, next: undefined, reportInterval: 15 as const, danmaku, admin: false, queue: { ...queue, position: 0, watched: [false, false] } };
+    const page = Watch({ loaderData, params: { code: "svy", season: "s1", episode: "e1" }, matches: [] as never });
     state.pageIndex = 0;
     const tree = (page.type as (props: typeof page.props) => ReactNode)(page.props);
     state.pageIndex = null;
@@ -489,8 +482,8 @@ it("lets a playlist queue decide what follows and end on the way back to the pla
   // The queue's next unit is offered even where the series has no natural next, and the step keeps the queue.
   let player = view({ id: "list", title: "虚构片单", next: movie });
   player.onEnded!();
-  const prompt = view({ id: "list", title: "虚构片单", next: movie }).children as ReactElement<{ unit: unknown; label: string; search: string }>;
-  expect(prompt.props).toMatchObject({ unit: movie, label: "片单 · 电影", search: "?playlist=list" });
+  const prompt = view({ id: "list", title: "虚构片单", next: movie }).children as ReactElement<{ to: string; label: string }>;
+  expect(prompt.props).toMatchObject({ to: "/movies/test/watch?playlist=list", label: "片单 · 电影" });
   // At the queue's end the page offers the way back instead of a natural next unit or a loop.
   state.pageState.length = 0; player = view({ id: "list", title: "虚构片单", next: null });
   player.onEnded!();
@@ -559,10 +552,20 @@ it("restores valid danmaku settings saved in this browser and saves them on ever
   }
 });
 
+it("hands Space and the arrows back to page controls reached with Tab after a click on the video", async () => {
+  await mount();
+  const control = { name: "player control" }, button = { name: "page button" };
+  state.art.template.$player.contains.mockImplementation(node => node === control);
+  const focusin = page.listeners.get("focusin") as unknown as (event: { target: unknown }) => void;
+  state.art.isFocus = true;
+  focusin({ target: control }); expect(state.art.isFocus).toBe(true);
+  focusin({ target: button }); expect(state.art.isFocus).toBe(false);
+});
+
 it("moves the danmaku emitter below the video when the control bar is too narrow, but not in fullscreen", async () => {
   await mount();
   const slot = { name: "slot" };
-  state.refs[4].current = slot;
+  state.refs[3].current = slot;
   await emit("resize"); await emit("resize");
   expect(plugin().mount).toHaveBeenCalledExactlyOnceWith(state.art.template.$controlsCenter);
   state.art.width = 819; await emit("resize");
@@ -600,10 +603,10 @@ it("refuses danmaku before resume, during a quality switch and while reconnectin
 
 it("places the narrow emitter before the first media event", async () => {
   Player({ unitId: "episode-unit", source, startSeconds: 600, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() },
-    danmaku, subtitle: "off", onSubtitleChange: vi.fn(), onTracksChange: vi.fn() });
+    danmaku });
   state.refs[0].current = {};
   const slot = { name: "slot" };
-  state.refs[4].current = slot; state.art.width = 700;
+  state.refs[3].current = slot; state.art.width = 700;
   cleanups = state.effects.map(effect => effect());
   await vi.dynamicImportSettled(); await settle();
   expect(plugin().mount).toHaveBeenCalledExactlyOnceWith(slot);
@@ -626,9 +629,9 @@ it("reserves the measured external emitter height and observes it as fullscreen 
   vi.stubGlobal("ResizeObserver", class { constructor(callback: () => void) { measure = callback; } observe(value: unknown) { observed.push(value); } disconnect() {} });
   vi.stubGlobal("window", { scrollY: 0, addEventListener() {}, removeEventListener() {} });
   Player({ unitId: "episode-unit", source, startSeconds: 0, progress: { revision: { current: 0 }, interval: 15, duration: null, onSaved: vi.fn() },
-    danmaku, subtitle: "off", onSubtitleChange: vi.fn(), onTracksChange: vi.fn() });
+    danmaku });
   state.refs[2].current = { style: { setProperty }, parentElement, getBoundingClientRect: () => ({ top: 112 }) };
-  state.refs[4].current = slot;
+  state.refs[3].current = slot;
   const cleanup = state.effects[1]();
   expect(observed).toEqual([parentElement, slot]);
   expect(setProperty).toHaveBeenCalledWith("--player-emitter", "40px");

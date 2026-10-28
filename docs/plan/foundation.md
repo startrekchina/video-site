@@ -8,6 +8,8 @@
 
 ## 任务与验收摘要
 
+- [x] DSK 基础防护与配置清理的实现与本地自检（2026-10-26，基线 `58d408d`）：动态响应与静态资源使用禁止嵌入的 CSP，配置只声明实际使用的绑定。`http`、`settings` 与原生限流定向用例通过；development 构建产物保留静态 CSP，类型检查通过。隔离浏览器直接访问登录页正常、官方 Turnstile 测试控件显示成功，在 iframe 中的登录页不显示。临时夹具与虚构配置均已清理，staging 未复验。
+
 - [x] DOC1 文档职责调整为 A/B 与核心/模块计划四层，链接、内容保留、任务状态及敏感信息检查通过；[检查记录](../documentation-restructure-20261011.md)。
 - [x] DOC2 按站长要求继续精炼 A，保留八项核心能力及目标/范围；细则承接、链接和差异检查通过，不改变产品或阶段状态，见[精炼记录](../documentation-restructure-20261011.md#核心需求二次精炼)。
 - [x] DOC3 分离协作规则与项目结论，删减内容承接、临时授权记录、维护规则入口及文档链接/状态/差异检查通过；A/B 与功能里程碑不变，见[整理记录](../documentation-restructure-20261011.md#协作规则与项目结论分离)。
@@ -22,6 +24,8 @@
 - [x] T2.5 版本化 D1 迁移、约束与虚构数据/生成媒体夹具通过；认证迁移由 authentication 维护。
 - [x] T2.6 前端基础从原型单向迁入；关于页/404 的桌面、手机、浅深色、主题及键盘复核通过。其余页面按各模块验收。
 - [ ] UI1 界面文案对齐实际行为（开发者 2026-10-15 批准两步）：统一术语并修正与行为不符的说明；需改逻辑的部分包括播放登录失效改为“重新登录”、全屏出错先退出全屏、重设与邮件链接失效落到页面说明、同步字幕按语言显示（迁移 `0014`）、剧集简称补全、首页通行密钥直接登录、非 Apple 平台显示 Ctrl、认证请求的网络/网关错误兜底与限流分钟换算；站名统一为“星际舰队档案馆”并为各页补标题（B 6.14）；B 故事 23/26 按会话鉴权改写；原型共有界面同步，并删除恢复码、管理员重置与免邮箱注册等旧流程。实现与本地自检通过：类型检查、257 项应用测试、21 项工具测试及正式/原型构建；原型关于、播放、注册页与找回锚点已浏览器查看，正式工程登录态页面、手机与深色主题未复核。
+- [ ] UI2 正式站同步原型 10-20 至 10-22 的纯前端改动：访客首页（桌面固定 9:5 象限星图、UFP 徽记与标题栏，手机登舰证，下接三步、成员能力、守则和常见问题，B 6.11/6.14）、页脚透视线稿、深浅色单键切换（跟随系统不存储，系统变化时清除，B 6.11）、关于页文案与技术说明图标墙、登录/注册说明，以及观看页（字幕只在播放器内选择、原名/年份/时长信息行、续播位置改由播放器提示、按集切换保留片单）。需后端或尚未确认的部分不在本项：页脚构建/边缘节点/技术栈（由 UI3 承接）、片单队列条（由[社区计划](community.md#任务与验收) T5.2 队列条承接）、首播日期（由[片库计划 AIR1](catalog.md#air1-单集首播日期) 承接）、字幕标签与文案（由[片库计划 SUB1](catalog.md#sub1-字幕四类标记) 承接）、状态/维护/欢迎/片库报告页、首页候选。实现与本地自检通过：类型检查、505 项应用测试、构建；本地浏览器查看访客首页桌面/手机、邀请码跳转注册、关于页桌面/320px、页脚线稿、主题按钮与 D 键、成员页脚和观看页结构。字幕切换与续播提示因本地缺媒体文件只由单测覆盖；待开发者复核。
+- [x] UI3 成员页脚图签按原型以工程信息替换片库统计（B 6.14）：Vite `define` 在构建时写入 `__BUILD_COMMIT__`，Workers Builds 取 `WORKERS_CI_COMMIT_SHA`，本地取 `git rev-parse HEAD`，两者都取不到时构建失败，测试用固定虚构值；提交号只经根 loader 下发，客户端脚本不含提交号，部署不改变带 hash 的资源名（T4.8）。Worker 入口把请求头 `cf-ray` 中的 Ray ID 与 `request.cf.colo` 经 load context 交给根 loader；页脚读根数据，技术栈版本读 `package.json`；`SiteFooter` 与关于页共用 `REPO`、`ExternalLink`、`Field`。`catalogSummary` 只查作品列表，根 loader 与作品页各少一条计数 SQL。实现与本地自检通过：类型检查、http（含成员页脚、无 colo、404 出错页、两次 `.data` 各带本次 Ray ID、访客精简页脚）、player、catalog、request-performance 用例及开发构建，客户端资源中查不到提交号；http、catalog、request-performance 因本机冷启动超过 60 秒预热时限，用只放宽预热时限的临时副本运行；与片库、片单各项合并后的全量运行中 http、request-performance 原文件通过，结果与 catalog 冷启动超时见[片库计划集成自检](catalog.md#air1-单集首播日期)。本地浏览器（2026-10-25，6120）：成员关于页桌面与 320px 的图签字段、顺序与链接和原型一致且无横向溢出，访客页与登录页只有底栏；请求 ID 按原型显示 16 位 Ray ID（开发者 2026-10-25 确认，本站 36 位 `X-Request-Id` 在两种宽度下都会折成 3 行），本地没有 `cf-ray` 时显示“—”。staging（2026-10-25，`c1c33f2`）成员页脚显示构建 `c1c33f2`、边缘节点 HKG 和 16 位 Ray ID。
 - [ ] E2E1 建立少量关键路径的 Playwright Test 回归：先确认首批场景与环境，再接入隔离数据、真实页面操作、可按场景筛选的执行入口及失败证据保护；方案见[浏览器验证方案](#浏览器验证方案)。未接入不宣称自动化浏览器回归已通过。
 
 证据：[基础截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase2/README.md)、[新认证文案截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase2-better-auth/README.md)、[历史计划](../archive/plan-20261007.md)。命令与日常使用见根 README，不复制完整开发日志。
@@ -109,6 +113,7 @@ staging 核对（2026-10-15，`78914f2`）：入口脚本、根样式与字体�
 - 稳定错误码至少区分 `AUTH_REQUIRED`、`AUTH_INVALID`、`CSRF_INVALID`、`TURNSTILE_REQUIRED`、`FRESH_SESSION_REQUIRED`、`INVITATION_INVALID`、`INVITATION_EXPIRED`、`INVITATION_USED`、`INVITATION_REVOKED`、`QUOTA_EXHAUSTED` 和 `REVISION_CONFLICT`；前端按 code 处理，不解析中文 message。邀请码无效使用 `400`，其已用/过期/作废及额度不足使用 `409`。
 - 受保护 HTML 页面未登录时跳转登录页；6.5 列明的公开页无需登录，受保护 JSON 和媒体接口返回错误。登录、邮箱找回保留库脱敏语义；注册可返回库的用户名/邮箱冲突码，不能承诺注册入口完全隐藏账号存在性。邀请码失败仍明确区分状态，不返回邀请人的私人资料。
 - 登录态 HTML、loader 数据、认证 action、邀请凭证和媒体响应使用 `Cache-Control: private, no-store`，禁止共享缓存绕过鉴权。公开静态资源可以按文件版本缓存；静态资源、重定向、错误和媒体响应同样带 `X-Robots-Tag: noindex`。Workers 静态资源头与 Worker 生成响应头分别配置，不能假定其中一处覆盖另一处。
+- Worker 动态响应及静态资源均设置 `Content-Security-Policy: frame-ancestors 'none'`，禁止页面被嵌入；该策略不限制页面自身加载 Turnstile 脚本及 iframe。
 - 动态响应设置 `Referrer-Policy: no-referrer`、`X-Content-Type-Options: nosniff`。浏览器不接收内部 R2 key/URL、Worker Secrets、密码哈希或 TOTP 密文；必要注册/绑定/签发流程只向有权接收者给出凭证材料，站长专用加密备份文件下载按 6.9.4 单独鉴权。Better Auth 自己的登录/会话端点可返回原生会话 token，按敏感凭证处理；本站会话列表仅给设备信息与 ID，撤销时在服务端映射 token。日志只记录请求 ID、路由模板、状态、错误码、处理请求的机房代码（`colo`）及必要资源 ID，不记录 Cookie、密码、邀请码、备用码、TOTP、完整 token/URL；平台 URL 日志也须验证脱敏。
 
 ## 基础验证方法

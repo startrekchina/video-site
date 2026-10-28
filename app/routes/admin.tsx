@@ -19,6 +19,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Tabs, TabsContent, TabsIndicator, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tag } from "@/components/ui/tag";
+import { toast } from "@/components/ui/toast";
 
 type TreeMember = { user_id: string; username: string; role: "member" | "admin"; status: "active" | "banned"; childCount: number };
 type AdminMember = TreeMember & { emailVerified: number; total: number; occupied: number; invitedBy: string | null; invitedById: string | null; created_at: number; sessionUpdatedAt: string | null };
@@ -27,7 +28,7 @@ type BanPreview = { total: number; active: number; members: { username: string; 
 type DialogState = { kind: "ban" | "quota" | "role" | "unban"; member: AdminMember; preview?: BanPreview } | null;
 
 function TreeNode({ member, depth }: { member: TreeMember; depth: number }) {
-  const action = useAction();
+  const action = useAction(false);
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<TreeMember[]>([]);
   const [page, setPage] = useState(1);
@@ -42,7 +43,7 @@ function TreeNode({ member, depth }: { member: TreeMember; depth: number }) {
     <span className={cn("font-mono text-sm", member.status === "banned" && "text-muted-foreground line-through")}>{member.username}</span>
     {member.role === "admin" && <ShieldIcon className="size-3.5 text-muted-foreground" aria-label="管理员" />}
     {member.childCount > 0 && <span className="font-mono text-[11px] text-muted-foreground">+{member.childCount}</span>}
-  </div>{action.feedback}
+  </div>
     {expanded && <><ul>{children.map(child => <TreeNode key={child.user_id} member={child} depth={depth + 1} />)}</ul>
       {member.childCount > 20 && <div className="flex gap-2 py-2" style={{ paddingLeft: (depth + 1) * 20 }}>
         <Button size="sm" variant="ghost" disabled={action.busy || page === 1} onClick={() => void action.run(() => load(page - 1))}>上一页</Button>
@@ -69,16 +70,17 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 }
 export const meta = () => pageTitle("管理后台");
 export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
-  const action = useAction(); const revalidator = useRevalidator(); const navigate = useNavigate(); const [params] = useSearchParams();
+  const revalidator = useRevalidator(); const navigate = useNavigate(); const [params] = useSearchParams();
   const page = Number(params.get("page") ?? 1);
   const [dialog, setDialog] = useState<DialogState>(null);
+  const action = useAction(dialog !== null);
   const [cascade, setCascade] = useState(false);
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [created, setCreated] = useState<string | null>(null);
   const [operationId, setOperationId] = useState<string | null>(null);
   async function change(id: string, operation: string, body: object) {
     const result = await call<{ changed: number; failedNotifications: number }>("/admin/members/" + id + "/" + operation, body);
-    setDialog(null); revalidator.revalidate(); action.setMessage("已更新 " + result.changed + " 个成员。" + (result.failedNotifications ? "其中 " + result.failedNotifications + " 封通知邮件可能未送出，封禁已生效。" : ""));
+    setDialog(null); revalidator.revalidate(); toast.add({ title: "已更新 " + result.changed + " 个成员。" + (result.failedNotifications ? "其中 " + result.failedNotifications + " 封通知邮件可能未送出，封禁已生效。" : ""), type: result.failedNotifications ? "warning" : "success" });
   }
   function show(kind: NonNullable<DialogState>["kind"], member: AdminMember) {
     action.clear(); setCascade(false);
@@ -99,7 +101,6 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
         <div key={title} className={cn("flex flex-col gap-1 px-4 py-3", i > 0 && "border-l border-line")}><span className="text-sm text-muted-foreground">{title}</span><span className="font-mono text-2xl font-medium tabular-nums">{value}</span></div>)}
     </div>
     <div className="px-4 py-3 text-xs text-muted-foreground">封禁、解除封禁、调整额度和身份须开启二步验证，并在 5 分钟内<Link className="link-underline text-foreground" to="/login?next=/admin">重新登录</Link>。{!admin.totp && <Link className="link-underline text-foreground" to="/account">前往开启二步验证</Link>}</div>
-    {!dialog && !created && <div className="empty:hidden px-4 pb-4">{action.feedback}</div>}
     <Separator /><Panel><Tabs value={admin.tab} onValueChange={value => navigate(location(String(value)))} className="gap-0">
       <PanelHeader className="flex-wrap py-3"><PanelTitle><span className="whitespace-nowrap">成员与邀请</span><PanelTitleSup>({admin.stats.total})</PanelTitleSup></PanelTitle>
         <TabsList><TabsTrigger value="members">成员</TabsTrigger><TabsTrigger value="invites">邀请码</TabsTrigger><TabsTrigger value="tree">邀请链</TabsTrigger><TabsIndicator /></TabsList></PanelHeader>
@@ -132,7 +133,7 @@ export default function AdminPage({ loaderData: admin }: Route.ComponentProps) {
           setCodes(values => ({ ...values, [result.id]: result.code })); setCreated(result.code); setOperationId(null); revalidator.revalidate();
         })}><PlusIcon />生成邀请码</StatusButton><span className="text-xs text-muted-foreground">管理员生成不受额度限制</span></div>
         <InviteList invitations={admin.invitations} codes={codes} now={admin.now} self={admin.self} showIssuer busy={action.busy} revoke={id => void action.run(async () => {
-          await call("/invites/" + id + "/revoke", {}); revalidator.revalidate(); action.setMessage("邀请码已作废。");
+          await call("/invites/" + id + "/revoke", {}); revalidator.revalidate(); toast.add({ title: "邀请码已作废。", type: "success" });
         })} />{!admin.invitations.length && <p className="px-4 py-8 text-center text-sm text-muted-foreground">还没有邀请码。</p>}
         <p className="px-4 py-3 text-xs text-muted-foreground">邀请码只在生成后显示一次。仅可作废自己发出的未使用邀请码。</p>
       </TabsContent>

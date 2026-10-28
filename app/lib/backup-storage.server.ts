@@ -14,7 +14,7 @@ function prefix(scope: BackupScope) {
     && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(scope.id));
   return `backups/${scope.environment}/${scope.id}/`;
 }
-function sourceMetadata(value: unknown, scope: BackupScope): Source {
+export function backupSourceMetadata(value: unknown, scope: BackupScope): Source {
   requireValid(value && typeof value === "object");
   const data = value as Record<string, unknown>;
   requireValid(data.environment === scope.environment && data.id === scope.id, "BACKUP_SCOPE_MISMATCH");
@@ -36,17 +36,17 @@ function same(actual: Fingerprint, expected: Fingerprint) {
   requireValid(actual.byteLength === expected.byteLength && actual.sha256 === expected.sha256, "BACKUP_CHECKSUM_MISMATCH");
 }
 
-async function consume(body: ReadableStream<Uint8Array>, signal: AbortSignal, accept: (chunk: Uint8Array) => void) {
+export async function consumeBackup(body: ReadableStream<Uint8Array>, signal: AbortSignal, accept: (chunk: Uint8Array) => void | Promise<void>) {
   const reader = body.getReader(), cancel = () => { void reader.cancel().catch(() => {}); };
   signal.addEventListener("abort", cancel, { once: true });
   try {
     signal.throwIfAborted();
-    while (true) { const next = await reader.read(); signal.throwIfAborted(); if (next.done) break; accept(next.value); }
-  } finally { signal.removeEventListener("abort", cancel); await reader.cancel().catch(() => {}); }
+    while (true) { const next = await reader.read(); signal.throwIfAborted(); if (next.done) break; await accept(next.value); }
+  } finally { signal.removeEventListener("abort", cancel); await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 export async function backupFingerprint(body: ReadableStream<Uint8Array>, signal: AbortSignal, limit = Infinity): Promise<Fingerprint> {
   const hash = createHash("sha256"); let byteLength = 0;
-  await consume(body, signal, chunk => { byteLength += chunk.byteLength; requireValid(byteLength <= limit, "BACKUP_CHECKSUM_MISMATCH"); hash.update(chunk); });
+  await consumeBackup(body, signal, chunk => { byteLength += chunk.byteLength; requireValid(byteLength <= limit, "BACKUP_CHECKSUM_MISMATCH"); hash.update(chunk); });
   return { byteLength, sha256: hash.digest("hex") };
 }
 async function readObject(bucket: R2Bucket, key: string, etag?: string) {
@@ -89,13 +89,13 @@ async function writeRecord(bucket: R2Bucket, key: string, record: unknown) {
 export async function stageBackup(bucket: R2Bucket, metadata: BackupMetadata, body: ReadableStream<Uint8Array>, byteLength: number, signal: AbortSignal) {
   if (signal.aborted) { await body.cancel(); signal.throwIfAborted(); }
   const path = prefix(metadata);
-  sourceMetadata({ ...metadata, byteLength, sha256: "0".repeat(64) }, metadata);
+  backupSourceMetadata({ ...metadata, byteLength, sha256: "0".repeat(64) }, metadata);
   requireValid(typeof metadata.bookmark === "string" && metadata.bookmark.length > 0 && metadata.bookmark.length <= 256);
   signal.throwIfAborted();
   const stored = await writeStream(bucket, `${path}source.sql`, body, byteLength, signal);
   const reread = await readObject(bucket, `${path}source.sql`, stored.object.etag);
   same(await backupFingerprint(reread.body, signal), stored);
-  const source = sourceMetadata({ ...metadata, byteLength: stored.byteLength, sha256: stored.sha256 }, metadata);
+  const source = backupSourceMetadata({ ...metadata, byteLength: stored.byteLength, sha256: stored.sha256 }, metadata);
   signal.throwIfAborted();
   await writeRecord(bucket, `${path}source.json`, { ...source, bookmark: metadata.bookmark });
   return source;
@@ -127,7 +127,7 @@ async function verifyStream(body: ReadableStream<Uint8Array>, scope: BackupScope
     const headerLength = start.readUInt32BE(8); requireValid(headerLength > 0 && headerLength <= headerLimit);
     const header = await exact(headerLength), parsed: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(header));
     requireValid(parsed && typeof parsed === "object"); const data = parsed as Record<string, unknown>;
-    const source = sourceMetadata(data.source, scope);
+    const source = backupSourceMetadata(data.source, scope);
     requireValid(data.cipher === "AES-256-GCM" && hex(data.salt, 64) && hex(data.nonce, 24) && hex(data.keyId, 64));
     requireValid(data.keyId === expectedKey, "BACKUP_KEY_MISMATCH");
     const decipher = createDecipheriv("aes-256-gcm", fileKey(secret, Buffer.from(String(data.salt), "hex")), Buffer.from(String(data.nonce), "hex"));
@@ -203,7 +203,7 @@ export async function encryptBackup(bucket: R2Bucket, scope: BackupScope, secret
   const path = prefix(scope), fingerprintKey = keyId(secret); signal.throwIfAborted();
   const record = await readObject(bucket, `${path}source.json`);
   requireValid(record.size <= headerLimit);
-  const source = sourceMetadata(await record.json(), scope);
+  const source = backupSourceMetadata(await record.json(), scope);
   const salt = randomBytes(32), nonce = randomBytes(12);
   const header = Buffer.from(JSON.stringify({ cipher: "AES-256-GCM", source, keyId: fingerprintKey, salt: salt.toString("hex"), nonce: nonce.toString("hex") }));
   requireValid(header.byteLength <= headerLimit);

@@ -22,6 +22,8 @@ export default defineConfig({
       miniflare: { d1Databases: ["TEST_RESTORE_DB"], bindings: { ...testSecrets, TEST_MIGRATIONS: testMigrations, TEST_MEDIA_BASE64: readFileSync(mediaFixture).toString("base64") } },
     }),
   ],
+  // Vitest does not load vite.config.ts; a fixed fictional commit keeps footer assertions stable.
+  define: { __BUILD_COMMIT__: JSON.stringify("0123456789abcdef0123456789abcdef01234567") },
   resolve: { tsconfigPaths: true },
   test: {
     // Native password hashing and ten Worker module graphs otherwise compete for the same CPU.

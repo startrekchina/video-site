@@ -12,7 +12,7 @@ overrides:
   vite-node>vite: 7.3.7
 
 patchedDependencies:
-  artplayer-plugin-danmuku@5.3.0: c5e6a6406792683912ee120ea659b402091d0d0988d394b9c64860dd17beef85
+  artplayer-plugin-danmuku@5.3.0: c4a1a81100a03da60fb189560215f48b08adbb949479f1a22791b5a279df14e2
   artplayer@5.4.0: d55ab31a572f29d93d3b46a4c7f88a5823ff71837d6c0a8c6a3c17cac9fc6f1d
 
 importers:
@@ -42,7 +42,7 @@ importers:
         version: 5.4.0(patch_hash=d55ab31a572f29d93d3b46a4c7f88a5823ff71837d6c0a8c6a3c17cac9fc6f1d)
       artplayer-plugin-danmuku:
         specifier: 5.3.0
-        version: 5.3.0(patch_hash=c5e6a6406792683912ee120ea659b402091d0d0988d394b9c64860dd17beef85)
+        version: 5.3.0(patch_hash=c4a1a81100a03da60fb189560215f48b08adbb949479f1a22791b5a279df14e2)
       aws4fetch:
         specifier: 1.0.20
         version: 1.0.20
@@ -82,6 +82,9 @@ importers:
       remark-gfm:
         specifier: 4.0.1
         version: 4.0.1(supports-color@10.2.2)
+      simple-icons:
+        specifier: 16.35.0
+        version: 16.35.0
       tailwind-merge:
         specifier: 3.7.0
         version: 3.7.0
@@ -2461,6 +2464,10 @@ packages:
   siginfo@2.0.0:
     resolution: {integrity: sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==}
 
+  simple-icons@16.35.0:
+    resolution: {integrity: sha512-TCfl/2+GTrx0nCo4pEWGvxhOb8c6NsqOU1OpwjtF4lwJAthB8IYVD0fuIMjLMg6JFuG1YBO0t1iETQqJLqkoJA==}
+    engines: {node: '>=0.12.18'}
+
   source-map-js@1.2.2:
     resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
@@ -4000,7 +4007,7 @@ snapshots:
 
   arg@5.0.2: {}
 
-  artplayer-plugin-danmuku@5.3.0(patch_hash=c5e6a6406792683912ee120ea659b402091d0d0988d394b9c64860dd17beef85): {}
+  artplayer-plugin-danmuku@5.3.0(patch_hash=c4a1a81100a03da60fb189560215f48b08adbb949479f1a22791b5a279df14e2): {}
 
   artplayer@5.4.0(patch_hash=d55ab31a572f29d93d3b46a4c7f88a5823ff71837d6c0a8c6a3c17cac9fc6f1d):
     dependencies:
@@ -5084,6 +5091,8 @@ snapshots:
       '@types/node': 24.13.3
 
   siginfo@2.0.0: {}
+
+  simple-icons@16.35.0: {}
 
   source-map-js@1.2.2: {}
 

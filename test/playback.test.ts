@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { playbackHttp, playbackSource } from "@/lib/playback.server";
 import { syncMedia } from "@/lib/media-sync.server";
-import { seedCatalog } from "./fixtures/catalog";
+import { episodeKey, fixtureKeys, seedCatalog } from "./fixtures/catalog";
 import { login, member, request } from "./fixtures/auth";
 
 const video = "/media/source", subtitle = "/subtitles/zh";
@@ -161,21 +161,20 @@ it.each(["video", "subtitle"])("rejects a %s replaced while the request is being
   } finally { get.mockRestore(); }
 });
 
-it("keeps legacy media unavailable after a scan conflict and restores it only after validation", async () => {
-  const key = "library/series/920001/S01/E01.mp4";
+it("serves a same-name replacement at the same address only after the scan validates it", async () => {
+  const key = "library/series/85948/S01/E01.mp4";
   const original = Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0));
   await env.DB.prepare("UPDATE media_files SET object_key = ?, byte_length = ?, checksum_sha256 = ?, r2_etag = NULL WHERE id = 'source'")
     .bind(key, original.length, createHash("sha256").update(original).digest("hex")).run();
   const changed = original.slice(); changed[changed.length - 1] ^= 1;
-  await env.MEDIA_BUCKET.put(key, changed);
-  expect(await syncMedia(env)).toMatchObject({ linked: 0, conflicts: 1 });
-  expect(await env.DB.prepare("SELECT r2_etag FROM media_files WHERE id = 'source'").first("r2_etag")).toBeNull();
-  expect((await http(video)).status).toBe(404);
-  await env.MEDIA_BUCKET.put(key, original);
-  expect(await syncMedia(env)).toMatchObject({ conflicts: 0, failed: 0 });
-  const response = await http(video);
-  expect(response.status).toBe(200);
-  expect(new Uint8Array(await response.arrayBuffer())).toEqual(original);
+  for (const bytes of [changed, original]) {
+    await env.MEDIA_BUCKET.put(key, bytes);
+    expect((await http(video)).status).toBe(404);
+    expect(await syncMedia(env)).toMatchObject({ linked: 0, replaced: 1, failed: 0 });
+    const response = await http(video);
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+  }
 });
 
 it("lists only verified sources for a unit from D1 without touching R2", async () => {
@@ -183,15 +182,15 @@ it("lists only verified sources for a unit from D1 without touching R2", async (
   await env.DB.prepare("UPDATE subtitle_tracks SET playable_unit_id = 'episode-unit', r2_etag = ? WHERE id = 'foreign'").bind(english!.etag).run();
   const head = vi.spyOn(env.MEDIA_BUCKET, "head"), get = vi.spyOn(env.MEDIA_BUCKET, "get");
   try {
-    expect(await playbackSource(env.DB, "episode-unit")).toEqual({ url: video, qualities: [{ label: "原画", url: video }], tracks: [
+    expect(await playbackSource(env.DB, episodeKey(1))).toEqual({ url: video, qualities: [{ label: "原画", url: video }], tracks: [
       { id: "foreign", language: "en", displayName: "English", url: "/subtitles/foreign" },
       { id: "zh", language: "zh", displayName: "中文", url: subtitle },
     ] });
     await env.DB.prepare("UPDATE subtitle_tracks SET r2_etag = '' WHERE id = 'foreign'").run();
-    expect((await playbackSource(env.DB, "episode-unit"))?.tracks.map(track => track.id)).toEqual(["zh"]);
-    expect(await playbackSource(env.DB, "movie-unit")).toBeNull();
+    expect((await playbackSource(env.DB, episodeKey(1)))?.tracks.map(track => track.id)).toEqual(["zh"]);
+    expect(await playbackSource(env.DB, fixtureKeys.movie)).toBeNull();
     await env.DB.prepare("UPDATE media_files SET r2_etag = NULL").run();
-    expect(await playbackSource(env.DB, "episode-unit")).toBeNull();
+    expect(await playbackSource(env.DB, episodeKey(1))).toBeNull();
     expect(head).not.toHaveBeenCalled(); expect(get).not.toHaveBeenCalled();
   } finally { head.mockRestore(); get.mockRestore(); }
 });
@@ -200,24 +199,32 @@ it("lists linked quality tiers after the original, never without it, and authori
   const tier = await env.MEDIA_BUCKET.put("fictional-private-tier", "tier-bytes");
   await env.DB.batch([["p480", "480p", tier!.etag], ["p2160", "2160p", tier!.etag], ["p720", "720p", null]].map(([id, variant, etag]) => env.DB.prepare(
     "INSERT INTO media_files VALUES (?,'episode-unit','mp4',?,?,10,'hash',4,'h264','aac',20,?)").bind(id, variant, id === "p480" ? "fictional-private-tier" : `fictional-private-${id}`, etag)));
-  expect((await playbackSource(env.DB, "episode-unit"))?.qualities).toEqual([{ label: "原画", url: video }, { label: "2160p", url: "/media/p2160" }, { label: "480p", url: "/media/p480" }]);
+  expect((await playbackSource(env.DB, episodeKey(1)))?.qualities).toEqual([{ label: "原画", url: video }, { label: "2160p", url: "/media/p2160" }, { label: "480p", url: "/media/p480" }]);
   const response = await http("/media/p480", { headers: { Range: "bytes=0-3" } });
   expect(response.status).toBe(206); expect(await bytesText(response)).toBe("tier");
   await expectHidden(await http("/media/p480", {}, ""), 401);
   await expectHidden(await http("/media/p480", { method: "HEAD" }, ""), 401);
   // A tier never stands in for a missing original.
   await env.DB.prepare("UPDATE media_files SET r2_etag = NULL WHERE id = 'source'").run();
-  expect(await playbackSource(env.DB, "episode-unit")).toBeNull();
+  expect(await playbackSource(env.DB, episodeKey(1))).toBeNull();
+});
+
+it("offers only tiers within the duration tolerance of the current original", async () => {
+  const tier = await env.MEDIA_BUCKET.put("fictional-private-tier", "tier-bytes");
+  await env.DB.batch(([["p2160", "2160p", 5], ["p1080", "1080p", 4.9], ["p720", "720p", 5.5], ["p480", "480p", 2.9]] as const).map(([id, variant, duration]) => env.DB.prepare(
+    "INSERT INTO media_files VALUES (?,'episode-unit','mp4',?,?,10,'hash',?,'h264','aac',20,?)").bind(id, variant, `fictional-private-${id}`, duration, tier!.etag)));
+  expect((await playbackSource(env.DB, episodeKey(1)))?.qualities).toEqual([{ label: "原画", url: video }, { label: "2160p", url: "/media/p2160" }, { label: "1080p", url: "/media/p1080" }]);
+  await expectHidden(await http("/media/p720", {}, ""), 401);
 });
 
 it("renders the watch page from D1 and leaves missing objects to the media request", async () => {
   const page = async (path: string) => { const response = await http(path); expect(response.status, path).toBe(200); return response.text(); };
-  const html = await page("/watch/episode-unit");
+  const html = await page("/series/ld/s1/e1");
   expect(html).toContain(video); expect(html).toContain(subtitle); expect(html).not.toMatch(/token=|csrf|fictional-private/u);
-  expect(await page("/watch/episode-unit.data")).toContain(video);
+  expect(await page("/series/ld/s1/e1.data")).toContain(video);
   await env.MEDIA_BUCKET.delete("fictional-private-object");
-  expect(await page("/watch/episode-unit")).toContain(video);
+  expect(await page("/series/ld/s1/e1")).toContain(video);
   expect((await http(video)).status).toBe(404);
-  const moviePage = await page("/watch/movie-unit");
+  const moviePage = await page("/movies/the-motion-picture/watch");
   expect(moviePage).toContain("片源暂缺。"); expect(moviePage).toContain("<title>测试信号 · 星际舰队档案馆</title>");
 }, 60000);

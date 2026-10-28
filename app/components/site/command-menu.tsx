@@ -13,7 +13,7 @@ export function CommandMenu({ open, onOpenChange, works }: { open: boolean; onOp
   const [query, setQuery] = useState(""), [selected, setSelected] = useState(0);
   const q = query.trim().toLowerCase();
   const entries = [
-    ...[...works].sort((a, b) => a.kind === b.kind ? 0 : a.kind === "series" ? -1 : 1).map(work => ({ id: `work-${work.slug}`, group: work.kind === "series" ? "剧集" : "电影", label: work.titleZh, extra: work.titleEn, hint: work.code || String(work.year ?? ""), icon: work.kind === "series" ? TvIcon : FilmIcon, to: `/title/${work.slug}`, keywords: `${work.titleZh} ${work.titleEn} ${work.code}`, kind: "打开作品" })),
+    ...[...works].sort((a, b) => a.kind === b.kind ? 0 : a.kind === "series" ? -1 : 1).map(work => ({ id: `work-${work.slug}`, group: work.kind === "series" ? "剧集" : "电影", label: work.titleZh, extra: work.titleEn, hint: work.code || String(work.year ?? ""), icon: work.kind === "series" ? TvIcon : FilmIcon, to: work.href, keywords: `${work.titleZh} ${work.titleEn} ${work.code}`, kind: "打开作品" })),
     ...[{ label: "首页", to: "/", icon: HouseIcon }, { label: "剧集", to: "/series", icon: TvIcon }, { label: "电影", to: "/movies", icon: FilmIcon }, { label: "收藏与片单", to: "/library", icon: HeartIcon }, { label: "站内公开片单", to: "/playlists", icon: ListVideoIcon }, { label: "邀请", to: "/invites", icon: TicketIcon }, { label: "账号与安全", to: "/account", icon: UserIcon }].map(page => ({ ...page, id: `page-${page.to}`, group: "页面", extra: "", hint: "", keywords: page.label, kind: "前往页面" })),
     { id: "theme", group: "命令", label: "切换深浅色", extra: "", hint: "D", icon: MoonStarIcon, to: "", keywords: "切换深浅色 theme", kind: "执行命令" },
   ].filter(entry => !q || entry.keywords.toLowerCase().includes(q));

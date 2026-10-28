@@ -50,8 +50,8 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
       : params.get("delivery") ? "账号已注册，但验证邮件可能没有发出。若几分钟后仍未收到，请在下方重新发送。"
       : "输入注册邮箱，重新发送验证邮件。链接 1 小时内有效。")
     : second ? "打开验证器应用，输入 6 位动态验证码，或使用一个未使用的备用码。"
-    : login ? "星际舰队档案馆是邀请制的私人观看站，仅对受邀成员开放。"
-    : register ? inviteStep ? "用户名注册后不可修改，其他成员能看到它。注册完成后需要验证邮箱。" : "本站只对受邀成员开放。请输入朋友发给你的邀请码。"
+    : login ? undefined
+    : register ? inviteStep ? "用户名注册后不可修改，其他成员能看到它。注册完成后需要验证邮箱。" : "请输入朋友发给你的邀请码。"
     : resetInvalid ? "重设链接无效或已过期，请重新申请重设邮件。"
     : reset ? "请设置新密码。保存后，所有设备都会退出登录。" : "通过注册邮箱获取重设链接，1 小时内有效。";
   const needsCaptcha = !reset && !verified && !second;

@@ -40,17 +40,14 @@ export const settings = {
   },
 
   totp: {
-    digits: 6,
-    step: 30,
-    window: 1,
     challengeTtl: 5 * MINUTE,
-    challengeMaxAttempts: 5,
   },
 
   rateLimits: {
     auth: { window: 10, max: 100 },
     adminHighImpactPerAdmin: { perMinute: 30 },
     memberEmail: { minInterval: 60, perHour: 5 },
+    changeEmail: { minInterval: 60, perHour: 30 },
     danmaku: { minInterval: 5, perHour: 60 },
   },
 } as const;

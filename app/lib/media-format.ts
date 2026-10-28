@@ -65,6 +65,13 @@ export function validateVtt(bytes: Uint8Array, label = "字幕") {
   return { bytes: new TextEncoder().encode(text.endsWith("\n") ? text : `${text}\n`), cueCount };
 }
 
+// SUB1 track keys: <zh-CN|zh-TW>.<main|bilingual>[.<suffix>]; an extra track of a kind adds only its suffix to the kind's label.
+const subtitleKinds: Record<string, string> = { "zh-CN.main": "简中", "zh-CN.bilingual": "简英", "zh-TW.main": "繁中", "zh-TW.bilingual": "繁英" };
+export function subtitleTrack(trackKey: string) {
+  const match = /^((zh-CN|zh-TW)\.(?:main|bilingual))(?:\.([A-Za-z0-9][\w.-]{0,47}))?$/u.exec(trackKey);
+  return match ? { language: match[2], label: match[3] ? `${subtitleKinds[match[1]]}（${match[3]}）` : subtitleKinds[match[1]] } : null;
+}
+
 export function mp4BoxHeader(bytes: Uint8Array, remaining: number) {
   check(bytes.length >= 8, "MP4 box header is incomplete");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

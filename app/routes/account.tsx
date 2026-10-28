@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { FieldGroup } from "@/components/ui/field";
 import { IconTile } from "@/components/ui/icon-tile";
 import { Tag } from "@/components/ui/tag";
+import { toast } from "@/components/ui/toast";
 import { LineNav } from "@/components/ui/line-nav";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
@@ -60,10 +61,10 @@ function BackupCodes({ codes }: { codes: string[] }) {
       <Button type="button" variant="outline" size="sm" nativeButton={false} render={<a href={"data:text/plain;charset=utf-8," + encodeURIComponent(text)} download="starfleet-archive-backup-codes.txt" />}><DownloadIcon />下载 .txt</Button></div></div>;
 }
 export default function AccountPage({ loaderData: account }: Route.ComponentProps) {
-  const action = useAction();
   const revalidator = useRevalidator();
   const active = useActiveSection(SECTIONS.map(section => section.href.slice(1)));
   const [dialog, setDialog] = useState<DialogState>(null);
+  const action = useAction(dialog !== null);
   const [setup, setSetup] = useState<{ totpURI: string; backupCodes: string[] } | null>(null);
   const [codes, setCodes] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
@@ -82,16 +83,16 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
       if (dialog === "password") {
         if (fields.newPassword !== fields.confirmPassword) throw new Error("两次密码输入不一致。");
         await call("/api/auth/change-password", { currentPassword: fields.currentPassword, newPassword: fields.newPassword, revokeOtherSessions: true });
-        setDialog(null); action.setMessage("密码已修改，其他设备已退出登录。");
+        setDialog(null); toast.add({ title: "密码已修改，其他设备已退出登录。", type: "success" });
       } else if (dialog === "email") {
         await call("/api/auth/change-email", { newEmail: fields.newEmail, callbackURL: window.location.origin + "/verify-email" });
-        setDialog(null); action.setMessage("请到新邮箱查收验证邮件，并在 1 小时内点击链接完成修改；打开链接时如需登录，请登录本账号。确认前，当前邮箱保持不变。若未收到，请检查垃圾邮件或稍后重试。");
+        setDialog(null); toast.add({ title: "请到新邮箱查收验证邮件，并在 1 小时内点击链接完成修改；打开链接时如需登录，请登录本账号。确认前，当前邮箱保持不变。若未收到，请检查垃圾邮件或稍后重试。", type: "success", timeout: 0 });
       } else if (dialog === "totp-enable") {
         const result = await call<{ totpURI: string; backupCodes: string[] }>("/api/auth/two-factor/enable", { password: fields.password });
         setSetup(result); setDialog("totp-verify");
       } else if (dialog === "totp-disable") {
         await call("/api/auth/two-factor/disable", { password: fields.password });
-        setDialog(null); action.setMessage("二步验证已关闭。");
+        setDialog(null); toast.add({ title: "二步验证已关闭。", type: "success" });
       } else if (dialog === "totp-verify" && setup) {
         await call("/api/auth/two-factor/verify-totp", { code: fields.code, trustDevice: false });
         showCodes(setup.backupCodes);
@@ -109,7 +110,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
       <PageHeadingDescription className="font-mono text-sm"><dl className="flex flex-wrap gap-x-6 gap-y-1">
         {[["用户名", account.username], ["身份", account.role === "admin" ? "管理员" : "成员"], ["加入于", new Date(account.joinedAt).toLocaleDateString("zh-CN")]].map(([title, value]) =>
           <div key={title}><dt className="inline">{title} </dt><dd className="inline text-foreground">{value}</dd></div>)}</dl></PageHeadingDescription></PageHeading>
-    <div className="h-4" />{!dialog && <div className="empty:hidden p-4">{action.feedback}</div>}
+    <div className="h-4" />
     <Panel id="methods" className="scroll-mt-16"><PanelHeader><PanelTitle>登录方式</PanelTitle></PanelHeader><ul className="divide-y divide-line">
       <Row icon={<KeyRoundIcon />} title="密码" meta={account.passwordUpdatedAt ? "上次修改于 " + new Date(account.passwordUpdatedAt).toLocaleDateString("zh-CN") : "使用用户名和密码登录"}
         action={<Button variant="outline" size="sm" onClick={() => open("password")}>修改</Button>} />
@@ -125,7 +126,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
         const result = await authClient.passkey.addPasskey({ name: "我的设备" });
         if (result?.error) throw new Error(authError(result.error));
         if (!result?.data) throw new Error("通行密钥添加未完成。");
-        revalidator.revalidate(); action.setMessage("通行密钥已添加。");
+        revalidator.revalidate(); toast.add({ title: "通行密钥已添加。", type: "success" });
       })}>添加</StatusButton></PanelHeader>
       {!account.passkeys.length ? <p className="px-4 py-6 text-sm text-muted-foreground">添加通行密钥后，可以用指纹、面容或设备 PIN 免密码登录。</p>
         : <ul className="divide-y divide-line">{account.passkeys.map(key => <Row key={key.id} icon={<FingerprintIcon />} title={key.name || "通行密钥"} meta={"添加于 " + new Date(key.createdAt).toLocaleDateString("zh-CN")}
@@ -134,7 +135,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
     <Panel id="sessions" className="scroll-mt-16"><PanelHeader><PanelTitle>登录设备<PanelTitleSup>({account.sessions.length})</PanelTitleSup></PanelTitle>
       {account.sessions.length > 1 && <Button variant="outline" size="sm" disabled={action.busy} onClick={() => void action.run(async () => {
         for (const session of account.sessions) if (!session.current) await revoke(session.id);
-        revalidator.revalidate(); action.setMessage("其他设备已退出登录。");
+        revalidator.revalidate(); toast.add({ title: "其他设备已退出登录。", type: "success" });
       })}>退出其他设备</Button>}</PanelHeader>
       <ul className="divide-y divide-line">{account.sessions.map(session => <Row key={session.id} icon={/iPhone|iPad|Android/.test(session.userAgent ?? "") ? <SmartphoneIcon /> : <LaptopIcon />}
         title={<span className="flex flex-wrap items-center gap-2">{device(session.userAgent)}{session.current && <Tag>当前</Tag>}</span>}
@@ -156,7 +157,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
       {action.feedback}
       {dialog === "codes" ? <><BackupCodes codes={codes} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" className="size-4 accent-foreground" checked={saved} onChange={event => setSaved(event.target.checked)} />我已妥善保存这些备用码</label><DialogFooter><Button disabled={!saved} onClick={close}>我已保存</Button></DialogFooter></>
         : dialog === "delete-passkey" ? <><p className="font-mono">{selectedKey?.name || "通行密钥"}</p><DialogFooter><Button variant="outline" disabled={action.busy} onClick={close}>取消</Button><StatusButton variant="destructive" status={action.busy ? "loading" : "idle"} onClick={() => void action.run(async () => {
-          await call("/api/auth/passkey/delete-passkey", { id: selectedKey!.id }); setDialog(null); revalidator.revalidate(); action.setMessage("通行密钥已删除。");
+          await call("/api/auth/passkey/delete-passkey", { id: selectedKey!.id }); setDialog(null); revalidator.revalidate(); toast.add({ title: "通行密钥已删除。", type: "success" });
         })}>确认删除</StatusButton></DialogFooter></>
         : <form key={dialog} onSubmit={submit}><FieldGroup>
           {dialog === "password" && <><Field id="currentPassword" name="currentPassword" label="当前密码" type="password" required autoComplete="current-password" />

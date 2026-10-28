@@ -87,7 +87,7 @@ it.each([
   const probe = probeD1(env.DB), bindings = { ...runtime, DB: probe.db };
   expect(await currentMember(request("/series", undefined, cookie), bindings)).toBeNull();
   expect(probe.calls.flatMap(call => call.statements)).toEqual(["member"]);
-  expect((await send(request("/watch/episode-unit", undefined, cookie))).status).toBe(302);
+  expect((await send(request("/series/ld/s1/e1", undefined, cookie))).status).toBe(302);
   for (const path of ["/media/source", "/subtitles/zh"]) {
     const response = await send(request(path, undefined, cookie, { Range: "bytes=2-5" }));
     expect(response.status).toBe(401); expect(response.headers.has("Content-Range")).toBe(false); expect(response.headers.has("ETag")).toBe(false);

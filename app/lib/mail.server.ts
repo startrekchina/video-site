@@ -7,23 +7,28 @@ import { siteName } from "./site";
 type Purpose = "registration_verification" | "verification_resend" | "email_change_verification" | "password_reset" | "admin_notification";
 export type MailAttempt = { id: string; email: string; purpose: Purpose };
 
-export async function reserveMail(env: Env, email: string, purpose: Purpose): Promise<MailAttempt> {
+export async function reserveMail(env: Env, email: string, purpose: Purpose, sender?: string): Promise<MailAttempt> {
   if (typeof email !== "string" || !email || email.length > 320) throw new APIError("BAD_REQUEST", { code: "INVALID_EMAIL", message: "邮箱格式无效。" });
   const key = await sha256(email.toLowerCase());
   const id = crypto.randomUUID();
   const now = Date.now();
   const group = purpose === "password_reset" ? "purpose = 'password_reset'" : "purpose IN ('registration_verification','verification_resend','email_change_verification')";
-  const condition = purpose === "admin_notification" ? "1" : `NOT EXISTS (SELECT 1 FROM email_deliveries WHERE to_email_key = ? AND ${group} AND created_at > ?)
-    AND (SELECT count(*) FROM email_deliveries WHERE to_email_key = ? AND ${group} AND created_at > ?) < ?`;
-  const statement = env.DB.prepare(`INSERT INTO email_deliveries (id, to_email_key, purpose, status, error_code, created_at)
-    SELECT ?, ?, ?, 'unknown', 'EMAIL_PENDING', ? WHERE ${condition}`);
-  const result = await (purpose === "admin_notification" ? statement.bind(id, key, purpose, now)
-    : statement.bind(id, key, purpose, now, key, now - settings.rateLimits.memberEmail.minInterval * 1000, key, now - 3600000, settings.rateLimits.memberEmail.perHour)).run();
+  const quotas = purpose === "admin_notification" ? [] : [
+    { filter: `to_email_key = ? AND ${group}`, key, ...settings.rateLimits.memberEmail },
+    ...sender ? [{ filter: "user_id = ? AND purpose = 'email_change_verification'", key: sender, ...settings.rateLimits.changeEmail }] : [],
+  ];
+  const condition = quotas.map(quota => `NOT EXISTS (SELECT 1 FROM email_deliveries WHERE ${quota.filter} AND created_at > ?)
+    AND (SELECT count(*) FROM email_deliveries WHERE ${quota.filter} AND created_at > ?) < ?`).join(" AND ") || "1";
+  const result = await env.DB.prepare(`INSERT INTO email_deliveries (id, user_id, to_email_key, purpose, status, error_code, created_at)
+    SELECT ?, ?, ?, ?, 'unknown', 'EMAIL_PENDING', ? WHERE ${condition}`)
+    .bind(id, sender ?? null, key, purpose, now, ...quotas.flatMap(quota => [quota.key, now - quota.minInterval * 1000, quota.key, now - 3600000, quota.perHour])).run();
   if (!result.meta.changes) {
-    const last = await env.DB.prepare(`SELECT max(created_at) AS latest, min(created_at) AS earliest, count(*) AS n FROM email_deliveries
-      WHERE to_email_key = ? AND ${group} AND created_at > ?`).bind(key, now - 3600000).first<{ latest: number; earliest: number; n: number }>();
-    const until = Math.max((last?.latest ?? now) + settings.rateLimits.memberEmail.minInterval * 1000,
-      (last?.n ?? 0) >= settings.rateLimits.memberEmail.perHour ? (last!.earliest + 3600000) : 0);
+    const counts = await env.DB.batch<{ latest: number | null; earliest: number | null; n: number }>(quotas.map(quota =>
+      env.DB.prepare(`SELECT max(created_at) AS latest, min(created_at) AS earliest, count(*) AS n FROM email_deliveries
+        WHERE ${quota.filter} AND created_at > ?`).bind(quota.key, now - 3600000)));
+    const until = Math.max(now, ...counts.map(({ results: [last] }, index) => Math.max(
+      last.latest === null ? 0 : last.latest + quotas[index].minInterval * 1000,
+      last.n >= quotas[index].perHour ? last.earliest! + 3600000 : 0)));
     throw new APIError("TOO_MANY_REQUESTS", { code: "EMAIL_RATE_LIMITED", message: "邮件发送过于频繁，请稍后再试。" }, { "Retry-After": String(Math.max(1, Math.ceil((until - now) / 1000))) });
   }
   return { id, email: email.toLowerCase(), purpose };
@@ -37,7 +42,7 @@ export async function deliverMail(env: Env, attempt: MailAttempt, urlOrText: str
   const change = attempt.purpose === "email_change_verification";
   const result = await sendEmail(env, { to: attempt.email, subject: `【${siteName}】${notification ? "账号状态通知" : reset ? "重设你的密码" : change ? "确认修改登录邮箱" : "验证你的注册邮箱"}`,
     text: notification ? urlOrText : `请打开以下链接${reset ? "重设密码" : change ? "确认修改邮箱" : "验证邮箱"}（1 小时内有效）：\n${urlOrText}\n如非本人操作，请忽略这封邮件。` });
-  await env.DB.prepare(`UPDATE email_deliveries SET user_id = (SELECT user_id FROM member_profiles WHERE user_id = ?),
+  await env.DB.prepare(`UPDATE email_deliveries SET user_id = coalesce(user_id, (SELECT user_id FROM member_profiles WHERE user_id = ?)),
     status = ?, provider_message_id = ?, error_code = ? WHERE id = ?`)
     .bind(userId ?? null, result.status, result.status === "accepted" ? result.messageId : null, result.status === "accepted" ? null : result.errorCode, attempt.id).run();
   console.info(JSON.stringify({ requestId: attempt.id, emailKey: await sha256(attempt.email), purpose: attempt.purpose,

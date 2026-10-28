@@ -28,7 +28,7 @@ export default function Playlist({ loaderData: { playlist, items, start, queued 
   const play = <><PlayIcon className="fill-current" data-icon="inline-start" />按顺序播放</>;
   return <Page><PageHeading><PageHeadingTagline>片单 · <span className="font-mono">{playlist.owner}</span></PageHeadingTagline><PageHeadingTitle>{playlist.title}</PageHeadingTitle></PageHeading><div className="h-4" />
     <Panel className="screen-line-top"><div className="flex flex-wrap items-center gap-2 p-4">
-      {start ? <Button nativeButton={false} render={<Link to={`/watch/${start}?playlist=${playlist.id}`} />}>{play}</Button> : queued > 0 && <Button onClick={() => toast.add({ title: "已全部看完。", type: "info" })}>{play}</Button>}
+      {start ? <Button nativeButton={false} render={<Link to={`${start}?playlist=${playlist.id}`} />}>{play}</Button> : queued > 0 && <Button onClick={() => toast.add({ title: "已全部看完。", type: "info" })}>{play}</Button>}
       {own ? <><ToggleGroup value={[playlist.visibility]} onValueChange={value => { if (value[0] && value[0] !== playlist.visibility) void run(base, "PATCH", { visibility: value[0] }); }} variant="outline" size="sm" aria-label="可见范围" disabled={busy}><ToggleGroupItem value="private"><LockIcon />私有</ToggleGroupItem><ToggleGroupItem value="members"><GlobeIcon />站内公开</ToggleGroupItem></ToggleGroup>
         <div className="flex-1" /><Button variant="destructive" size="sm" disabled={busy} onClick={() => void destroy()}><Trash2Icon data-icon="inline-start" />删除片单</Button></> : <VisibilityTag visibility={playlist.visibility} />}
     </div></Panel><Separator />

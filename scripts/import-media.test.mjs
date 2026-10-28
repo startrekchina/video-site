@@ -19,8 +19,8 @@ const entries = [
   { kind: "series", tmdb_id: 800002, season: 2, file: "fictional-season.jpg" },
 ];
 const mapping = () => ({ environment: "staging", resources: { d1DatabaseId: env.STAGING_D1_DATABASE_ID, mediaBucketName: env.STAGING_MEDIA_BUCKET_NAME }, media: [
-  { kind: "movie", tmdbId: 800001, videoPath: "movie.mp4", subtitles: [{ language: "zh-CN", displayName: "简体中文", trackKey: "zh", sourcePath: "chinese.ass" }] },
-  { kind: "series", tmdbId: 800002, seasonNumber: 2, episodeNumber: 3, videoPath: "episode.mp4", subtitles: [{ language: "en", displayName: "English", trackKey: "en", sourcePath: "english.vtt" }] },
+  { kind: "movie", tmdbId: 800001, videoPath: "movie.mp4", subtitles: [{ language: "zh-CN", trackKey: "main", sourcePath: "chinese.ass" }] },
+  { kind: "series", tmdbId: 800002, seasonNumber: 2, episodeNumber: 3, videoPath: "episode.mp4", subtitles: [{ language: "zh-TW", trackKey: "bilingual", sourcePath: "english.vtt" }] },
 ] });
 const data = {
   "movie/800001": { id: 800001, title: "Fictional film", overview: "English film", release_date: "2020-01-01" },
@@ -112,18 +112,34 @@ test("two read-only preflights: identity, bilingual fallback, ASS conversion, re
 test("subtitle identity includes language and track within each unit", async () => {
   const input = mapping();
   input.media[1].subtitles = [
-    { language: "zh-CN", displayName: "简体中文", trackKey: "main", sourcePath: "english.vtt" },
-    { language: "en", displayName: "English", trackKey: "main", sourcePath: "english.vtt" },
+    { language: "zh-CN", trackKey: "main", sourcePath: "english.vtt" },
+    { language: "zh-TW", trackKey: "main", sourcePath: "english.vtt" },
   ];
   const bilingual = await run(input);
-  assert.deepEqual(bilingual.media[1].subtitles.map(({ language, trackKey }) => [language, trackKey]), [["zh-CN", "main"], ["en", "main"]]);
+  assert.deepEqual(bilingual.media[1].subtitles.map(({ language, trackKey }) => [language, trackKey]), [["zh-CN", "main"], ["zh-TW", "main"]]);
   assert.equal(report(bilingual).cloudWrites, 0);
   input.media[1].subtitles[1].language = "zh-CN";
   await assert.rejects(run(input), /字幕.*重复/u);
   assert.equal(calls.length, 0);
-  input.media[1].subtitles[1].trackKey = "alternate";
+  input.media[1].subtitles[1].trackKey = "main.alt";
   const alternate = await run(input);
-  assert.deepEqual(alternate.media[1].subtitles.map(({ language, trackKey }) => [language, trackKey]), [["zh-CN", "main"], ["zh-CN", "alternate"]]);
+  assert.deepEqual(alternate.media[1].subtitles.map(({ language, trackKey }) => [language, trackKey]), [["zh-CN", "main"], ["zh-CN", "main.alt"]]);
+});
+
+test("subtitles accept only the four SUB1 kinds and suffixed extras, rejecting others before any TMDB request", async () => {
+  const input = mapping();
+  input.media[1].subtitles = [...["main", "bilingual"].flatMap(trackKey => ["zh-CN", "zh-TW"].map(language => ({ language, trackKey, sourcePath: "english.vtt" }))),
+    { language: "zh-CN", trackKey: "main.alt", sourcePath: "english.vtt" }];
+  const kinds = await run(input);
+  assert.deepEqual(kinds.media[1].subtitles.map(({ language, trackKey }) => `${language}.${trackKey}`), ["zh-CN.main", "zh-TW.main", "zh-CN.bilingual", "zh-TW.bilingual", "zh-CN.main.alt"]);
+  assert.ok(!JSON.stringify(report(kinds)).includes("displayName"));
+  const invalid = [...["en", "zh", "zh-HK", "zh-Hant", "zh-cn"].map(language => ({ language })), ...["alternate", "sdh", "mainx", "main."].map(trackKey => ({ trackKey })), { language: "zh-CN.main", trackKey: "alt" }];
+  for (const change of invalid) {
+    const bad = mapping(); Object.assign(bad.media[0].subtitles[0], change);
+    await assert.rejects(run(bad), /字幕语言只能是 zh-CN 或 zh-TW，轨道只能是 main（中文）或 bilingual（中英双语），同类附加轨道加后缀，如 main\.alt。/u); assert.equal(calls.length, 0);
+  }
+  const named = mapping(); named.media[0].subtitles[0].displayName = "简中";
+  await assert.rejects(run(named), /格式错误或含未支持字段/u); assert.equal(calls.length, 0);
 });
 
 test("input/environment rejection happens before any TMDB request", async () => {
@@ -202,6 +218,7 @@ test("catalog placeholders: all units, stable upserts, actual media duration and
   try {
     db.exec(await readFile(resolve("migrations/0001_catalog.sql"), "utf8"));
     db.exec(await readFile(resolve("migrations/0012_catalog_placeholders.sql"), "utf8"));
+    db.exec(await readFile(resolve("migrations/0017_episode_air_dates.sql"), "utf8"));
     const batch = queries => { db.exec("BEGIN"); try { for (const query of queries) db.prepare(query.sql).run(...query.params); db.exec("COMMIT"); } catch (error) { db.exec("ROLLBACK"); throw error; } };
     const queries = catalogQueries(result); batch(queries); batch(queries);
     assert.equal(db.prepare("SELECT COUNT(*) AS n FROM playable_units").get().n, 2);
@@ -223,4 +240,28 @@ test("catalog placeholders: all units, stable upserts, actual media duration and
   assert.deepEqual(JSON.parse(output.stdout).counts, { works: 2, seasons: 1, units: 2 });
   assert.equal(JSON.parse(output.stdout).cloudWrites, 0);
   assert.ok(!output.stdout.includes(env.STAGING_D1_DATABASE_ID));
+});
+
+test("catalog episode air dates: TMDB text as-is, cleared when TMDB drops it, invalid dates stop the whole run", async () => {
+  const episode = data["tv/800002/season/2/episode/3"], input = mapping(); input.media = [];
+  const db = new DatabaseSync(":memory:");
+  try {
+    for (const name of ["0001_catalog", "0012_catalog_placeholders", "0017_episode_air_dates"]) db.exec(await readFile(resolve(`migrations/${name}.sql`), "utf8"));
+    const write = result => { db.exec("BEGIN"); for (const query of catalogQueries(result)) db.prepare(query.sql).run(...query.params); db.exec("COMMIT"); };
+    const dates = () => Object.fromEntries(db.prepare("SELECT id, air_date FROM playable_units").all().map(row => [row.id, row.air_date]));
+    episode.air_date = "1987-09-28";
+    const dated = await run(input, { allUnits: true });
+    assert.equal(dated.units.find(unit => unit.seasonId).airDate, "1987-09-28"); assert.equal(dated.units.find(unit => !unit.seasonId).airDate, null);
+    write(dated); write(dated);
+    assert.deepEqual(dates(), { movie_800001_unit: null, series_800002_s2_e3: "1987-09-28" });
+    for (const missing of ["", null, undefined]) {
+      write(dated); episode.air_date = missing;
+      write(await run(input, { allUnits: true }));
+      assert.deepEqual(dates(), { movie_800001_unit: null, series_800002_s2_e3: null });
+    }
+    for (const invalid of ["1987/09/28", "1987-9-28", 19870928]) {
+      episode.air_date = invalid;
+      await assert.rejects(run(input, { allUnits: true }), /TMDB 单集首播日期无效。/u);
+    }
+  } finally { delete episode.air_date; db.close(); }
 });

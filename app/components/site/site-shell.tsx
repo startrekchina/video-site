@@ -11,7 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { Toaster } from "@/components/ui/toast";
+import { Toaster, toast } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { BottomRuler } from "./bottom-ruler";
 import { CommandMenu } from "./command-menu";
@@ -23,15 +23,17 @@ import { useHeaderTone } from "@/lib/header-tone";
 const mainNavigation = [{ to: "/", label: "首页", end: true }, { to: "/series", label: "剧集" }, { to: "/movies", label: "电影" }, { to: "/library", label: "我的片库" }];
 const guestNavigation = [{ to: "/", label: "首页", end: true }, { to: "/about", label: "关于" }];
 type Member = { username: string; role: "member" | "admin" };
-export type SearchWork = Pick<Work, "slug" | "kind" | "titleZh" | "titleEn" | "code" | "year">;
+export type SearchWork = Pick<Work, "slug" | "href" | "kind" | "titleZh" | "titleEn" | "code" | "year">;
+// Navigation state for in-page switches whose path changes, such as a season tab: the page stays where it was.
+export const keepScroll = { keepScroll: true };
 
 function UserMenu({ member }: { member: Member }) {
-  const navigate = useNavigate(), [busy, setBusy] = useState(false), [error, setError] = useState("");
-  return <><DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="border-none" aria-label="账号菜单"><span className="flex size-6 items-center justify-center rounded-md bg-muted font-mono text-xs text-muted-foreground uppercase inset-ring-1 inset-ring-foreground/10">{member.username.slice(0, 1)}</span><span className="sr-only">{member.username}</span></Button>} />
+  const navigate = useNavigate(), [busy, setBusy] = useState(false);
+  return <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="border-none" aria-label="账号菜单"><span className="flex size-6 items-center justify-center rounded-md bg-muted font-mono text-xs text-muted-foreground uppercase inset-ring-1 inset-ring-foreground/10">{member.username.slice(0, 1)}</span><span className="sr-only">{member.username}</span></Button>} />
     <DropdownMenuContent align="end" className="w-52"><DropdownMenuGroup><DropdownMenuLabel className="flex flex-col gap-0.5"><span className="font-mono text-sm text-foreground">{member.username}</span><span className="text-xs">{member.role === "admin" ? "管理员" : "成员"}</span></DropdownMenuLabel></DropdownMenuGroup><DropdownMenuSeparator />
       <DropdownMenuItem onClick={() => navigate("/account")}><UserIcon />账号与安全</DropdownMenuItem><DropdownMenuItem onClick={() => navigate("/account#passkeys")}><KeyRoundIcon />通行密钥</DropdownMenuItem><DropdownMenuItem onClick={() => navigate("/invites")}><TicketIcon />邀请</DropdownMenuItem>{member.role === "admin" && <DropdownMenuItem onClick={() => navigate("/admin")}><ShieldIcon />管理后台</DropdownMenuItem>}<DropdownMenuSeparator />
-      <DropdownMenuItem disabled={busy} onClick={() => { setBusy(true); setError(""); void call("/api/auth/sign-out", {}).then(() => location.assign("/login")).catch(error => { setError(error.message); setBusy(false); }); }}><LogOutIcon />{busy ? "正在退出…" : "退出登录"}</DropdownMenuItem>
-    </DropdownMenuContent></DropdownMenu>{error && <p role="alert" className="absolute top-full right-2 rounded bg-background p-3 text-sm text-destructive">{error}</p>}</>;
+      <DropdownMenuItem disabled={busy} onClick={() => { setBusy(true); void call("/api/auth/sign-out", {}).then(() => location.assign("/login")).catch(error => { toast.add({ title: error.message, type: "error" }); setBusy(false); }); }}><LogOutIcon />{busy ? "正在退出…" : "退出登录"}</DropdownMenuItem>
+    </DropdownMenuContent></DropdownMenu>;
 }
 
 function SearchTrigger({ onClick, className }: { onClick: () => void; className?: string }) {
@@ -52,12 +54,12 @@ function BottomNav({ member, onSearch }: { member: Member; onSearch: () => void 
   </div>;
 }
 
-export function SiteShell({ children, member, catalog }: { children: ReactNode; member?: Member | null; catalog?: { works: SearchWork[]; stats: { series: number; seasons: number; episodes: number; movies: number } } | null }) {
-  const theme = useTheme(), tone = useHeaderTone(), [searchOpen, setSearchOpen] = useState(false), { pathname } = useLocation();
+export function SiteShell({ children, member, catalog }: { children: ReactNode; member?: Member | null; catalog?: { works: SearchWork[] } | null }) {
+  const theme = useTheme(), tone = useHeaderTone(), [searchOpen, setSearchOpen] = useState(false), { pathname, state } = useLocation();
   useHotkey("d", toggleTheme);
   useHotkey("k", () => setSearchOpen(open => !open), { mod: true, enabled: Boolean(member) });
   useHotkey("/", () => setSearchOpen(true), { enabled: Boolean(member) });
-  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  useEffect(() => { if ((state as typeof keepScroll | null)?.keepScroll !== true) window.scrollTo(0, 0); }, [pathname]);
   const navigation = member ? [...mainNavigation, ...(member.role === "admin" ? [{ to: "/admin", label: "管理后台" }] : [])] : guestNavigation;
   const authPage = ["/login", "/register", "/forgot-password", "/reset-password", "/reset-password/complete", "/verify-email", "/verify-pending"].includes(pathname);
   return <TooltipProvider><div className="group/layout relative isolate content-frame has-data-[slot=auth-frame]:flex has-data-[slot=auth-frame]:min-h-svh has-data-[slot=auth-frame]:flex-col">
@@ -72,7 +74,7 @@ export function SiteShell({ children, member, catalog }: { children: ReactNode; 
       </div>
     </header>
     <main id="main-content" className="max-w-screen overflow-x-clip px-2 group-has-data-[slot=auth-frame]/layout:flex group-has-data-[slot=auth-frame]/layout:flex-1 group-has-data-[slot=auth-frame]/layout:flex-col">{children}</main>
-    <SiteFooter stats={member && !authPage ? catalog?.stats : undefined} />
+    <SiteFooter minimal={!member || authPage} />
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40" aria-hidden><div className="h-(--fade-bottom-height) bg-linear-to-b from-transparent to-background mask-linear-[to_top,var(--background)_25%,transparent] backdrop-blur-[1px]" /><div className="bg-background pb-[env(safe-area-inset-bottom,0px)]" /><BottomRuler /></div>
     {member && <><BottomNav member={member} onSearch={() => setSearchOpen(true)} /><CommandMenu open={searchOpen} onOpenChange={setSearchOpen} works={catalog?.works ?? []} /></>}
     <ScrollToTop />

@@ -43,10 +43,11 @@ it("bounds repeated identity and media work in real Worker requests", async () =
     expect.soft(serial, label + " serial D1 round trips").toBeLessThanOrEqual(serialBudget);
   }
   // With the signed cookie cache, each loader sends one batch that also checks the live member: one serial D1 round trip.
-  for (const path of ["/", "/series", "/movies", "/title/series", "/watch/episode-unit"]) {
-    for (const suffix of ["", ".data"]) await measure(path + suffix, request(path + suffix, undefined, cookie), 200, path.startsWith("/watch/") || path.startsWith("/title/") ? 3 : 2, 0, 1);
+  for (const path of ["/", "/series", "/movies", "/series/ld", "/series/ld/s1/e1", "/movies/the-motion-picture"]) {
+    // Detail and watch pages sit below a catalog path.
+    for (const suffix of ["", ".data"]) await measure(path + suffix, request(path + suffix, undefined, cookie), 200, path.split("/").length > 2 ? 3 : 2, 0, 1);
   }
-  await measure("watch-only-data", request("/watch/episode-unit.data?_routes=routes%2Fwatch", undefined, cookie), 200, 2, 0, 1);
+  await measure("watch-only-data", request("/series/ld/s1/e1.data?_routes=series-watch", undefined, cookie), 200, 2, 0, 1);
   // Media requests: one primary query that authorizes the live session and member and finds the resource.
   for (const method of ["GET", "HEAD"]) await measure("media-" + method, new Request(request("/media/source", undefined, cookie), { method }), 200, 1, 0);
   await measure("range", request("/media/source", undefined, cookie, { Range: "bytes=2-5" }), 206, 1, 0);
@@ -54,7 +55,7 @@ it("bounds repeated identity and media work in real Worker requests", async () =
   // The public session endpoint stays authoritative.
   
 await measure("get-session", request("/api/auth/get-session", undefined, cookie), 200, 5, 1);
-  await measure("no-source", request("/watch/movie-unit.data", undefined, cookie), 200, 3, 0, 1);
+  await measure("no-source", request("/movies/the-motion-picture/watch.data", undefined, cookie), 200, 3, 0, 1);
   await measure("invites", request("/invites.data", undefined, cookie), 200, 4, 0, 3);
   await env.DB.prepare("UPDATE member_profiles SET role = 'admin' WHERE user_id = (SELECT id FROM user WHERE username = 'kepler')").run();
   await measure("admin", request("/admin.data", undefined, cookie), 200, 4, 0, 3);
@@ -68,10 +69,10 @@ await measure("get-session", request("/api/auth/get-session", undefined, cookie)
   await measure("invalid-cookie", request("/series", undefined, "session=invalid"), 302, 0, 0);
   await env.DB.prepare("UPDATE session SET updatedAt = ?, expiresAt = ?").bind(new Date(Date.now() - 2 * 86400000).toISOString(), new Date(Date.now() + 28 * 86400000).toISOString()).run();
   // An expired cookie cache reads the session from D1 once and renews it before the loaders run.
-  await measure("rolling-watch", request("/watch/episode-unit.data", undefined, uncached(cookie)), 200, 6, 1, 4);
+  await measure("rolling-watch", request("/series/ld/s1/e1.data", undefined, uncached(cookie)), 200, 6, 1, 4);
   const ownSession = await env.DB.prepare('SELECT s.id FROM session s JOIN "user" u ON u.id = s.userId WHERE u.username = ?').bind("kepler").first<string>("id");
   // Native authoritative, target-ownership and delete-hook lookups remain necessary library work.
   await measure("self-revoke", request(`/account/sessions/${ownSession}/revoke`, {}, cookie), 200, 9, 3);
   // A still-cached revoked session is refused by the member check inside each loader batch.
-  await measure("revoked", request("/watch/episode-unit", undefined, cookie), 302, 3, 0, 1);
+  await measure("revoked", request("/series/ld/s1/e1", undefined, cookie), 302, 3, 0, 1);
 }, 60000);

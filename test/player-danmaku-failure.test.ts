@@ -3,7 +3,7 @@ import { Player } from "@/components/site/player";
 
 const state = vi.hoisted(() => ({ effects: [] as (() => void | (() => void))[], refs: [] as { current: unknown }[], message: vi.fn(),
   options: null as unknown, listeners: new Map<string, () => void>(), art: { currentTime: 0, duration: 100, seek: 0, plugins: {},
-    on: vi.fn(), once: vi.fn(), play: vi.fn(async () => {}), destroy: vi.fn(), hotkey: { add: vi.fn() }, subtitle: { show: false }, setting: { update: vi.fn() } } }));
+    on: vi.fn(), once: vi.fn(), play: vi.fn(async () => {}), destroy: vi.fn(), hotkey: { add: vi.fn() }, subtitle: { show: false }, setting: { update: vi.fn() }, notice: { show: "" } } }));
 vi.mock("react", async original => ({ ...await original<typeof import("react")>(),
   useEffect: (effect: () => void | (() => void)) => { state.effects.push(effect); },
   useRef: (current: unknown) => { const ref = { current }; state.refs.push(ref); return ref; }, useState: () => [null, state.message] }));
@@ -20,8 +20,7 @@ it("starts video, resume and controls even when the optional danmaku module fail
   state.art.once.mockImplementation((name: string, handler: () => void) => { state.listeners.set(name, handler); });
   Player({ unitId: "test", source: { url: "/media/test", qualities: [{ label: "原画", url: "/media/test" }], tracks: [] },
     startSeconds: 30, autoplay: true, progress: { revision: { current: 0 }, interval: 15, duration: 100, onSaved() {} },
-    danmaku: { maxLength: 50, lockTime: 5, colors: ["#FFFFFF"], blockWordLimit: 20, blockWordMaxLength: 20 },
-    subtitle: "off", onSubtitleChange() {}, onTracksChange() {} });
+    danmaku: { maxLength: 50, lockTime: 5, colors: ["#FFFFFF"], blockWordLimit: 20, blockWordMaxLength: 20 } });
   state.refs[0].current = {};
   cleanups = state.effects.map(effect => effect());
   await vi.dynamicImportSettled(); await new Promise(resolve => setTimeout(resolve, 0));
