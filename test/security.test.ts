@@ -19,14 +19,15 @@ it("uses host-only secure cookies on deployed HTTPS and accepts only safe relati
   const secure = { ...env, APP_ORIGIN: "https://example.test" };
   expect(cookieName(secure, "registration")).toBe("__Host-registration");
   expect(privateCookie(secure, "registration", "fictional", 300)).toBe("__Host-registration=fictional; Path=/; HttpOnly; SameSite=Lax; Max-Age=300; Secure");
-  for (const value of ["//evil.invalid", "/\\evil.invalid", "https://evil.invalid", "/\u0000evil", "x".repeat(2049)]) expect(safeNext(value, env.APP_ORIGIN)).toBe("/account");
+  for (const value of ["//evil.invalid", "/\\evil.invalid", "https://evil.invalid", "/\u0000evil", "x".repeat(2049)]) expect(safeNext(value, env.APP_ORIGIN)).toBe("/");
+  expect(safeNext(null, env.APP_ORIGIN)).toBe("/");
   expect(safeNext("/invites?view=mine", env.APP_ORIGIN)).toBe("/invites?view=mine");
 });
 
 it("rejects return targets that become protocol-relative after URL normalization", () => {
   for (const value of ["/..//evil.invalid", "/.//evil.invalid", "/%2e%2e//evil.invalid", "/a/../..//evil.invalid?view=mine", "/a/..///evil.invalid"]) {
     const next = safeNext(value, env.APP_ORIGIN);
-    expect(next, value).toBe("/account");
+    expect(next, value).toBe("/");
     expect(new URL(next, env.APP_ORIGIN).origin).toBe(new URL(env.APP_ORIGIN).origin);
   }
   expect(safeNext("/title/../invites?view=mine", env.APP_ORIGIN)).toBe("/invites?view=mine");

@@ -22,7 +22,7 @@ export function checkWrite(request: Request, env: Env) {
     throw new APIError("BAD_REQUEST", { code: "INVALID_INPUT", message: "请求格式无效。" });
   }
 }
-export function safeNext(value: string | null, origin: string, fallback = "/account") {
+export function safeNext(value: string | null, origin: string, fallback = "/") {
   if (!value || value.length > 2048 || !value.startsWith("/") || value.startsWith("//") || /[\\\x00-\x1f]/.test(value)) return fallback;
   const url = new URL(value, origin);
   return url.origin === new URL(origin).origin && !url.pathname.startsWith("//") ? `${url.pathname}${url.search}` : fallback;
