@@ -1,4 +1,5 @@
 import { APIError } from "better-auth/api";
+import { mediaDuration } from "./catalog.server";
 import { createRequestIdentity, liveMemberSql, type D1Reader } from "./member.server";
 import { checkWrite, readJson } from "./security.server";
 import { settings } from "./settings.server";
@@ -66,8 +67,7 @@ export async function danmakuHttp(request: Request, env: Env, identity = createR
   const time = typeof body.time === "number" && Number.isFinite(body.time) && body.time >= 0 ? body.time : invalid("弹幕时间无效。");
   const mode = body.mode === 0 || body.mode === 1 || body.mode === 2 ? body.mode : invalid("弹幕位置无效。");
   if (!(settings.danmaku.colors as readonly string[]).includes(color)) invalid("弹幕颜色无效。");
-  const current = await read(reader => reader.batch<{ media_duration: number | null }>([reader.prepare(`SELECT (SELECT m.duration_seconds FROM media_files m
-    WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.variant = 'original' AND m.r2_etag IS NOT NULL AND m.r2_etag <> '') AS media_duration
+  const current = await read(reader => reader.batch<{ media_duration: number | null }>([reader.prepare(`SELECT (${mediaDuration}) AS media_duration
     FROM playable_units u WHERE u.id = ?`).bind(unitId)]));
   const unit = current.value[0].results[0];
   if (!unit) missing();

@@ -36,7 +36,7 @@ vi.mock("react-router", async original => ({ ...await original<typeof import("re
   useLocation: () => state.location, useNavigationType: () => state.navigation }));
 vi.mock("@/components/ui/button", () => ({ Button: () => null }));
 
-const source: PlaybackSource = { url: "/media/source", qualities: [{ label: "原画", url: "/media/source" }], tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
+const source: PlaybackSource = { qualities: [{ label: "原画", url: "/media/source" }], tracks: [{ id: "en", language: "en", displayName: "English", url: "/subtitles/en" }] };
 const danmaku = { maxLength: settings.danmaku.maxLength, lockTime: settings.rateLimits.danmaku.minInterval, colors: [...settings.danmaku.colors],
   blockWordLimit: settings.danmaku.blockWordLimit, blockWordMaxLength: settings.danmaku.blockWordMaxLength };
 const fetch = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>();
@@ -226,7 +226,7 @@ it("keeps a member's pause across a reconnect and reports a blocked automatic re
   expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("请点击播放"), reconnect: false });
 });
 
-const tiers: PlaybackSource = { ...source, qualities: [{ label: "原画", url: "/media/source" }, { label: "1080p", url: "/media/p1080" }, { label: "720p", url: "/media/p720" }] };
+const tiers: PlaybackSource = { ...source, qualities: [{ label: "原画", url: "/media/source" }, { label: "2160p", url: "/media/p2160" }, { label: "1080p", url: "/media/p1080" }, { label: "720p", url: "/media/p720" }] };
 type Control = { name: string; html: string; selector: { html: string; default: boolean }[]; onSelect: (item: { html: string }) => Promise<string> };
 const control = () => (state.options as { controls: Control[] }).controls[0];
 function remember(label: string | null) {
@@ -234,7 +234,7 @@ function remember(label: string | null) {
   vi.stubGlobal("localStorage", storage); return storage;
 }
 
-it("shows no quality control when a unit has only its original", async () => {
+it("shows no quality control when a unit has a single tier", async () => {
   await mount();
   expect((state.options as { controls: unknown[] }).controls).toEqual([]);
 });
@@ -242,10 +242,16 @@ it("shows no quality control when a unit has only its original", async () => {
 it("starts on the remembered quality when the unit has it and on the original otherwise", async () => {
   remember("720p"); await mount({ source: tiers });
   expect(state.options).toMatchObject({ url: "http://localhost:6120/media/p720" });
-  expect(control()).toMatchObject({ name: "quality", html: "720p", selector: [{ html: "原画", default: false }, { html: "1080p", default: false }, { html: "720p", default: true }] });
+  expect(control()).toMatchObject({ name: "quality", html: "720p", selector: [{ html: "原画", default: false }, { html: "2160p", default: false }, { html: "1080p", default: false }, { html: "720p", default: true }] });
   cleanups.forEach(cleanup => cleanup?.()); state.effects.length = 0; state.refs.length = 0; state.refIndex = 0;
-  remember("2160p"); await mount({ source: tiers });
+  remember("480p"); await mount({ source: tiers });
   expect(state.options).toMatchObject({ url: "http://localhost:6120/media/source" }); expect(control().html).toBe("原画");
+});
+
+it("defaults to the original regardless of optional codec support and still lists every tier", async () => {
+  remember(null); await mount({ source: tiers });
+  expect(state.options).toMatchObject({ url: "http://localhost:6120/media/source" });
+  expect(control()).toMatchObject({ html: "原画", selector: [{ html: "原画", default: true }, { html: "2160p", default: false }, { html: "1080p", default: false }, { html: "720p", default: false }] });
 });
 
 it("switches quality in place, remembers it, keeps the position through the switch and recovers on the chosen quality", async () => {

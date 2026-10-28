@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import { mp4BoxHeader, mp4Metadata, subtitleTrack, validateVtt } from "./media-format";
+import { mp4BoxHeader, mp4Metadata, qualityTiers, subtitleTrack, validateVtt, type QualityTier } from "./media-format";
 import { settings } from "./settings.server";
 
 export const mediaSyncCron = "*/5 * * * *";
 const windowMs = 6 * 60_000;
-const tierSuffix = new RegExp(`^\\.(${settings.qualityTiers.join("|")})\\.mp4$`, "u");
-// variant is present only on quality tiers; the plain MP4 is the original.
-type Identity = { kind: "movie" | "series"; tmdbId: number; season: number | null; episode: number | null; language: string | null; trackKey: string | null; variant?: string };
+const tiers = Object.keys(qualityTiers) as QualityTier[];
+const tierSuffix = new RegExp(`^\\.(${tiers.filter(tier => tier !== "original").join("|")})\\.mp4$`, "u");
+// An unsuffixed video is the original; subtitles have no variant.
+type Identity = { kind: "movie" | "series"; tmdbId: number; season: number | null; episode: number | null; language: string | null; trackKey: string | null; variant?: QualityTier };
 export function mediaIdentity(key: string): Identity | null {
   const series = /^library\/series\/([1-9]\d*)\/S(\d{2,})\/E(\d{2,})(.*)$/u.exec(key);
   const movie = /^library\/movie\/([1-9]\d*)\/movie(.*)$/u.exec(key);
@@ -16,7 +17,7 @@ export function mediaIdentity(key: string): Identity | null {
   const suffix = series ? series[4] : movie![2];
   const trackKey = /^\.(.+)\.vtt$/u.exec(suffix)?.[1], subtitle = trackKey ? subtitleTrack(trackKey) : null, tier = tierSuffix.exec(suffix);
   if (suffix !== ".mp4" && !tier && !subtitle) return null;
-  return { kind: series ? "series" : "movie", tmdbId, season, episode, language: subtitle?.language ?? null, trackKey: subtitle ? trackKey! : null, ...tier ? { variant: tier[1] } : {} };
+  return { kind: series ? "series" : "movie", tmdbId, season, episode, language: subtitle?.language ?? null, trackKey: subtitle ? trackKey! : null, ...suffix === ".mp4" ? { variant: "original" as const } : tier ? { variant: tier[1] as QualityTier } : {} };
 }
 const identityKey = (value: Pick<Identity, "kind" | "tmdbId" | "season" | "episode">) => `${value.kind}:${value.tmdbId}:${value.season}:${value.episode}`;
 function requireValid(condition: unknown) { if (!condition) throw new Error("MEDIA_INVALID"); }
@@ -36,9 +37,10 @@ async function range(bucket: R2Bucket, key: string, head: R2Object, offset: numb
   await consume(object.body, signal, chunk => { requireValid(at + chunk.length <= length); bytes.set(chunk, at); at += chunk.length; });
   requireValid(at === length); return bytes;
 }
-export async function inspectR2Media(bucket: R2Bucket, key: string, head: R2Object, subtitle: boolean, signal: AbortSignal) {
+// variant is absent for subtitles.
+export async function inspectR2Media(bucket: R2Bucket, key: string, head: R2Object, variant: QualityTier | undefined, signal: AbortSignal) {
   requireValid(Number.isSafeInteger(head.size) && head.size > 0); let metadata: ReturnType<typeof mp4Metadata> | undefined;
-  if (!subtitle) {
+  if (variant) {
     let at = 0, ftyp = false, moov = -1, mdat = -1, count = 0;
     while (at < head.size) {
       requireValid(++count <= 10000);
@@ -47,6 +49,8 @@ export async function inspectR2Media(bucket: R2Bucket, key: string, head: R2Obje
       if (box.type === "moov") {
         requireValid(moov < 0 && box.size <= 32 * 1024 * 1024); moov = at;
         metadata = mp4Metadata(await range(bucket, key, head, at, box.size, signal), head.size);
+        // Each tier must use its own codec (B 6.6); reject before reading the whole object.
+        requireValid(metadata.videoCodec === qualityTiers[variant]);
       }
       if (box.type === "mdat") { requireValid(box.size > box.headerSize); if (mdat < 0) mdat = at; }
       at += box.size;
@@ -55,7 +59,7 @@ export async function inspectR2Media(bucket: R2Bucket, key: string, head: R2Obje
   } else requireValid(head.size <= 5 * 1024 * 1024);
   const object = await bucket.get(key, { onlyIf: { etagMatches: head.etag } });
   if (!object || !("body" in object) || object.etag !== head.etag || object.size !== head.size) throw new Error("MEDIA_CHANGED");
-  const hash = createHash("sha256"), bytes = subtitle ? new Uint8Array(head.size) : null; let length = 0;
+  const hash = createHash("sha256"), bytes = variant ? null : new Uint8Array(head.size); let length = 0;
   await consume(object.body, signal, chunk => { requireValid(length + chunk.length <= head.size); hash.update(chunk); bytes?.set(chunk, length); length += chunk.length; });
   requireValid(length === head.size); if (bytes) validateVtt(bytes);
   const after = await bucket.head(key); requireValid(after?.etag === head.etag && after.size === head.size);
@@ -74,15 +78,9 @@ export async function syncMedia(env: Env) {
     const units = await db.prepare(`SELECT u.id, w.kind, w.tmdb_id AS tmdbId, s.season_number AS season, u.episode_number AS episode
       FROM playable_units u JOIN works w ON w.id = u.work_id LEFT JOIN seasons s ON s.id = u.season_id`).all<{ id: string; kind: "movie" | "series"; tmdbId: number; season: number | null; episode: number | null }>();
     const identities = new Map(units.results.map(unit => [identityKey(unit), unit.id]));
-    const known = await db.prepare(`SELECT id, object_key, r2_etag, byte_length, playable_unit_id, variant, duration_seconds FROM media_files
-      UNION ALL SELECT id, object_key, r2_etag, byte_length, NULL, NULL, NULL FROM subtitle_tracks`).all<{ id: string; object_key: string; r2_etag: string | null; byte_length: number; playable_unit_id: string | null; variant: string | null; duration_seconds: number | null }>();
+    const known = await db.prepare(`SELECT id, object_key, r2_etag, byte_length, playable_unit_id, variant, duration_seconds, video_codec FROM media_files
+      UNION ALL SELECT id, object_key, r2_etag, byte_length, NULL, NULL, NULL, NULL FROM subtitle_tracks`).all<{ id: string; object_key: string; r2_etag: string | null; byte_length: number; playable_unit_id: string | null; variant: string | null; duration_seconds: number | null; video_codec: string | null }>();
     const versions = new Map(known.results.map(file => [file.object_key, file]));
-    // A tier is checked against its unit's original duration; tiers list before their original, so a fresh upload links them on the next pass.
-    const originals = new Map(known.results.filter(file => file.variant === "original").map(file => [file.playable_unit_id!, file.duration_seconds!]));
-    const unattached = (unitId: string, identity: Identity, reason: string) => {
-      result.unattached++;
-      console.warn(JSON.stringify({ event: "media_sync_variant_unattached", unitId, reason, ...identity }));
-    };
     // Enumerate before reading content so validation failures cannot starve deletion detection.
     const objects: R2Object[] = [];
     let cursor: string | undefined;
@@ -94,10 +92,17 @@ export async function syncMedia(env: Env) {
     } while (cursor && !controller.signal.aborted);
     controller.signal.throwIfAborted();
     const listed = new Set(objects.map(object => object.key));
-    // Obsolete naming rules also make a stored reference unusable, even if its object remains in R2.
-    const gone = known.results.filter(file => file.r2_etag && file.object_key.startsWith("library/") && (!listed.has(file.object_key) || !mediaIdentity(file.object_key))).map(file => file.object_key);
-    if (gone.length) await db.batch(["media_files", "subtitle_tracks"].map(table => db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE object_key IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(gone))));
+    // Old naming or codec rules cannot keep a cached verification valid, even when R2 bytes have not changed.
+    const gone = known.results.filter(file => file.r2_etag && file.object_key.startsWith("library/") && (!listed.has(file.object_key) || !mediaIdentity(file.object_key)
+      || file.variant && file.video_codec !== qualityTiers[file.variant as QualityTier])).map(file => file.object_key);
+    if (gone.length) {
+      await db.batch(["media_files", "subtitle_tracks"].map(table => db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE object_key IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(gone))));
+      for (const key of gone) versions.get(key)!.r2_etag = null;
+    }
     result.cleared = gone.length;
+    // Only the verified original determines playability and the duration used to validate optional tiers.
+    const originals = new Map(known.results.filter(file => file.variant === "original" && file.r2_etag)
+      .map(file => [file.playable_unit_id!, file.duration_seconds!]));
     let last = locked.cursor ?? undefined, validated = 0;
     const checkpoint = (key: string | undefined) => db.prepare("UPDATE media_sync_state SET cursor = ?, updated_at = ? WHERE id = 'catalog' AND lease_id = ?").bind(key ?? null, Date.now(), lease).run();
     for (const object of objects) {
@@ -106,31 +111,34 @@ export async function syncMedia(env: Env) {
       const unitId = identities.get(identityKey(identity)); if (!unitId) { last = object.key; result.unknown++; continue; }
       const knownObject = versions.get(object.key);
       if (knownObject?.r2_etag === object.etag && knownObject.byte_length === object.size) { last = object.key; result.skipped++; continue; }
-      // Without an original there is nothing to compare against, so the tier is not read at all.
-      if (identity.variant && !originals.has(unitId)) { last = object.key; unattached(unitId, identity, "ORIGINAL_MISSING"); continue; }
+      if (identity.variant && identity.variant !== "original" && !originals.has(unitId)) {
+        last = object.key; result.unattached++;
+        console.warn(JSON.stringify({ event: "media_sync_variant_unattached", unitId, reason: "ORIGINAL_MISSING", ...identity })); continue;
+      }
       if (controller.signal.aborted) { await checkpoint(last); result.deferred = true; return result; }
       if (validated++ >= 20) { await checkpoint(last); result.deferred = true; return result; }
       last = object.key;
-      const table = identity.language ? "subtitle_tracks" : "media_files", variant = identity.variant ?? "original";
+      const table = identity.language ? "subtitle_tracks" : "media_files", variant = identity.variant;
       try {
         // The recorded version no longer matches R2, so the record stays unplayable unless the current object passes validation.
         if (knownObject?.r2_etag) await db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE id = ?`).bind(knownObject.id).run();
-        const inspected = await inspectR2Media(env.MEDIA_BUCKET, object.key, object, Boolean(identity.language), controller.signal);
+        const inspected = await inspectR2Media(env.MEDIA_BUCKET, object.key, object, variant, controller.signal);
         const existing = await db.prepare(`SELECT checksum_sha256, byte_length FROM ${table} WHERE playable_unit_id = ? AND ${identity.language ? "track_key = ?" : "format = 'mp4' AND variant = ?"}`)
           .bind(unitId, identity.language ? identity.trackKey! : variant).first<{ checksum_sha256: string; byte_length: number }>();
         controller.signal.throwIfAborted();
-        if (identity.variant && Math.abs(inspected.durationSeconds! - originals.get(unitId)!) > settings.qualityDurationTolerance) { unattached(unitId, identity, "DURATION_MISMATCH"); continue; }
+        if (variant && variant !== "original" && Math.abs(inspected.durationSeconds! - originals.get(unitId)!) > settings.qualityDurationTolerance) {
+          result.unattached++; console.warn(JSON.stringify({ event: "media_sync_variant_unattached", unitId, reason: "DURATION_MISMATCH", ...identity })); continue;
+        }
         // A replacement rewrites the existing row in place, so its id, media URL and member data stay unchanged.
         const upsert = () => db.prepare(`INSERT INTO media_files (id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag)
-          VALUES (?, ?, 'mp4', ?, ?, ?, ?, ?, 'h264', 'aac', ?, ?) ON CONFLICT (playable_unit_id, format, variant) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
-          checksum_sha256 = excluded.checksum_sha256, duration_seconds = excluded.duration_seconds, bitrate = excluded.bitrate, r2_etag = excluded.r2_etag`)
-          .bind(crypto.randomUUID(), unitId, variant, object.key, inspected.byteLength, inspected.checksum, inspected.durationSeconds!, inspected.bitrate!, object.etag);
+          VALUES (?, ?, 'mp4', ?, ?, ?, ?, ?, ?, 'aac', ?, ?) ON CONFLICT (playable_unit_id, format, variant) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
+          checksum_sha256 = excluded.checksum_sha256, duration_seconds = excluded.duration_seconds, video_codec = excluded.video_codec, bitrate = excluded.bitrate, r2_etag = excluded.r2_etag`)
+          .bind(crypto.randomUUID(), unitId, variant, object.key, inspected.byteLength, inspected.checksum, inspected.durationSeconds!, inspected.videoCodec!, inspected.bitrate!, object.etag);
         if (identity.language) await db.prepare(`INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256, r2_etag)
           VALUES (?, ?, ?, 'vtt', ?, ?, ?, ?, ?, ?) ON CONFLICT (playable_unit_id, track_key) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
           checksum_sha256 = excluded.checksum_sha256, r2_etag = excluded.r2_etag`)
           .bind(crypto.randomUUID(), unitId, identity.language, subtitleTrack(identity.trackKey!)!.label, identity.trackKey, object.key, inspected.byteLength, inspected.checksum, object.etag).run();
-        // Only the original decides the unit's duration and playability.
-        else if (identity.variant) await upsert().run();
+        else if (variant !== "original") await upsert().run();
         else {
           await db.batch([db.prepare("UPDATE playable_units SET duration_seconds = ? WHERE id = ?").bind(inspected.durationSeconds!, unitId), upsert()]);
           originals.set(unitId, inspected.durationSeconds!);

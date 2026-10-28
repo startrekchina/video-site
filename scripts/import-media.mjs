@@ -1,4 +1,5 @@
-import { subtitleTrack, validateVtt } from "../app/lib/media-format.ts";
+import { mp4Metadata, qualityTiers, subtitleTrack, validateVtt } from "../app/lib/media-format.ts";
+import { settings } from "../app/lib/settings.server.ts";
 export { validateVtt } from "../app/lib/media-format.ts";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -70,7 +71,7 @@ export async function inspectMp4(path) {
   try {
     const before = await file.stat();
     check(before.isFile() && before.size > 0 && Number.isSafeInteger(before.size), `${label} 大小无效。`);
-    let offset = 0, moov = -1, mdat = -1, ftyp = false;
+    let offset = 0, moov = -1, moovSize = 0, mdat = -1, ftyp = false;
     const header = Buffer.alloc(16);
     while (offset < before.size) {
       const { bytesRead } = await file.read(header, 0, Math.min(16, before.size - offset), offset);
@@ -89,7 +90,7 @@ export async function inspectMp4(path) {
       }
       if (type === "moov") {
         check(moov === -1 && size > headerSize, `${label}：moov 无效。`);
-        moov = offset;
+        moov = offset; moovSize = size;
       }
       if (type === "mdat") {
         check(size > headerSize, `${label}：媒体数据为空。`);
@@ -99,17 +100,17 @@ export async function inspectMp4(path) {
     }
     check(ftyp && moov >= 0 && mdat >= 0, `${label}：不是完整 MP4，请先转码。`);
     check(moov < mdat, `${label}：不符合 faststart，请先用 -movflags +faststart 转码。`);
-    const probe = JSON.parse(decode(await ffmpeg("ffprobe", ["-v", "error", "-protocol_whitelist", "file,pipe", "-show_streams", "-show_format", "-of", "json", path], label), label));
-    const videos = probe.streams?.filter(stream => stream.codec_type === "video" && stream.disposition?.attached_pic !== 1) ?? [];
-    const audios = probe.streams?.filter(stream => stream.codec_type === "audio") ?? [];
-    check(probe.format?.format_name?.split(",").includes("mp4") && videos.length === 1 && videos[0].codec_name === "h264" && audios.length > 0 && audios.every(stream => stream.codec_name === "aac"), `${label}：需要 H.264 视频和 AAC 音频，请先转码。`);
-    const durationSeconds = Number(probe.format.duration), bitrate = Math.round(Number(probe.format.bit_rate));
-    check(Number.isFinite(durationSeconds) && durationSeconds > 0 && Number.isSafeInteger(bitrate) && bitrate > 0, `${label}：时长或码率无效，请先转码。`);
+    // The scan's own metadata check, so a file that passes here passes there.
+    check(moovSize <= 32 * 1024 * 1024, `${label}：MP4 元数据超过 32 MiB，请先在本机重新封装。`);
+    const box = Buffer.alloc(moovSize), { bytesRead } = await file.read(box, 0, moovSize, moov);
+    check(bytesRead === moovSize, `${label}：moov 读取不完整。`);
+    let metadata;
+    try { metadata = mp4Metadata(new Uint8Array(box.buffer, box.byteOffset, moovSize), before.size); } catch (error) { check(false, `${label}：${error.message}，请先转码。`); }
     const hash = createHash("sha256");
     for await (const bytes of file.createReadStream({ start: 0, autoClose: false })) hash.update(bytes);
     const after = await stat(path);
     check(before.size === after.size && before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs && before.ino === after.ino, `${label}：预检期间文件变更，请重试。`);
-    return { path, byteLength: before.size, checksumSha256: hash.digest("hex"), durationSeconds, bitrate, videoCodec: "h264", audioCodec: "aac" };
+    return { path, byteLength: before.size, checksumSha256: hash.digest("hex"), ...metadata };
   } finally { await file.close(); }
 }
 
@@ -234,7 +235,7 @@ export async function preflight({ environment, mappingPath, env = process.env, r
   check(Array.isArray(input.media) && input.media.length <= 2000, "media 必须是至多 2000 项的数组。" );
   const media = [], warnings = [], seen = new Set();
   for (const item of input.media) {
-    fields(item, ["kind", "tmdbId", "seasonNumber", "episodeNumber", "videoPath", "subtitles"], "媒体条目");
+    fields(item, ["kind", "tmdbId", "seasonNumber", "episodeNumber", "videos", "subtitles"], "媒体条目");
     check(["series", "movie"].includes(item.kind) && Number.isSafeInteger(item.tmdbId) && item.tmdbId > 0, "媒体作品身份无效。" );
     const workId = `${item.kind}:${item.tmdbId}`, seasonId = `${workId}:season:${item.seasonNumber}`;
     check(byId.has(workId), `${workId} 不在 manifest 中。`);
@@ -243,7 +244,18 @@ export async function preflight({ environment, mappingPath, env = process.env, r
     check(!seen.has(id), `${id} 媒体重复。`);
     seen.add(id);
     check(Array.isArray(item.subtitles) && item.subtitles.length <= 32, `${id} subtitles 必须是至多 32 项的数组。`);
-    const video = await inspectMp4(localFile(item.videoPath, dirname(mappingPath))), subtitles = [], tracks = new Set();
+    // The original is required; optional tiers use their fixed codec and match its duration (B 6.6).
+    check(item.videos && typeof item.videos === "object" && !Array.isArray(item.videos) && Object.keys(item.videos).length > 0, `${id} videos 必须是按档位列出文件的非空对象。`);
+    check(Object.hasOwn(item.videos, "original"), `${id} videos 必须包含 original 原生主档。`);
+    const videos = [];
+    for (const tier of Object.keys(qualityTiers).filter(tier => tier in item.videos)) {
+      const video = await inspectMp4(localFile(item.videos[tier], dirname(mappingPath)));
+      check(video.videoCodec === qualityTiers[tier], `${id}/${tier}：须为 ${qualityTiers[tier] === "vp9" ? "VP9" : "H.264"} 视频，请先转码。`);
+      check(!videos.length || Math.abs(video.durationSeconds - videos[0].durationSeconds) <= settings.qualityDurationTolerance, `${id}/${tier}：时长与 original 相差超过 ${settings.qualityDurationTolerance} 秒。`);
+      videos.push({ tier, ...video });
+    }
+    check(videos.length === Object.keys(item.videos).length, `${id} videos 只能使用 ${Object.keys(qualityTiers).join("、")} 档位。`);
+    const subtitles = [], tracks = new Set();
     for (const track of item.subtitles) {
       const validated = await subtitle(track, dirname(mappingPath), id, warnings);
       const trackId = `${validated.language}.${validated.trackKey}`;
@@ -251,7 +263,7 @@ export async function preflight({ environment, mappingPath, env = process.env, r
       tracks.add(trackId);
       subtitles.push(validated);
     }
-    media.push({ id, workId, seasonId: item.kind === "movie" ? null : seasonId, episodeNumber: item.episodeNumber ?? null, video, subtitles });
+    media.push({ id, workId, seasonId: item.kind === "movie" ? null : seasonId, episodeNumber: item.episodeNumber ?? null, videos, subtitles });
   }
   const works = [], seasons = [], workDetails = new Map(), unitDetails = new Map();
   for (const entry of entries.filter(entry => entry.seasonNumber === null)) {
@@ -330,7 +342,7 @@ export function catalogQueries(result) {
 export function report(result) {
   return { ...result, status: "preflight-only", cloudWrites: 0, blocker: UPLOAD_BLOCKER,
     counts: { works: result.works.length, seasons: result.seasons.length, media: result.media.length, imported: 0 },
-    media: result.media.map(({ video: { path, ...video }, subtitles, ...identity }) => ({ ...identity, video, subtitles: subtitles.map(({ bytes, ...track }) => track) })),
+    media: result.media.map(({ videos, subtitles, ...identity }) => ({ ...identity, videos: videos.map(({ path, ...video }) => video), subtitles: subtitles.map(({ bytes, ...track }) => track) })),
   };
 }
 
