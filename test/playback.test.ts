@@ -220,6 +220,19 @@ it("offers only tiers within the duration tolerance of the original", async () =
   await expectHidden(await http("/media/p480", {}, ""), 401);
 });
 
+it("refuses a tier by its direct address while the original is unverified, not VP9 or of another duration", async () => {
+  const tier = await env.MEDIA_BUCKET.put("fictional-private-tier", "tier-bytes");
+  await env.DB.prepare("INSERT INTO media_files VALUES ('p480','episode-unit','mp4','480p','fictional-private-tier',10,'hash',4,'h264','aac',20,?)").bind(tier!.etag).run();
+  const source = await env.DB.prepare("SELECT r2_etag FROM media_files WHERE id = 'source'").first<string>("r2_etag");
+  expect((await http("/media/p480")).status).toBe(200);
+  for (const change of ["r2_etag = NULL", "video_codec = 'h264'", "duration_seconds = 6"]) {
+    await env.DB.prepare(`UPDATE media_files SET ${change} WHERE id = 'source'`).run();
+    for (const options of [{}, { method: "HEAD" }, { headers: { Range: "bytes=0-3" } }]) await expectHidden(await http("/media/p480", options), 404);
+    await env.DB.prepare("UPDATE media_files SET r2_etag = ?, video_codec = 'vp9', duration_seconds = 4 WHERE id = 'source'").bind(source).run();
+    expect((await http("/media/p480")).status, change).toBe(200);
+  }
+});
+
 it("rejects a previously verified H.264 original in both the loader and media endpoint without reading R2", async () => {
   await env.DB.prepare("UPDATE media_files SET video_codec = 'h264' WHERE id = 'source'").run();
   expect(await playbackSource(env.DB, episodeKey(1))).toBeNull();

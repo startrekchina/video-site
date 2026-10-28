@@ -145,6 +145,17 @@ it("rejects an H.264 original without publishing it or using an optional tier as
   expect((await env.DB.prepare("SELECT id FROM media_files").all()).results).toEqual([]);
 });
 
+it("rejects a file in the wrong codec for its tier from its metadata without reading the whole object", async () => {
+  await media(); expect(await syncMedia(env)).toMatchObject({ linked: 1 });
+  await env.MEDIA_BUCKET.put(key, video()); await env.MEDIA_BUCKET.put(tierKey("1080p"), video());
+  const get = vi.spyOn(env.MEDIA_BUCKET, "get"), warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(await syncMedia(env)).toMatchObject({ linked: 0, failed: 2 });
+    expect(get).toHaveBeenCalled();
+    expect(get.mock.calls.filter(([, options]) => !(options as R2GetOptions | undefined)?.range)).toEqual([]);
+  } finally { get.mockRestore(); warn.mockRestore(); }
+});
+
 it.each(["h264", "vp9"])("revalidates an unchanged cached H.264 main record against its actual %s bytes without deleting its identity", async codec => {
   await media(); await syncMedia(env);
   const before = (await env.DB.prepare("SELECT * FROM media_files").first())!;
@@ -452,9 +463,9 @@ it.each(["checksum", "length"])("replaces %s mismatches in place and logs logica
 
 it("rejects partial/changed/aborted MP4 and never publishes invalid or unknown resources", async () => {
   await media(); const head = (await env.MEDIA_BUCKET.head(key))!;
-  await expect(inspectR2Media(env.MEDIA_BUCKET, key, head, false, AbortSignal.abort())).rejects.toThrow();
+  await expect(inspectR2Media(env.MEDIA_BUCKET, key, head, "original", AbortSignal.abort())).rejects.toThrow();
   await env.MEDIA_BUCKET.put(key, video().slice(0, 32));
-  await expect(inspectR2Media(env.MEDIA_BUCKET, key, head, false, new AbortController().signal)).rejects.toThrow();
+  await expect(inspectR2Media(env.MEDIA_BUCKET, key, head, "original", new AbortController().signal)).rejects.toThrow();
   await env.MEDIA_BUCKET.put("library/series/999999/S01/E01.720p.mp4", video());
   expect(await syncMedia(env)).toMatchObject({ linked: 0, failed: 1, unknown: 1 });
   expect((await env.DB.prepare("SELECT id FROM media_files").all()).results).toHaveLength(0);

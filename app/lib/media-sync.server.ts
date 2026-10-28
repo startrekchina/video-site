@@ -37,9 +37,10 @@ async function range(bucket: R2Bucket, key: string, head: R2Object, offset: numb
   await consume(object.body, signal, chunk => { requireValid(at + chunk.length <= length); bytes.set(chunk, at); at += chunk.length; });
   requireValid(at === length); return bytes;
 }
-export async function inspectR2Media(bucket: R2Bucket, key: string, head: R2Object, subtitle: boolean, signal: AbortSignal) {
+// variant is absent for subtitles.
+export async function inspectR2Media(bucket: R2Bucket, key: string, head: R2Object, variant: QualityTier | undefined, signal: AbortSignal) {
   requireValid(Number.isSafeInteger(head.size) && head.size > 0); let metadata: ReturnType<typeof mp4Metadata> | undefined;
-  if (!subtitle) {
+  if (variant) {
     let at = 0, ftyp = false, moov = -1, mdat = -1, count = 0;
     while (at < head.size) {
       requireValid(++count <= 10000);
@@ -48,6 +49,8 @@ export async function inspectR2Media(bucket: R2Bucket, key: string, head: R2Obje
       if (box.type === "moov") {
         requireValid(moov < 0 && box.size <= 32 * 1024 * 1024); moov = at;
         metadata = mp4Metadata(await range(bucket, key, head, at, box.size, signal), head.size);
+        // Each tier must use its own codec (B 6.6); reject before reading the whole object.
+        requireValid(metadata.videoCodec === qualityTiers[variant]);
       }
       if (box.type === "mdat") { requireValid(box.size > box.headerSize); if (mdat < 0) mdat = at; }
       at += box.size;
@@ -56,7 +59,7 @@ export async function inspectR2Media(bucket: R2Bucket, key: string, head: R2Obje
   } else requireValid(head.size <= 5 * 1024 * 1024);
   const object = await bucket.get(key, { onlyIf: { etagMatches: head.etag } });
   if (!object || !("body" in object) || object.etag !== head.etag || object.size !== head.size) throw new Error("MEDIA_CHANGED");
-  const hash = createHash("sha256"), bytes = subtitle ? new Uint8Array(head.size) : null; let length = 0;
+  const hash = createHash("sha256"), bytes = variant ? null : new Uint8Array(head.size); let length = 0;
   await consume(object.body, signal, chunk => { requireValid(length + chunk.length <= head.size); hash.update(chunk); bytes?.set(chunk, length); length += chunk.length; });
   requireValid(length === head.size); if (bytes) validateVtt(bytes);
   const after = await bucket.head(key); requireValid(after?.etag === head.etag && after.size === head.size);
@@ -119,12 +122,10 @@ export async function syncMedia(env: Env) {
       try {
         // The recorded version no longer matches R2, so the record stays unplayable unless the current object passes validation.
         if (knownObject?.r2_etag) await db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE id = ?`).bind(knownObject.id).run();
-        const inspected = await inspectR2Media(env.MEDIA_BUCKET, object.key, object, Boolean(identity.language), controller.signal);
+        const inspected = await inspectR2Media(env.MEDIA_BUCKET, object.key, object, variant, controller.signal);
         const existing = await db.prepare(`SELECT checksum_sha256, byte_length FROM ${table} WHERE playable_unit_id = ? AND ${identity.language ? "track_key = ?" : "format = 'mp4' AND variant = ?"}`)
           .bind(unitId, identity.language ? identity.trackKey! : variant).first<{ checksum_sha256: string; byte_length: number }>();
         controller.signal.throwIfAborted();
-        // Each tier must use its own codec (B 6.6); a mismatch fails like any invalid file.
-        requireValid(!variant || inspected.videoCodec === qualityTiers[variant]);
         if (variant && variant !== "original" && Math.abs(inspected.durationSeconds! - originals.get(unitId)!) > settings.qualityDurationTolerance) {
           result.unattached++; console.warn(JSON.stringify({ event: "media_sync_variant_unattached", unitId, reason: "DURATION_MISMATCH", ...identity })); continue;
         }
