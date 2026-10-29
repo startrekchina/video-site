@@ -154,7 +154,7 @@ export async function validateRestoredDatabase(db: D1Database, bucket: R2Bucket,
   const integrity = await db.prepare("PRAGMA quick_check").all<Record<string, string>>();
   requireValid(integrity.results.length === 1 && Object.values(integrity.results[0])[0] === "ok");
   requireValid((await db.prepare("PRAGMA foreign_key_check").all()).results.length === 0);
-  let mediaPending = 0;
+  let mediaPending = 0, mediaMissing = 0;
   for (const table of ["media_files", "subtitle_tracks"]) {
     let offset = 0;
     while (true) {
@@ -162,17 +162,18 @@ export async function validateRestoredDatabase(db: D1Database, bucket: R2Bucket,
         .all<{ id: string; object_key: string; byte_length: number; r2_etag: string | null }>();
       for (const media of page.results) {
         signal.throwIfAborted(); requireValid(media.object_key.startsWith("library/") && !media.object_key.split("/").includes(".."));
-        const head = await bucket.head(media.object_key); requireValid(head);
+        const head = await bucket.head(media.object_key);
         // This exact version was fully hashed by media sync before its ETag entered the authenticated snapshot.
-        if (media.r2_etag === head!.etag && media.byte_length === head!.size) continue;
-        // Any other version waits for the media scan after the switch, which validates it like a same-name replacement (B 6.8).
+        if (head && media.r2_etag === head.etag && media.byte_length === head.size) continue;
+        // Any other version waits for the media scan after the switch, which validates it like a same-name replacement (B 6.8);
+        // a missing object stays unplayable until the owner uploads it again (B 6.9.3).
         if (media.r2_etag) await db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE id = ?`).bind(media.id).run();
-        mediaPending++;
+        if (head) mediaPending++; else mediaMissing++;
       }
       offset += page.results.length; if (page.results.length < 25) break;
     }
   }
-  return { schemaVersion, business: await restoredBusinessSummary(db), mediaVerified: true as const, mediaPending };
+  return { schemaVersion, business: await restoredBusinessSummary(db), mediaVerified: true as const, mediaPending, mediaMissing };
 }
 
 export async function sanitizeRestoredCredentials(db: D1Database, oldSecret: string, newSecret: string) {
