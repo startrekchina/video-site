@@ -242,6 +242,8 @@ staging 备份断线证据（2026-10-17，`087b9c1` / 版本 `b1e7efb0`）：手
 - 合并时统一改称 preview：文档与代码中的 `staging`、环境名 `APP_ENV`、构建变量 `STAGING_*` 及脚本名一并改为 preview。D1 与媒体桶保留现有资源和名称，只在配置中对应。
 - 合并在 production 首次上线前完成，正式站一开始即为最终结构；依据见下方小实验。
 - 预览地址为 `dev.video.startrekchina.org`：正式域名 `video.startrekchina.org` 设为“Production and Preview”，在控制台维护，配置的 `domains` 留空。
+- 预览不运行定时任务，不增加手动触发入口：媒体扫描只由定时任务启动，预览中新上传或同名替换的视频与字幕不会被关联，已关联的保持可播；定时备份不执行，网页手动备份照常可用。涉及扫描或定时备份的改动以自动化测试为准，Cron 时限只能在正式环境观察。
+- 旧 staging 备份在预览环境首份备份成功后删除（私有 R2 与 S3 中的副本）：环境名改为 preview 后，它们的 R2 路径、文件头和外部文件名仍带 `staging`，新代码不再识别，也不会自动清理。
 
 **小实验结论**（2026-10-29）：临时 Worker 读取测试站资源，在实验分支上验证，未改动 `dev`、`main`、测试站与正式站 Worker；临时 Worker、预览、域名、DNS 记录和远程分支均已删除。
 - **接入**：控制台导入仓库建出的 Worker 仍是旧版预览模式（非正式分支执行“Version command”），须在 Settings → Builds 做一次不可逆的“Switch to Worker Previews”，正式站 Worker 接入时同样需要。对话框提示自定义命令须调用 `npx wrangler preview`，实际接受了 `cf previews deploy`。仓库连接由同一账户的 Worker 共用，清理时只删 Worker 的构建配置。
@@ -252,18 +254,14 @@ staging 备份断线证据（2026-10-17，`087b9c1` / 版本 `b1e7efb0`）：手
 - **验证**：正式与预览地址的首页和会话接口（经 D1）均返回 200；登录请求只接受本环境地址，对方地址与测试站地址返回 403。
 - **未实测**：定时任务（临时 Worker 未配置，以免它扫描和备份测试站数据；预览产物本就不能带定时任务）、R2 读取、真实登录与播放。
 
-**待开发者确认**：
-1. 预览不运行定时任务：接受，或增加站长手动触发媒体扫描与备份的入口。
-2. 旧 staging 备份：环境名改为 preview 后，旧备份的 R2 路径、文件头和外部文件名仍带 `staging`，新代码不再识别，也不会自动清理。建议预览环境首份备份成功后删除旧备份。
-
-**实施步骤**（确认后执行，涉及提交、推送和云端设置的步骤各自取得授权；实验提交保留在本地分支 `exp/env1-preview`，可作参考）：
+**实施步骤**（涉及提交、推送和云端设置的步骤各自取得授权；实验提交保留在本地分支 `exp/env1-preview`，可作参考）：
 1. 统一构建脚本 `scripts/build.sh`，替换 `build-staging.sh`：两环境执行相同的安装、类型检查、测试与构建，模式固定为 `production`；`PREVIEW_BRANCH` 存在且不是当前分支时直接退出。
 2. `cloudflare.config.ts`：两环境同一个 Worker 名；`isPreview` 时使用预览地址 `https://dev.video.startrekchina.org` 与预览资源（现有 staging D1 与媒体桶），并省略 `domains` 与 `triggers`；正式配置的 `domains` 留空。
 3. 正式站 Worker 接入：控制台连接仓库，正式分支 `main`，切换到 Worker Previews。正式部署命令在迁移正式库后执行 `cf deploy --prebuilt --mode production`；预览命令在当前分支等于 `PREVIEW_BRANCH` 时迁移预览库后执行 `cf previews deploy --prebuilt --mode production`，否则跳过。Previews Base 构建变量设 `CLOUDFLARE_PREVIEW_BUILD=true`、`PREVIEW_BRANCH=dev` 和预览资源变量；两边都排除只改文档或原型的路径。取得 production 发布授权前，正式部署命令只做检查、不发布。
 4. 在控制台为正式站 Worker 添加 `video.startrekchina.org` 并设为“Production and Preview”；Turnstile 允许的主机名加入 `dev.video.startrekchina.org`。
 5. 预览 Secrets 写入 Previews Base：认证与备份密钥沿用站长保存的现有值，Turnstile、邮件、导出 Token 和 S3 由站长重新填写。
-6. 按上方确认结果改名并处理旧备份，同步需求、计划、AGENTS 与运维说明。
-7. 推送 `dev` 生成预览，核对来源提交、迁移、登录（密码、TOTP、通行密钥）、播放与备份；确认正式版本不受影响。
+6. 统一改称 preview，同步需求、计划、AGENTS 与运维说明。
+7. 推送 `dev` 生成预览，核对来源提交、迁移、登录（密码、TOTP、通行密钥）、播放与网页备份；确认正式版本不受影响。预览首份备份成功后删除旧 staging 备份。
 8. 经授权停用并删除旧 staging Worker 及其构建配置，D1 与媒体桶由预览继续使用。
 
 ## 当前运维风险
