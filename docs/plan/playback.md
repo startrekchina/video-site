@@ -187,7 +187,8 @@ iOS 上 `canPlayType` 与 ManagedMediaSource 的 `isTypeSupported` 对所有测�
 - [x] 需求：B 6.6 改为 VP9 用 WebM + Opus、H.264 用 MP4 + AAC，音频统一立体声，记录 iOS 兼容边界。
 - [x] 确定解码失败行为（开发者 2026-10-28）：自动切到最高 H.264 档并记住本浏览器，同步 B 6.6 与 6.6.2。
 - [x] 实现与本地自检（2026-10-29）：WebM 元数据检查、扫描与预检的身份和扩展名规则、声道检查、媒体响应类型、播放器回退、导入说明的压制规格。`media-sync` 34 项、`player` 等 Workers 用例与导入工具 13 项通过，覆盖 Cues 不在开头、Opus/AAC 5.1、VP9 profile 1、截断文件、VP9 MP4 和扩展名与身份不符时拒绝，以及回退、记忆、手动重试与无 H.264 档提示；类型检查与构建通过。本机后台压制占用 CPU 时，`playback`、`request-identity`、`request-performance` 的 60 秒冷启动钩子超时，放宽超时的临时副本 31 项通过。真实浏览器解码未验证。
-- [ ] staging 换上四档 WebM/MP4 样本并重新关联，完成桌面浏览器、iPhone Safari 与 iOS Chrome 回退复验。
+- [x] staging 样本替换与桌面复验（2026-10-29，`fe7d5cd`）：SNW S01E01、S02E01、S02E02 换为 150 秒四档样本（原画 2160p 12.1 Mbps 与 1080p 为 VP9 + Opus WebM，720p、480p 为 H.264 + AAC MP4，双声道），上传前均通过导入预检；删除 3 个旧 MP4 原画对象及其 D1 行，扫描两轮后 12 条记录全部验证、单元时长 150 秒。桌面 Chrome 在 S01E01 依次播放 1080p、原画（3840×2160）与 720p：响应类型分别为 `video/webm`、`video/webm`、`video/mp4`，切换保留位置，各 6 秒无丢帧，未出现 VP9 回退标记。
+- [ ] iPhone Safari 播放四档与 iOS Chrome 自动回退到 720p 的实机复验。
 
 ## 播放器与媒体接口
 
