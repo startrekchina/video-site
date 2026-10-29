@@ -32,7 +32,7 @@ staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2
 - 2026-10-22 上线前复验：邀请/封禁迁移及媒体拒绝通过；100 次请求与 150 次有界并发 Range 成功，不能代替真实码率容量。控制台有 24 小时内存汇总，尚未对应单次备份峰值；浏览器冷缓存、真正冷启动、完整实际费用仍有缺口。官方价格已核对，账单接口返回 `403`；保留 T6.2 未完成。
 
 - [x] 同步 `main` 的 PR 合并规则、协作约定和验收条件；规则一致性、62 个本地链接/锚点及 `git diff --check` 自检通过。仅验证文档，未调整 GitHub 分支保护或云端发布配置，DEP1 保持待实施。
-- [ ] DEP1 按 [B 6.9.5](../detailed-requirements.md#695-github-分支构建与发布)接通并验收 Workers Builds 分支发布：先完成 staging，production 接通与验收遵守 T6.2 上线门槛；核对 `main` 的 PR 合并与分支保护、现有 cf 工具链兼容性、构建/运行时配置、迁移顺序与失败中止。
+- [ ] DEP1 按 [B 6.9.5](../detailed-requirements.md#695-github-分支构建与发布)接通并验收 Workers Builds 分支发布：先完成 staging，production 接通与验收遵守 T6.2 上线门槛；核对 `main` 的 PR 合并与分支保护、现有 cf 工具链兼容性、构建/运行时配置、迁移顺序与失败中止。正式站的接入方式取决于 [ENV1](#env1-预览环境并入同一个-worker) 的合并时机。
 - DEP1 staging 自动发布自检（2026-10-14）：GitHub `push_event` 来源 `dev` 的 `1ce197c`，构建 `f447c6db-bdc2-4ac5-a3e0-72d718f3c343` 在云端通过锁文件安装、类型检查、272 项应用测试、23 项工具测试、staging 构建、cf 增量迁移和 Wrangler 发布。版本 `f77d338b-efaa-412d-b81d-ef1612bf00d0` 于 18:18 北京时间生效，100% 流量，版本消息记录完整来源 SHA；未从本机上传。D1 的 `0008_legacy_invitation_guard_retirement.sql`、`0011_member_security_invitation_expiry_guard.sql`、`0013_invitation_source_guard.sql` 已应用，只读迁移列表无待应用项；11 个既有 Secrets、D1/R2 和四个限流绑定与发布前一致。
 - DEP1 staging 入口烟测：无 Cookie 的 `/`、`/about` 返回 `200`，`/series` 和 `/watch/series_103516_s1_e1` 返回 `302` 到登录，匿名 `/media/00000000-0000-4000-8000-000000000000` 返回 `401`；入口带 `noindex`、`no-store, private` 和 `nosniff`，首页引用的客户端 JS 返回 `200`。Chrome 当前剧集→电影只读导航正常，无客户端 error；Node 直连连接重置，系统 HTTP 客户端可访问。专项性能与实机/开发者验收及 production 链路仍待完成。
 - staging 媒体桶迁至 APAC（2026-10-16，开发者授权）：新桶对象与原桶逐一一致，Workers Builds 构建 Secret 与本机 `.env` 改指新桶，`38457f4` 起生效；原 ENAM 桶按开发者决定暂时保留作回退备份，过程见[账号与性能计划](authentication.md#t458-数据位置与成员机房测量)。
@@ -228,6 +228,38 @@ staging 备份断线证据（2026-10-17，`087b9c1` / 版本 `b1e7efb0`）：手
   - 解密暂存删去不再使用的 MD5 → 只有恢复路径调用 → 暂存与认证用例。
 
   `test/backup-restore.test.ts`、`test/backup-restore-http.test.ts`、`test/backup-storage.test.ts` 共 46 项通过。经开发者确认改了 3 处旧断言：两处上传内容改为「前导行 + 原 SQL」，并删除解密阶段的 MD5 断言。`pnpm typecheck`、development 构建及恢复工具的虚构映射构建均通过。存储用例既有的连接中断日志在 `dev` 上同样出现，恢复用例没有未捕获异常。本地未跑全量回归：改动只涉及恢复导入及其 Worker 入口，备份创建、外部目标与调度不调用这些路径。
+
+### ENV1 预览环境并入同一个 Worker
+
+需求见 [A7](../requirements.md) 与 [B 6.9.5](../detailed-requirements.md#695-github-分支构建与发布)。
+
+**已确认**（开发者 2026-10-29）：
+- 正式与预览属于同一个 Worker：`main` 经 Workers Builds 发布正式版本，`dev` 发布名为 `dev` 的预览，不再保留独立的 staging Worker。
+- 预览绑定预览专用的 D1、R2、Secrets 与域名，不与正式环境共用数据。
+- 发布只由推送触发 Workers Builds 在云端构建与部署，本机不直接部署；云端命令可以调用项目 CLI。
+- 构建脚本统一：两个环境执行相同的安装、类型检查、测试与构建步骤，环境只作为参数；差异全部来自 `cloudflare.config.ts` 按环境生成的绑定与变量。当前构建产物中与环境有关的只有构建提交和 React Router 模式字符串，后者除 `development` 外都按正式模式运行。
+- 登录与通行密钥只信任本环境的固定地址（现有代码以 `APP_ORIGIN` 为唯一可信来源和通行密钥域名），不信任整个 `workers.dev` 子域：该子域下还有站长的其他 Worker，浏览器视为同一站点，整体信任会让它们的页面能以成员身份向预览站发请求。
+- 合并时统一改称 preview：文档与代码中的 `staging`、环境名 `APP_ENV`、构建变量 `STAGING_*` 及脚本名一并改为 preview。D1 与媒体桶保留现有资源和名称，只在配置中对应。
+
+**待开发者确认**：
+1. 合并时机：上线前（正式站一开始即为最终结构，DEP1 按此接入），或上线后。
+2. 预览不运行定时任务：接受，或增加站长手动触发媒体扫描与备份的入口。
+3. 预览地址：`dev-stcn-video-site.narwhrl.workers.dev`，或“预览名.指定域名”形式的自定义域名；现有 staging 域名能否沿用需实测。
+4. 旧 staging 备份：环境名改为 preview 后，旧备份的 R2 路径、文件头和外部文件名仍带 `staging`，新代码不再识别，也不会自动清理。建议预览环境首份备份成功后删除旧备份。
+
+**实施步骤**（确认后执行，涉及提交、推送和云端设置的步骤各自取得授权）：
+1. 统一构建脚本为 `scripts/build.sh <环境>`，替换 `build-staging.sh`；推送前同步修改现有 staging 构建触发器的构建命令，避免中间构建找不到脚本。两种结构都需要，可先行。
+2. `cloudflare.config.ts` 两环境使用同一个 Worker 名，预览配置建议绑定现有 staging D1 与媒体桶以保留测试数据。
+3. Workers Builds：正式分支 `main` 执行构建，再迁移正式库、发布正式版本；预览只构建 `dev`，迁移预览库后发布 `dev` 预览；只改文档或原型的推送不构建。
+4. 预览 Secrets 重新配置：认证与备份密钥沿用站长保存的现有值，Turnstile、邮件、导出 Token 和 S3 由站长重新填写；Turnstile 允许的主机名加入预览地址。
+5. 按上方确认结果改名并处理旧备份，同步需求、计划、AGENTS 与运维说明。
+6. 推送 `dev` 生成预览，核对来源提交、迁移、登录（密码、TOTP、通行密钥）、播放与备份；确认正式版本不受影响。
+7. 经授权停用并删除旧 staging Worker，D1 与媒体桶由预览继续使用。
+
+**待核实**：
+- `cf previews deploy` 按 `--mode` 评估项目配置并以构建产物发布预览：由 cf 1.0.0-beta.12 的代码推断，未实测。
+- Workers Builds 能否只为 `dev` 构建预览、预览命令的配置方式，以及限流绑定在预览中的支持。
+- 预览自定义域名的格式及现有 staging 域名能否沿用。
 
 ## 当前运维风险
 
