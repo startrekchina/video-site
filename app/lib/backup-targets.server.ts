@@ -37,7 +37,7 @@ export function backupDestinationMatches(env: Env, receipt: BackupReceipt) {
 async function targetFetch(env: Env, target: ExternalBackupTarget, name: string, method: "PUT" | "GET" | "DELETE", signal: AbortSignal,
   payload?: { body: ReadableStream<Uint8Array>; byteLength: number; sha256: string }) {
   const dest = destination(env, target);
-  if (!dest || !/^video-site-(development|test|staging|production)-[a-f0-9-]+-encrypted-[a-f0-9-]+\.stcnbak$/u.test(name)) throw new Error("BACKUP_TARGET_INVALID");
+  if (!dest || !/^video-site-(development|test|preview|production)-[a-f0-9-]+-encrypted-[a-f0-9-]+\.stcnbak$/u.test(name)) throw new Error("BACKUP_TARGET_INVALID");
   const url = new URL(name, dest.base), headers = new Headers();
   if (payload) {
     headers.set("Content-Type", "application/octet-stream"); headers.set("Content-Length", String(payload.byteLength));

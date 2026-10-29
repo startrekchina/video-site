@@ -64,7 +64,7 @@ it("allows a configured S3-only target and keeps schedules isolated by environme
   const bindings = { ...runtime, WEBDAV_URL: "", S3_BACKUP_ENDPOINT: "https://s3.example.test", S3_BACKUP_BUCKET: "fictional", S3_BACKUP_REGION: "auto",
     S3_BACKUP_ACCESS_KEY_ID: "fictional", S3_BACKUP_SECRET_ACCESS_KEY: "fictional" };
   expect(await updateBackupSchedule(bindings, { ...input, target: "s3" }, now)).toMatchObject({ enabled: true, targetReady: true, available: true });
-  expect(await status({ ...bindings, APP_ENV: "staging" })).toMatchObject({ enabled: false, lastStatus: null });
+  expect(await status({ ...bindings, APP_ENV: "preview" })).toMatchObject({ enabled: false, lastStatus: null });
 });
 
 it("edits and disables schedules, including disabling after the target configuration is lost", async () => {

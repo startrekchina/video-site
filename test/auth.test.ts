@@ -78,7 +78,7 @@ it("accepts 30-character usernames with dots and rejects hyphens and case duplic
 });
 
 it("sets the deployed Host cookie, stores its native token and rolls sessions after a day", async () => {
-  const auth = createAuth({ ...env, APP_ORIGIN: "https://localhost:6120", APP_ENV: "staging" });
+  const auth = createAuth({ ...env, APP_ORIGIN: "https://localhost:6120", APP_ENV: "preview" });
   await signup(auth);
   siteverify();
   const login = await post(auth, "/sign-in/username", { username: "Nova.Test", password });

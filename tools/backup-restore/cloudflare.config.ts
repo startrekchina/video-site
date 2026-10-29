@@ -6,7 +6,7 @@ const required = (name: string) => { const value = process.env[name]; if (!value
 export function recoveryWorker(mode = "production") {
   const environment = required("RESTORE_SOURCE_ENV"), sourceId = required("RESTORE_SOURCE_DATABASE_ID"), targetId = required("RESTORE_TARGET_DATABASE_ID");
   const id = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u;
-  if (!["staging", "production"].includes(environment) || !id.test(sourceId) || !id.test(targetId) || sourceId === targetId) throw new Error("Recovery requires an isolated target");
+  if (!["preview", "production"].includes(environment) || !id.test(sourceId) || !id.test(targetId) || sourceId === targetId) throw new Error("Recovery requires an isolated target");
   return defineWorker({
     name: "video-site-restore-" + environment,
     entrypoint: "./worker.ts",

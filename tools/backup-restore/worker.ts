@@ -45,7 +45,7 @@ export default {
       if (state && (!Number.isSafeInteger(state.deadline) || !Number.isSafeInteger(state.updatedAt))) throw new Error("RESTORE_STATE_INVALID");
       if (state && state.deadline > Date.now()) return json({ error: "RESTORE_BUSY" }, 409);
       if (state?.plaintextKey !== undefined) {
-        const match = /^backup-restore\/(staging|production)\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\/source\.sql$/u.exec(state.plaintextKey);
+        const match = /^backup-restore\/(preview|production)\/([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\/source\.sql$/u.exec(state.plaintextKey);
         if (!match || match[1] !== env.APP_ENV) throw new Error("RESTORE_STATE_INVALID");
         const clearing = (async () => {
           const plaintext = await env.MEDIA_BUCKET.head(state.plaintextKey!);
@@ -59,7 +59,7 @@ export default {
       }
       if (state) await delay(Math.max(0, state.updatedAt + 1100 - Date.now()), undefined, { signal });
       signal.throwIfAborted();
-      const restoreId = crypto.randomUUID(), plaintextKey = body.action === "restore" && ["staging", "production"].includes(env.APP_ENV)
+      const restoreId = crypto.randomUUID(), plaintextKey = body.action === "restore" && ["preview", "production"].includes(env.APP_ENV)
         ? restorePlaintextKey(env.APP_ENV as BackupScope["environment"], restoreId) : undefined;
       const updatedAt = Date.now();
       claiming = env.MEDIA_BUCKET.put(key, JSON.stringify({ updatedAt, deadline: updatedAt + settings.backupTaskTimeout * 1000, plaintextKey }), {
@@ -72,8 +72,8 @@ export default {
       if (!lease) return json({ error: "RESTORE_BUSY" }, 409);
       signal.throwIfAborted();
       if (body.action === "restore" && typeof body.id === "string" && typeof body.file === "string" && typeof body.keyId === "string" && typeof body.authKeyId === "string") {
-        if (!["staging", "production"].includes(env.APP_ENV)) throw new Error("RESTORE_ENV_INVALID");
-        const scope: BackupScope = { environment: env.APP_ENV as "staging" | "production", id: body.id };
+        if (!["preview", "production"].includes(env.APP_ENV)) throw new Error("RESTORE_ENV_INVALID");
+        const scope: BackupScope = { environment: env.APP_ENV as "preview" | "production", id: body.id };
         const restored = await restoreBackup(env, target, scope, body.file, { keyId: body.keyId, authKeyId: body.authKeyId }, signal, { id: restoreId, ctx });
         return json(restored);
       }

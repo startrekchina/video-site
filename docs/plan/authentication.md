@@ -52,7 +52,7 @@
 
 ### 本地认证验收边界
 
-- **Turnstile 测试桩**：本地官方 Turnstile 测试服务返回 `example.com` 且没有 `action`。仅在 `development` 环境且 Site Key / Secret 均等于官方 always-pass 配对时接受对应测试响应；`test`、`staging` 和 `production` 仍严格校验本站 hostname 与 auth action。客户端保留窄卡片，在容器小于 300px 时切换官方 compact 控件并预留其高度。
+- **Turnstile 测试桩**：本地官方 Turnstile 测试服务返回 `example.com` 且没有 `action`。仅在 `development` 环境且 Site Key / Secret 均等于官方 always-pass 配对时接受对应测试响应；`test`、`preview` 和 `production` 仍严格校验本站 hostname 与 auth action。客户端保留窄卡片，在容器小于 300px 时切换官方 compact 控件并预留其高度。
 - **局域网验收配置**：局域网验收须将本地 `.env` 中的 `APP_ORIGIN` 配为实际访问 origin；RP ID 随该 origin 的 hostname 生成，来源校验不因调试而放宽。通行密钥还需浏览器认可的安全上下文（HTTPS 或 localhost）。
 - **测试并发与资源调度**：本地测试并发设为两路，避免原生密码哈希与 Worker 模块图同时争用 CPU。HTTP suite 单独预热 SSR 编译，允许最多 60 秒；普通单请求保留 5 秒测试阈值。模拟发信不向真实服务发送邮件，浏览器验收仅使用虚构本地账号。
 - **失败边界**：注册、改邮箱和重置失败可能留下部分原生状态，相关故障注入与重试行为见集成测试与 [B 6.4.1](../detailed-requirements.md#641-原生流程的失败边界)。
@@ -63,7 +63,7 @@
 - rateLimit 开启 D1 database storage、可信 Cloudflare IP，参数按 B 6.3.2；captcha 传 x-captcha-response 并核 allowedHostnames/expectedAction。包装 HTTP 先验来源/IP/Turnstile，不假定 auth.api 内调会执行 onRequest 插件。
 - Postal HTTPS fetch：POST /api/v1/send/message，Content-Type application/json 与 X-Server-API-Key；映射 to/from/reply_to/subject/plain_body（接口也支持 html_body，当前传输仅纯文本）。同时检查 HTTP 与 JSON status，只取必要 data.message_id；服务接受不等于送达。
 - 传输最多一次、10 秒、manual 重定向且拒绝非 2xx，不自动补发；失败/超时捕获脱敏，超时记未确认，不回滚注册或封禁。验证用途共用邮箱摘要配额，找回另计；改邮箱另按可信会话成员检查 B 6.0.3 的 60 秒/每小时 30 次额度，预留记录的 `user_id` 在同一 D1 条件写入中绑定成员，两组额度同时满足才预留。首次/失败/超时均计入，`Retry-After` 取所有受限额度的最晚恢复时间；通知不受站内发送上限，仍受上游限制。
-- 本环境发件子域及 From/Reply-To/API 地址从本机/平台配置；staging 测试发件人与 production 区分，Reply-To 同收信地址；域名及 SPF/DKIM/DMARC 由站长维护。异步发信纳入请求生命周期，不留未等待 Promise。部署与日志限制见[运维说明](operations.md#695-远程数据库迁移与运维工程细节)。
+- 本环境发件子域及 From/Reply-To/API 地址从本机/平台配置；preview 测试发件人与 production 区分，Reply-To 同收信地址；域名及 SPF/DKIM/DMARC 由站长维护。异步发信纳入请求生命周期，不留未等待 Promise。部署与日志限制见[运维说明](operations.md#695-远程数据库迁移与运维工程细节)。
 
 ### 6.2.1 认证与邀请存储映射
 
@@ -205,7 +205,7 @@
 - [x] 自动化覆盖独立 HTTP 请求的即时封禁/撤销/过期/未验证/未完成注册；注入身份读取后权限变化，确认管理员最终条件写入仍拒绝且无部分成功。复验自封禁、自降权、末管、注册与封禁竞态、配额并发和跨成员数据隔离。
 - [x] 复验 token 篡改/错环境/错成员/错会话/错单元、媒体关系失效、未授权 HEAD/Range 元数据保护及跨到期流取消；新增身份计数断言与现有 `auth`、`auth-http`、`catalog`、`member-actions`、`playback`、`http` 等集成测试一起运行，不以测试模式额外 schema 查询混淆运行环境基线。
 - [x] 运行 `pnpm test:tools`、`pnpm typecheck`、`pnpm test`、`pnpm build`；授权后核对 `cf --help`/当前能力，执行 staging 构建、dry-run、部署和复验。cf 优先，Wrangler 仅补充已确认且获准的能力缺口，不把任意失败自动转为另一工具重试；推送及触发自动发布须有明确授权，本专项不包含 production 部署。
-- [ ] 获准后对优化前后各自固定 SHA，以同一 staging 数据、会话状态、设备/网络和探针口径采样，主要只读/媒体路径每组至少 20 个预热样本，冷启动及续期样本单列；报告 D1 往返、SQL 数、串行阶段、基础解析数、库/业务耗时、响应体、TTFB/导航中位数与 P95。媒体只比较响应头/首字节与授权关键链，不把整段流播放时长计入 D1 等待。小样本只作描述，不当作容量结论；耗时回退超出噪声时复测并解释，不能仅以查询数下降宣布成功。
+- [ ] 获准后对优化前后各自固定 SHA，以同一预览环境数据、会话状态、设备/网络和探针口径采样，主要只读/媒体路径每组至少 20 个预热样本，冷启动及续期样本单列；报告 D1 往返、SQL 数、串行阶段、基础解析数、库/业务耗时、响应体、TTFB/导航中位数与 P95。媒体只比较响应头/首字节与授权关键链，不把整段流播放时长计入 D1 等待。小样本只作描述，不当作容量结论；耗时回退超出噪声时复测并解释，不能仅以查询数下降宣布成功。
 - [x] 计数不包含夹具准备和探针自身的额外查询；会话撤销、封禁、改密及管理员写入仅操作专用虚构账号与数据，逐例重建可比状态。采样遵守既有限流/配额，不临时关闭门禁、不做真实成员的破坏性压测；已有 `6120` 服务继续复用并保留。
 - [x] 诊断默认关闭且只在获准的本地/staging 范围开启，复用白名单路由族与随机 requestId，不输出原始 SQL/绑定值、Cookie、邮箱、会话凭证、URL/query、对象键或 Secrets。保留重置凭证路径禁止应用日志及现有平台 query 脱敏限制；实际检查平台日志附加内容，不能保证脱敏的路径禁用诊断。诊断头不留在公开响应，临时探针清除后复跑关键用例。
 - [x] 专项报告记录可复现命令、SHA、前后路由预算、必要剩余查询、失败/未验项、日志核验和诊断清理结果；同步本模块、播放/片库验证摘要及根计划/README。未取得 staging 授权或未完成复验时保持未完成，不用本地测试替代云端效果。

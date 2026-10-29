@@ -76,7 +76,7 @@ staging 核对（2026-10-15，`78914f2`）：入口脚本、根样式与字体�
 | --- | --- | --- |
 | 运行与包管理 | Node 24、pnpm 12 | 构建脚本需批准 `esbuild`、`workerd` |
 | 框架 | `react-router` / `@react-router/dev` 7.18.4，`future.v8_viteEnvironmentApi: true` | 需求定为 v7；自定义 `app/entry.server.tsx`（`renderToReadableStream`） |
-| Cloudflare 集成 | `cf` 1.0.0-beta.12、`@cloudflare/vite-plugin` 2.0 beta、Vite 8；Wrangler 4.150.0 补充 staging 发布 | `cloudflare.config.ts` 为权威配置，Wrangler 配置仅从 Build Output 生成，不提交资源映射 |
+| Cloudflare 集成 | `cf` 1.0.0-beta.12、`@cloudflare/vite-plugin` 2.0 beta、Vite 8；Wrangler 4.150.0 仅用于 Previews Base Secrets 与大文件上传 | `cloudflare.config.ts` 为权威配置，不提交资源映射 |
 | 测试 | `vitest` 4.1、`@cloudflare/vitest-plugin`（`experimental.newConfig`） | 读取 `cloudflare.config.ts`，`mode` 为 `test`；D1 迁移在 setup 中应用 |
 | 类型 | `.cloudflare/types/index.d.ts`（Vite 插件自动生成，`Env` 由配置推断） | `react-router typegen && tsc` 作为类型检查 |
 
@@ -84,12 +84,12 @@ staging 核对（2026-10-15，`78914f2`）：入口脚本、根样式与字体�
 
 - `cf` 与 Vite 插件均为 beta，锁定精确版本；升级单独提交并重跑相关完整验证，不借文档拆分升级工具链。
 - **v7 与 Build Output 目录不一致**：Vite 插件 2.0 把客户端产物强制输出到 `.cloudflare/output/v0/workers/default/assets`，React Router v7 仍从 `build/client` 读写 manifest。用一个小 Vite 插件在构建时双向同步，待 [remix-run/react-router#15480](https://github.com/remix-run/react-router/pull/15480) 进入 v7 后删除。官方插件声明正式支持的是 React Router v8；是否升级 v8 属于需求变更，须站长决定并同步本技术基线和 README。
-- **`cf build` 不向 React Router 转发 `--mode`**：staging / prod 构建使用 `react-router build --mode <mode>`；production 预备路径为 `cf deploy --prebuilt --mode production`，staging 使用[运维计划的 Wrangler 补充发布](operations.md#695-远程数据库迁移与运维工程细节)。部署目标须与构建一致；本地开发直接 `cf dev`（mode 为 `development`）。
-- **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；staging / prod 的真实 ID 由被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
-- **远程 D1 触发器解析**：staging 的 `/query` 将 0010 内裸 `CASE…END` 错认作触发器结束；该迁移完整回滚，0009 已成功。[同类问题](https://github.com/cloudflare/workers-sdk/issues/4727)用等价括号规避。`pnpm db:migrate:staging` / `db:migrate:production` 只规范临时副本，再交给 cf 的增量迁移 runner，原始迁移不改写；SQLite 正反用例及 staging 0010/0011 实测通过。
-- **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `staging` / `production`）返回完整配置；Worker 名、D1、R2、Rate Limiting namespace 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 staging / prod。
+- **`cf build` 不向 React Router 转发 `--mode`**：preview / prod 构建使用 `react-router build --mode <mode>`，再由 [`scripts/workers-build.sh`](operations.md#695-远程数据库迁移与运维工程细节) 分别以 `cf previews deploy --prebuilt --mode preview` 与 `cf deploy --prebuilt --mode production` 发布。部署目标须与构建一致；本地开发直接 `cf dev`（mode 为 `development`）。
+- **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；preview / prod 的真实 ID 由构建变量或被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
+- **远程 D1 触发器解析**：staging 的 `/query` 将 0010 内裸 `CASE…END` 错认作触发器结束；该迁移完整回滚，0009 已成功。[同类问题](https://github.com/cloudflare/workers-sdk/issues/4727)用等价括号规避。`pnpm db:migrate:preview` / `db:migrate:production` 只规范临时副本，再交给 cf 的增量迁移 runner，原始迁移不改写；SQLite 正反用例及 staging 0010/0011 实测通过。
+- **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `preview` / `production`）返回完整配置；preview 与 production 共用 Worker 名，D1、R2、Rate Limiting namespace 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 preview / prod。
 - **Secrets**：`bindings.secret()` 声明的是必需项，本地开发缺失时警告，**实际部署会拒绝缺少声明的 Secret**。认证、Turnstile、备份加密、备份 API Token 与邮件五项线上必需；历史 keyring 和 WebDAV / S3 可选 Secret 只在本地声明以推导类型，线上按需预配并由 CLI 保留，不强制为未启用目标上传占位凭证。备份 Token 是独立运行时 Secret，不能将构建机部署凭证当作已配置的运行时备份权限。线上可用部署时 `--secrets-file` 写入，密钥文件必须被 Git 忽略；既有四项密钥交接文件不包含站长另行配置的 EMAIL_API_KEY 或新增备份 Token，不能据此宣称 production 已齐备。
-- **云端复用与日志**：按站长授权复用既有 staging Worker 与访问域名，D1 名称/ID 和 R2 桶名分别从本机 `.env` 注入，不能按数据库名推断媒体桶。Custom Domain 通过 `worker.domains` 管理；关闭 workers.dev / preview URLs。启用应用日志、query 脱敏并关闭 invocation logs；原生 traces 含路径，凭证路径脱敏验证前保持关闭。
+- **云端复用与日志**：预览环境沿用旧 staging 的 D1 与媒体桶，D1 名称/ID 和 R2 桶名分别从构建变量或本机 `.env` 注入，不能按数据库名推断媒体桶。自定义域名在控制台维护，配置不声明 `worker.domains`（见[运维计划 ENV1](operations.md#env1-预览环境并入同一个-worker)）；关闭 workers.dev / preview URLs。启用应用日志、query 脱敏并关闭 invocation logs；原生 traces 含路径，凭证路径脱敏验证前保持关闭。
 
 ### 6.1 总体架构
 
@@ -139,13 +139,13 @@ node scripts/gen-test-media.mjs
 | Workers Vitest / Node | HTTP 权限、并发、数据一致性、媒体边界和导入幂等等；浏览器层不机械重复全部组合。 |
 | Playwright Test（待接入） | 固定操作与行为断言，回归少量稳定关键路径；默认由测试框架启动管理浏览器，以独立上下文隔离角色和会话，不连接个人日常会话作为默认测试环境。 |
 | CDP 探索与现场排查 | 复现问题、观察页面及请求；稳定且有回归价值的发现收成自动化用例，临时点击记录不充当长期回归门禁。 |
-| staging / 人工实机 | 真实配置、外部服务、设备能力与视觉确认；手机视口模拟、虚拟验证器和短片段不替代相应实机及长时验收。 |
+| 预览环境 / 人工实机 | 真实配置、外部服务、设备能力与视觉确认；手机视口模拟、虚拟验证器和短片段不替代相应实机及长时验收。 |
 
 首批候选从 B 第 7 节选取：受保护页面登录回跳；搜索、空结果、详情切季与正确单集；关键菜单/对话框的开关、取消及焦点；自生成视频播放、拖动、字幕与退出/撤销后的新媒体请求拒绝，媒体缺失时的出错提示与原地重新连接；封禁专用成员后刷新失去访问。自动化与长播证据分界见[播放验证方案](playback.md#播放验证方案)。实施前以中文确认具体操作和断言，不在本计划复制业务规则；新增注册、邮件及通行密钥场景时明确自动化覆盖段与真实服务/设备待验段。
 
-- **环境与身份**：优先独立本地测试数据，启动/复用服务遵守 AGENTS；staging 执行须明确目标及数据变更授权，不将测试授权当作部署授权。只使用虚构账号及自生成媒体，走真实应用链路；隔离本地环境如需模拟外部服务须标明覆盖边界。
-- **人机验证与登录夹具**：按 [认证计划本地认证验收边界](authentication.md#本地认证验收边界)，仅 development 且官方 always-pass Site Key/Secret 配对时接受对应测试响应；test、staging、production 仍严格校验 hostname/action。staging/prod 不设认证或 CAPTCHA 旁路，也不增加默认可关闭的生产开关。登录后的业务可复用专用登录态；注册/登录本身须走对应流程，真人挑战、邮件与设备待验段明确分开，复用登录态或跳过的步骤不计作注册/登录验收。
-- **数据隔离**：浏览器上下文不隔离 D1/R2。测试数据有可识别的本次运行归属；staging 的状态修改只针对本次专用数据，清理不重置共享库、不删除他人内容，并避免并行用例共用可变账号。
+- **环境与身份**：优先独立本地测试数据，启动/复用服务遵守 AGENTS；预览环境执行须明确目标及数据变更授权，不将测试授权当作部署授权。只使用虚构账号及自生成媒体，走真实应用链路；隔离本地环境如需模拟外部服务须标明覆盖边界。
+- **人机验证与登录夹具**：按 [认证计划本地认证验收边界](authentication.md#本地认证验收边界)，仅 development 且官方 always-pass Site Key/Secret 配对时接受对应测试响应；test、preview、production 仍严格校验 hostname/action。preview/prod 不设认证或 CAPTCHA 旁路，也不增加默认可关闭的生产开关。登录后的业务可复用专用登录态；注册/登录本身须走对应流程，真人挑战、邮件与设备待验段明确分开，复用登录态或跳过的步骤不计作注册/登录验收。
+- **数据隔离**：浏览器上下文不隔离 D1/R2。测试数据有可识别的本次运行归属；预览环境的状态修改只针对本次专用数据，清理不重置共享库、不删除他人内容，并避免并行用例共用可变账号。
 - **证据保护**：会话状态文件、截图、视频、trace 和报告可能含 Cookie、邮箱、验证链接或播放凭证，不提交仓库或公开发布；需要共享的证据先脱敏。失败保留可定位的操作与断言，不能靠重试直至变绿掩盖不稳定行为。
 - **执行与验收**：按 [AGENTS 验证规则](../../AGENTS.md#验证)定向选测和复用有效证据；工具接入、自检通过和站长验收分别记录。已有真实手机待验项仍由片库/播放计划维护；E2E1 不替代这些门槛，也不自动接通发布流水线。
 

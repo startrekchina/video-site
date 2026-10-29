@@ -12,13 +12,13 @@ import { catalogQueries, inspectVideo, preflight, report, validateVtt } from "./
 
 let directory, repository, server, base, movieVideo, seriesVideo, mappingPath;
 let mode = "normal", calls = [];
-const env = { TMDB_API_KEY: "fictional-private-key", STAGING_D1_DATABASE_ID: "00000000-0000-4000-8000-000000000001", STAGING_MEDIA_BUCKET_NAME: "fictional-staging-media", PRODUCTION_D1_DATABASE_ID: "00000000-0000-4000-8000-000000000002", PRODUCTION_MEDIA_BUCKET_NAME: "fictional-prod-media" };
+const env = { TMDB_API_KEY: "fictional-private-key", PREVIEW_D1_DATABASE_ID: "00000000-0000-4000-8000-000000000001", PREVIEW_MEDIA_BUCKET_NAME: "fictional-preview-media", PRODUCTION_D1_DATABASE_ID: "00000000-0000-4000-8000-000000000002", PRODUCTION_MEDIA_BUCKET_NAME: "fictional-prod-media" };
 const entries = [
   { kind: "movie", tmdb_id: 800001, season: null, file: "fictional-movie.jpg" },
   { kind: "series", tmdb_id: 800002, season: null, file: "fictional-series.jpg" },
   { kind: "series", tmdb_id: 800002, season: 2, file: "fictional-season.jpg" },
 ];
-const mapping = () => ({ environment: "staging", resources: { d1DatabaseId: env.STAGING_D1_DATABASE_ID, mediaBucketName: env.STAGING_MEDIA_BUCKET_NAME }, media: [
+const mapping = () => ({ environment: "preview", resources: { d1DatabaseId: env.PREVIEW_D1_DATABASE_ID, mediaBucketName: env.PREVIEW_MEDIA_BUCKET_NAME }, media: [
   { kind: "movie", tmdbId: 800001, videos: { original: "movie.webm" }, subtitles: [{ language: "zh-CN", trackKey: "main", sourcePath: "chinese.ass" }] },
   { kind: "series", tmdbId: 800002, seasonNumber: 2, episodeNumber: 3, videos: { original: "episode.webm" }, subtitles: [{ language: "zh-TW", trackKey: "bilingual", sourcePath: "english.vtt" }] },
 ] });
@@ -81,7 +81,7 @@ after(async () => { if (server) await new Promise(accept => server.close(accept)
 async function run(input = mapping(), options = {}) {
   await writeFile(mappingPath, JSON.stringify(input));
   calls = [];
-  return preflight({ environment: "staging", mappingPath, env, repository, tmdbMockUrl: base, retryDelays: [], ...options });
+  return preflight({ environment: "preview", mappingPath, env, repository, tmdbMockUrl: base, retryDelays: [], ...options });
 }
 
 test("real WebM and MP4: codec, index order, channels, corruption, streamed checksum", async () => {
@@ -117,7 +117,7 @@ test("two read-only preflights: identity, bilingual fallback, ASS conversion, re
   assert.equal(first.warnings.length, 1);
   assert.ok(calls.every(call => call.key === "fictional-test-key"));
   const output = JSON.stringify(report(first));
-  for (const privateValue of [directory, env.TMDB_API_KEY, env.STAGING_D1_DATABASE_ID, env.STAGING_MEDIA_BUCKET_NAME]) assert.ok(!output.includes(privateValue));
+  for (const privateValue of [directory, env.TMDB_API_KEY, env.PREVIEW_D1_DATABASE_ID, env.PREVIEW_MEDIA_BUCKET_NAME]) assert.ok(!output.includes(privateValue));
   assert.equal(report(first).cloudWrites, 0); assert.equal(report(first).counts.imported, 0);
 });
 
@@ -185,7 +185,7 @@ test("input/environment rejection happens before any TMDB request", async () => 
     input => { input.media[0].videos.original = "https://private.example.test/video.mp4"; },
   ];
   for (const modify of cases) { const input = mapping(); modify(input); await assert.rejects(run(input)); assert.equal(calls.length, 0); }
-  await assert.rejects(run(mapping(), { env: { ...env, PRODUCTION_MEDIA_BUCKET_NAME: env.STAGING_MEDIA_BUCKET_NAME } }), /隔离/u);
+  await assert.rejects(run(mapping(), { env: { ...env, PRODUCTION_MEDIA_BUCKET_NAME: env.PREVIEW_MEDIA_BUCKET_NAME } }), /隔离/u);
   await assert.rejects(run(mapping(), { environment: "production" }), /明确/u);
   await assert.rejects(run(mapping(), { tmdbMockUrl: "https://example.test/3/" }), /回环/u);
 });
@@ -216,7 +216,7 @@ test("CLI help and blocked import do not read private config or write cloud reso
   const cli = resolve("scripts/import-media.mjs");
   assert.match(execFileSync(process.execPath, [cli, "--help"], { encoding: "utf8" }), /仅预检/u);
   assert.throws(() => execFileSync(process.execPath, [cli, "import", "--environment", "prod", "--mapping", "missing.json"], { stdio: "pipe" }), error => error.status === 2 && !error.stdout.length && /catalog/u.test(error.stderr.toString()));
-  assert.throws(() => execFileSync(process.execPath, [cli, "preflight", "--environment", "staging", "--environment", "prod"], { stdio: "pipe" }), error => error.status === 1 && /重复/u.test(error.stderr.toString()));
+  assert.throws(() => execFileSync(process.execPath, [cli, "preflight", "--environment", "preview", "--environment", "prod"], { stdio: "pipe" }), error => error.status === 1 && /重复/u.test(error.stderr.toString()));
 });
 
 test("actual CLI preflight twice: explicit env file wins over conflicting shell variables", async () => {
@@ -229,12 +229,12 @@ test("actual CLI preflight twice: explicit env file wins over conflicting shell 
   const envFile = join(directory, ".env-test");
   await writeFile(envFile, Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n"));
   await writeFile(mappingPath, JSON.stringify(mapping()));
-  const args = [cli, "preflight", "--environment", "staging", "--mapping", mappingPath, "--env-file", envFile, "--tmdb-mock-url", base];
-  const options = { encoding: "utf8", env: { ...process.env, STAGING_MEDIA_BUCKET_NAME: "conflicting-shell-bucket" }, windowsHide: true };
+  const args = [cli, "preflight", "--environment", "preview", "--mapping", mappingPath, "--env-file", envFile, "--tmdb-mock-url", base];
+  const options = { encoding: "utf8", env: { ...process.env, PREVIEW_MEDIA_BUCKET_NAME: "conflicting-shell-bucket" }, windowsHide: true };
   const first = await promisify(execFile)(process.execPath, args, options), second = await promisify(execFile)(process.execPath, args, options);
   assert.deepEqual(JSON.parse(first.stdout), JSON.parse(second.stdout));
   assert.equal(JSON.parse(first.stdout).counts.media, 2);
-  assert.match(first.stderr, /目标环境：staging/u);
+  assert.match(first.stderr, /目标环境：preview/u);
   assert.ok(!first.stdout.includes(directory));
 });
 
@@ -266,10 +266,10 @@ test("catalog placeholders: all units, stable upserts, actual media duration and
     assert.equal(db.prepare("PRAGMA foreign_key_check").all().length, 0);
   } finally { db.close(); }
   const cli = join(repository, "scripts/import-media.mjs"), envFile = join(directory, ".env-test");
-  const output = await promisify(execFile)(process.execPath, [cli, "catalog", "--environment", "staging", "--env-file", envFile, "--tmdb-mock-url", base], { encoding: "utf8", windowsHide: true });
+  const output = await promisify(execFile)(process.execPath, [cli, "catalog", "--environment", "preview", "--env-file", envFile, "--tmdb-mock-url", base], { encoding: "utf8", windowsHide: true });
   assert.deepEqual(JSON.parse(output.stdout).counts, { works: 2, seasons: 1, units: 2 });
   assert.equal(JSON.parse(output.stdout).cloudWrites, 0);
-  assert.ok(!output.stdout.includes(env.STAGING_D1_DATABASE_ID));
+  assert.ok(!output.stdout.includes(env.PREVIEW_D1_DATABASE_ID));
 });
 
 test("catalog episode air dates: TMDB text as-is, cleared when TMDB drops it, invalid dates stop the whole run", async () => {

@@ -14,10 +14,10 @@ export function remoteMigrationSql(name, sql) {
 
 function main() {
   const mode = process.argv[2];
-  if (!["staging", "production"].includes(mode) || process.argv.length !== 3) throw new Error("用法：node scripts/migrate-remote.mjs staging|production");
+  if (!["preview", "production"].includes(mode) || process.argv.length !== 3) throw new Error("用法：node scripts/migrate-remote.mjs preview|production");
   if (existsSync(".env")) process.loadEnvFile(".env");
   const database = process.env[`${mode.toUpperCase()}_D1_DATABASE_ID`];
-  if (!database || !/^[a-f0-9-]{36}$/i.test(database) || database === process.env[`${mode === "staging" ? "PRODUCTION" : "STAGING"}_D1_DATABASE_ID`]) throw new Error("目标数据库未配置或环境未隔离。");
+  if (!database || !/^[a-f0-9-]{36}$/i.test(database) || database === process.env[`${mode === "preview" ? "PRODUCTION" : "PREVIEW"}_D1_DATABASE_ID`]) throw new Error("目标数据库未配置或环境未隔离。");
   mkdirSync(resolve(".cloudflare"), { recursive: true });
   const directory = mkdtempSync(resolve(".cloudflare/remote-migrations-"));
   const names = readdirSync("migrations").filter(name => /^\d{4}_[\w-]+\.sql$/.test(name));

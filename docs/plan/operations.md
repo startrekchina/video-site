@@ -6,9 +6,9 @@
 
 承接 A7、B 6.9/6.10/6.16/7，依赖第三至第五阶段主要功能。T6.1 的暂存、认证加密、手动备份、WebDAV/S3、各端保留、隔离恢复工具及条件式定时调度具有本地实现。开发者确认频率由站长在配置完整的外部渠道后于管理面板自行设置；当前控件提供每天、每周或每隔 1–30 天及北京时间。staging 已实测站长页面 S3 手动备份与回读、北京时间定时备份及隔离恢复演练，见 [T6.1 staging 备份与恢复演练](#t61-staging-备份与恢复演练)；2026-10-22 的新隔离恢复库经开发者真实设备验收，旧登录失效、密码/TOTP、已有通行密钥及播放均通过，原 staging 和 Cron 已恢复；staging 当前密钥的独立副本已保存，并与现存全部备份核对指纹（2026-10-29），production 密钥在上传其 Secrets 时同样保存；单次备份内存证据仍有缺口，T6.1 整体仍未完成验收。媒体与字幕冷备由站长在项目之外自行完成，不属于本计划的任务或上线门槛。T6.2 production 发布待实施。staging 已接通 GitHub `dev` 云端自动发布，production 只有资源/密钥准备记录和构建/dry-run，不是已发布。
 
-staging 已连接当前仓库 `startrekchina/video-site` 的 `dev`，启用推送构建且关闭其他分支/PR 预览；cf strict 限制下使用 Wrangler 补充发布。配置转换的 3 项定向用例、23 项工具测试、类型检查、staging 构建和 Wrangler dry-run 通过，15 个服务端模块完整打包。实际云端发布、运行时绑定及入口烟测通过，不替代专项功能、性能和实机验收。production 不启用自动发布。
+云端现状：独立的 staging Worker 仍连接 `dev`，其构建配置调用的 `build-staging.sh` 与 Wrangler 补充发布已随 ENV1 本地实现移除。ENV1 云端切换前不推送 `dev`，否则旧构建找不到脚本而失败（staging 保持现有版本）；切换步骤见 [ENV1](#env1-预览环境并入同一个-worker)，切换后的发布链路见 [6.9.5](#695-远程数据库迁移与运维工程细节)。production 不启用自动发布。按日期记录的 staging 证据指这个旧 Worker，预览环境沿用它的 D1 与媒体桶。
 
-staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2026-10-15 授权）：推送只改这些文件时不构建、不部署，GitHub 上也不显示构建状态；同一推送含其他文件时照常构建。`test/` 不排除，测试改动仍经过 staging 构建中的测试门禁。一次推送超过 20 个提交或 3000 个文件，或没有文件改动时，平台忽略路径规则强制构建。规则由 `cf builds triggers update` 维护，见 [Build watch paths](https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/)。
+构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2026-10-15 授权，正式站 Worker 接入时沿用）：推送只改这些文件时不构建、不部署，GitHub 上也不显示构建状态；同一推送含其他文件时照常构建。`test/` 不排除，测试改动仍经过预览构建中的测试门禁。一次推送超过 20 个提交或 3000 个文件，或没有文件改动时，平台忽略路径规则强制构建。正式触发器的规则可由 `cf builds triggers update` 维护，预览的规则在控制台 Previews 配置中维护（触发器接口拒绝修改预览触发器），见 [Build watch paths](https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/)。
 
 ## 任务与验收
 
@@ -32,7 +32,7 @@ staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2
 - 2026-10-22 上线前复验：邀请/封禁迁移及媒体拒绝通过；100 次请求与 150 次有界并发 Range 成功，不能代替真实码率容量。控制台有 24 小时内存汇总，尚未对应单次备份峰值；浏览器冷缓存、真正冷启动、完整实际费用仍有缺口。官方价格已核对，账单接口返回 `403`；保留 T6.2 未完成。
 
 - [x] 同步 `main` 的 PR 合并规则、协作约定和验收条件；规则一致性、62 个本地链接/锚点及 `git diff --check` 自检通过。仅验证文档，未调整 GitHub 分支保护或云端发布配置，DEP1 保持待实施。
-- [ ] DEP1 按 [B 6.9.5](../detailed-requirements.md#695-github-分支构建与发布)接通并验收 Workers Builds 分支发布：先完成 staging，production 接通与验收遵守 T6.2 上线门槛；核对 `main` 的 PR 合并与分支保护、现有 cf 工具链兼容性、构建/运行时配置、迁移顺序与失败中止。正式站按 [ENV1](#env1-预览环境并入同一个-worker) 的同一 Worker 结构接入，ENV1 在上线前完成。
+- [ ] DEP1 按 [B 6.9.5](../detailed-requirements.md#695-github-分支构建与发布)接通并验收 Workers Builds 分支发布：先完成预览环境，production 接通与验收遵守 T6.2 上线门槛；核对 `main` 的 PR 合并与分支保护、现有 cf 工具链兼容性、构建/运行时配置、迁移顺序与失败中止。正式站按 [ENV1](#env1-预览环境并入同一个-worker) 的同一 Worker 结构接入，ENV1 在上线前完成。
 - DEP1 staging 自动发布自检（2026-10-14）：GitHub `push_event` 来源 `dev` 的 `1ce197c`，构建 `f447c6db-bdc2-4ac5-a3e0-72d718f3c343` 在云端通过锁文件安装、类型检查、272 项应用测试、23 项工具测试、staging 构建、cf 增量迁移和 Wrangler 发布。版本 `f77d338b-efaa-412d-b81d-ef1612bf00d0` 于 18:18 北京时间生效，100% 流量，版本消息记录完整来源 SHA；未从本机上传。D1 的 `0008_legacy_invitation_guard_retirement.sql`、`0011_member_security_invitation_expiry_guard.sql`、`0013_invitation_source_guard.sql` 已应用，只读迁移列表无待应用项；11 个既有 Secrets、D1/R2 和四个限流绑定与发布前一致。
 - DEP1 staging 入口烟测：无 Cookie 的 `/`、`/about` 返回 `200`，`/series` 和 `/watch/series_103516_s1_e1` 返回 `302` 到登录，匿名 `/media/00000000-0000-4000-8000-000000000000` 返回 `401`；入口带 `noindex`、`no-store, private` 和 `nosniff`，首页引用的客户端 JS 返回 `200`。Chrome 当前剧集→电影只读导航正常，无客户端 error；Node 直连连接重置，系统 HTTP 客户端可访问。专项性能与实机/开发者验收及 production 链路仍待完成。
 - staging 媒体桶迁至 APAC（2026-10-16，开发者授权）：新桶对象与原桶逐一一致，Workers Builds 构建 Secret 与本机 `.env` 改指新桶，`38457f4` 起生效；原 ENAM 桶按开发者决定暂时保留作回退备份，过程见[账号与性能计划](authentication.md#t458-数据位置与成员机房测量)。
@@ -47,7 +47,7 @@ staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2
   - 网页生命周期、两阶段断线重试、并发拒绝、定时时限及 S3 回读已有 staging 实测，见 [T6.1 staging 备份与恢复演练](#t61-staging-备份与恢复演练)。开发者 2026-10-29 确认：production 只用 S3，WebDAV 回读不作门槛（见 [6.9](#69-环境与备份)）；大库耗时与内存按[复测条件](#692-定时备份执行与失败行为)处理。
 - [x] T6.1 演练隔离手动恢复、重加密与旧凭证清理、角色/封禁/设备复核、历史讨论人工重删；补齐密钥保管和恢复说明。
   - 隔离恢复做过三次：10-21、10-22（切换 staging 并经开发者实机验收），以及 10-29 用现行工具恢复与校验。重加密与旧凭证清理在 10-21、10-22 通过，相关函数此后未改。`review` 列出的 1 名正常管理员与 2 台设备经开发者 2026-10-29 确认为本人账号及其通行密钥。演练恢复点与切换在同一天，期间无讨论删除，人工重删经开发者确认不适用；管理员删除已另有 staging 验证。密钥保管见 6.9.1 的密钥轮换规则，staging 副本已核对，恢复步骤见[隔离恢复工具](#隔离恢复工具)。
-- [ ] T6.2 全部主要功能、相关测试与 staging 端到端通过，核对日志、权限/封禁、并发、预算及平台边界。
+- [ ] T6.2 全部主要功能、相关测试与预览环境端到端通过，核对日志、权限/封禁、并发、预算及平台边界。
 - [ ] T6.2 补齐 production 独立 Secrets、邮件与 S3 备份目标，核 Worker/D1/R2/Turnstile/域名和隔离；获明确授权后正式迁移、部署与 HTTPS/权限/安全头验收，记录发布版本。
 
 ## 备份内核边界
@@ -62,7 +62,7 @@ staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2
 - 内核错误由 HTTP 调用方归类，不直接展示上游异常。没有完成记录的对象不能用于下载或算作成功副本；过期清理覆盖任务源前缀的残留，未过期的完整源供人工重试。
 - 本地验证覆盖完整往返、空/多块输入、错误密钥、篡改/截断/追加、环境不匹配、源/密文读回损坏、存储失败、取消及不覆盖；不重跑未受影响的 UI/认证/媒体链路。类型检查与 development 构建仍执行。真实平台生命周期、内存/时限、网页与外部目标、保留策略和隔离恢复不由此切片宣称通过。
 
-平台依据（2026-10-16 文档核对）：[Workers node:crypto](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)、[FixedLengthStream](https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/)、[R2 条件写入与校验](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)。本工程兼容日期保持 `2026-09-25`；运行时支持还须本地 Workers 测试及后续 staging 验证。
+平台依据（2026-10-16 文档核对）：[Workers node:crypto](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)、[FixedLengthStream](https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/)、[R2 条件写入与校验](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)。本工程兼容日期保持 `2026-09-25`；运行时支持还须本地 Workers 测试及后续预览环境验证。
 
 ### T6.1a 验证摘要
 
@@ -80,12 +80,12 @@ staging 构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2
 
 配置预检同时检查备份密钥和认证 Secret 的最低长度；两者均须使用独立高熵随机值。文件头的 SHA-256 指纹只用于选钥，长度检查不能保证熵，不支持用可猜测口令代替 Secret；本地检查不代表已检查或轮换线上密钥。
 
-- HTTP 请求等待全流程，14 分钟主动截止。客户端断线会结束本次调用，请求自身的 catch/finally 不再执行，只有 `waitUntil` 登记的工作可在约 30 秒宽限内继续；因此断线由请求 `signal` 的 abort 监听同步登记收尾：备份把运行中任务记为 `BACKUP_INTERRUPTED` 并释放租约，清理直接释放租约。任务状态写入串行执行，断线收尾不会与请求自身的写入竞争同一 ETag。`waitUntil` 只保护小型状态写入和租约释放，不承载备份或清理。主备份在截止前完成校验后先持久化结果，再用原截止时间内的剩余窗口清理，不另起完整超时窗口。清理失败或超时只记录 `cleanup` 失败，不翻转备份成功；清理结果保存失败仍返回错误，`cleanup: null` 不表示清理成功。进程直接终止时，尚未保存完成结果的任务在租约到期后显示中断并允许人工重试；已保存的成功结果保留。staging 必须实测连接、中断及平台限制。
+- HTTP 请求等待全流程，14 分钟主动截止。客户端断线会结束本次调用，请求自身的 catch/finally 不再执行，只有 `waitUntil` 登记的工作可在约 30 秒宽限内继续；因此断线由请求 `signal` 的 abort 监听同步登记收尾：备份把运行中任务记为 `BACKUP_INTERRUPTED` 并释放租约，清理直接释放租约。任务状态写入串行执行，断线收尾不会与请求自身的写入竞争同一 ETag。`waitUntil` 只保护小型状态写入和租约释放，不承载备份或清理。主备份在截止前完成校验后先持久化结果，再用原截止时间内的剩余窗口清理，不另起完整超时窗口。清理失败或超时只记录 `cleanup` 失败，不翻转备份成功；清理结果保存失败仍返回错误，`cleanup: null` 不表示清理成功。进程直接终止时，尚未保存完成结果的任务在租约到期后显示中断并允许人工重试；已保存的成功结果保留。预览环境必须实测连接、中断及平台限制。
 - `backup-control/<environment>/` 保存任务与全环境单任务条件租约，`backups/` 保存源和密文，不新增业务表。每次导出前写入不可覆盖的 `sources/<sourceId>.json` 归属索引，保留任务 ID 与创建时间；重试换源后，索引仍可定位旧源残留。外部写入前额外持久化已校验密文与目标意图，防止中断后丢失远端对象归属。有效租约直到显式释放或到期均阻止其他备份、清理及定时媒体扫描，不因任务已经显示完成而提前放行清理并发。任务及租约相邻写入至少间隔 1.1 秒；状态保存和租约释放使用各自 ETag，过期执行者不能覆盖新尝试或释放新租约。列表按反向时间 ID 分页，每页最多 20 项，仅返回公开任务 ID 作为翻页位置。
 - 人工重试保留任务 ID；已有源完成记录时复用源及原导出日期，已校验密文在外部失败时仍保留下载与重试引用、已验证回执及未完成上传意图，不重新导出或加密。否则使用新的源 ID，不覆盖上次残留。已完整成功的备份拒绝重试，不因清理失败重复上传，过期清理通过独立入口重试。目标位置变更不将原失败任务静默改投新位置；需恢复原配置重试或创建新任务。失败只记录固定分类，不保存上游错误文本、URL 或凭证。导出失败另在 Worker 日志写入 `backup_export_rejected`，只含任务 ID、HTTP 状态、导出状态和数值 API 错误码，供定位上游拒绝原因。
 - 下载只接受完成记录指向的文件，创建时已通过 SHA-256/GCM 校验，下载通过条件读取锁定同一 ETag/长度；ETag 仅锁定版本，不替代首次内容校验。更换备份密钥不阻止下载原密文，恢复仍需要对应历史密钥。
 - `download`、WebDAV/S3 与定时入口共用导出与认证加密，未配置的目标单独不可选。本地 `development` 禁止远程导出；线上需补齐独立 `D1_EXPORT_TOKEN`、站长邮箱和备份密钥并另行获准发布。
-- 单次 R2 写入仍是当前边界：导出必须返回未压缩的可靠长度，SQL 大小为单次上传上限预留封装空间；缺少长度或超限明确失败，不缓存整份文件或伪造成功。真实 D1 导出响应、实际库规模及大文件路径需 staging 验证后再判断是否需要 multipart。
+- 单次 R2 写入仍是当前边界：导出必须返回未压缩的可靠长度，SQL 大小为单次上传上限预留封装空间；缺少长度或超限明确失败，不缓存整份文件或伪造成功。真实 D1 导出响应、实际库规模及大文件路径需预览环境验证后再判断是否需要 multipart。
 
 平台依据（2026-10-16）：[D1 export](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/export/)、[Workers duration](https://developers.cloudflare.com/workers/platform/limits/#duration)、[R2 limits](https://developers.cloudflare.com/r2/platform/limits/)。T6.1b 接口切片验证新增备份入口及共享 Worker 分发/配置，不覆盖后续 UI、外部目标、清理与恢复工具；完整差异验证见 T6.1c。
 
@@ -126,7 +126,7 @@ Cloudflare 导出响应均为模拟，D1/R2 使用本地 workerd；未做浏览�
 
 官方 [Time Travel 文档](https://developers.cloudflare.com/d1/reference/time-travel/)明确说明目前不能 clone/fork 新库，不能拿原地 Time Travel 代替本项目的默认隔离恢复。可执行路径是新建空 D1 后用完整备份导入，旧库始终保留。没有获准的隔离目标时停止，不覆盖旧库。
 
-恢复工具与恢复点的 schema 必须匹配。当前业务汇总包含 `0018_reply_cursor.sql` 的回复游标水位；缺少该表的旧备份不能直接通过当前工具的完整校验，不代表密文或其中的数据失效。当前站点另要求 `0019_email_sender_quota.sql` 的发信索引。`0021_playlist_short_ids.sql` 只改片单 ID 取值、不改表结构：此前的备份恢复后片单仍是 UUID，新地址打不开，须按正常顺序补跑迁移。首次发布前不维护旧开发 schema 的兼容层。需要恢复旧备份时，须先确定对应 Git 版本的 schema、汇总校验和增量升级顺序，在保留当前鉴权、取消收尾与明文清理约束的隔离流程中演练；不能直接部署缺少这些修复的旧工具，也不能跳过缺表校验或删除旧备份。该路径尚未在 staging 演练，不能用当前版本的恢复证据替代。
+恢复工具与恢复点的 schema 必须匹配。当前业务汇总包含 `0018_reply_cursor.sql` 的回复游标水位；缺少该表的旧备份不能直接通过当前工具的完整校验，不代表密文或其中的数据失效。当前站点另要求 `0019_email_sender_quota.sql` 的发信索引。`0021_playlist_short_ids.sql` 只改片单 ID 取值、不改表结构：此前的备份恢复后片单仍是 UUID，新地址打不开，须按正常顺序补跑迁移。首次发布前不维护旧开发 schema 的兼容层。需要恢复旧备份时，须先确定对应 Git 版本的 schema、汇总校验和增量升级顺序，在保留当前鉴权、取消收尾与明文清理约束的隔离流程中演练；不能直接部署缺少这些修复的旧工具，也不能跳过缺表校验或删除旧备份。该路径尚未在预览环境演练，不能用当前版本的恢复证据替代。
 
 空库检查包含表、视图、索引和触发器，只排除 SQLite/Cloudflare 自身对象。恢复读取复用内核的可取消流消费；MD5 读取和上传生产端分别跟踪，删除明文前等待解密写入及这些本地流收尾，不等待已经断线的远程导入请求恢复。上传网络或 HTTP 错误会中止生产端并释放读取器；非成功的元数据响应主动取消响应体。领取新恢复租约前，工具自动检查旧 `plaintextKey` 只能位于本环境的恢复暂存前缀，等待同键写入间隔后删除；删除失败返回 `503 / RESTORE_PLAINTEXT_CLEANUP_FAILED` 并保留原控制记录，不能覆盖唯一清理线索。
 
@@ -240,6 +240,7 @@ staging 备份断线证据（2026-10-17，`087b9c1` / 版本 `b1e7efb0`）：手
 - 构建脚本统一：两个环境执行相同的安装、类型检查、测试与构建步骤；差异全部来自构建变量和 `cloudflare.config.ts` 按环境生成的绑定与变量。当前构建产物中与环境有关的只有构建提交和 React Router 模式字符串，后者除 `development` 外都按正式模式运行。
 - 登录与通行密钥只信任本环境的固定地址（现有代码以 `APP_ORIGIN` 为唯一可信来源和通行密钥域名），不信任整个 `workers.dev` 子域：该子域下还有站长的其他 Worker，浏览器视为同一站点，整体信任会让它们的页面能以成员身份向预览站发请求。
 - 合并时统一改称 preview：文档与代码中的 `staging`、环境名 `APP_ENV`、构建变量 `STAGING_*` 及脚本名一并改为 preview。D1 与媒体桶保留现有资源和名称，只在配置中对应。
+- 预览使用独立的 `preview` 模式，不用 `production` 加 `isPreview`：迁移、导入与管理员初始化脚本都按环境名选择目标库，本机操作预览库时不必伪造预览构建变量。构建脚本仍只有一个，按 `CLOUDFLARE_PREVIEW_BUILD` 选择模式；两环境靠分开的构建变量隔离，缺变量时配置报错。
 - 合并在 production 首次上线前完成，正式站一开始即为最终结构；依据见下方小实验。
 - 预览地址为 `dev.video.startrekchina.org`：正式域名 `video.startrekchina.org` 设为“Production and Preview”，在控制台维护，配置的 `domains` 留空。
 - 预览不运行定时任务，不增加手动触发入口：媒体扫描只由定时任务启动，预览中新上传或同名替换的视频与字幕不会被关联，已关联的保持可播；定时备份不执行，网页手动备份照常可用。涉及扫描或定时备份的改动以自动化测试为准，Cron 时限只能在正式环境观察。
@@ -248,38 +249,41 @@ staging 备份断线证据（2026-10-17，`087b9c1` / 版本 `b1e7efb0`）：手
 **小实验结论**（2026-10-29）：临时 Worker 读取测试站资源，在实验分支上验证，未改动 `dev`、`main`、测试站与正式站 Worker；临时 Worker、预览、域名、DNS 记录和远程分支均已删除。
 - **接入**：控制台导入仓库建出的 Worker 仍是旧版预览模式（非正式分支执行“Version command”），须在 Settings → Builds 做一次不可逆的“Switch to Worker Previews”，正式站 Worker 接入时同样需要。对话框提示自定义命令须调用 `npx wrangler preview`，实际接受了 `cf previews deploy`。仓库连接由同一账户的 Worker 共用，清理时只删 Worker 的构建配置。
 - **发布**：正式版本用 `cf deploy --prebuilt`、预览用 `cf previews deploy --prebuilt`，都在 Workers Builds 中发布成功，同一个 Worker 不必改用 Wrangler 发布。`cf` 没有设置 Previews Base 运行时 Secrets 的命令，用 `wrangler preview base-config secret put` 或控制台填写；Base Secrets 只作用于之后新建的预览，已有预览用 `wrangler preview secret put --name <预览名>` 单独更新。
-- **构建**：两边执行同一个 `scripts/build.sh`，云端 40 个测试文件 615 项通过。平台不会为预览构建设置 `CLOUDFLARE_PREVIEW_BUILD`，要在 Previews Base 的构建变量中设为 `true`；`cloudflare.config.ts` 据此收到 `isPreview`，生成预览的地址与绑定。预览产物不能含 `domains` 与 `triggers`，配置须在 `isPreview` 时省略两者，因此预览不会有定时任务。
+- **构建**：两边执行实验分支上的同一个构建脚本，云端 40 个测试文件 615 项通过。平台不会为预览构建设置 `CLOUDFLARE_PREVIEW_BUILD`，要在 Previews Base 的构建变量中设为 `true`；`cloudflare.config.ts` 据此收到 `isPreview`，生成预览的地址与绑定。预览产物不能含 `domains` 与 `triggers`，因此预览不会有定时任务。
 - **分支**：Previews 没有分支过滤；切换后预览触发器并入 Previews 配置，触发器接口拒绝修改它。每个分支第一次推送都会建一条预览记录并构建一次。构建脚本用 Previews Base 构建变量 `PREVIEW_BRANCH` 判断，其他分支直接退出，预览命令同样跳过，构建记为成功但不发布；没有发布过的预览地址返回 404。单条预览可关闭“自动构建”，关闭后推送不再构建。
 - **地址**：自定义域名设为“Production and Preview”后，预览地址为 `<预览名>.<该域名>`，另有按部署编号的地址；预览名由分支名转换（`/` 变为 `-`，`dev` 仍为 `dev`）。两层子域的证书随 Worker 自定义域名自动签发：区域为免费套餐、未开 Total TLS，每个 Worker 自定义域名的证书都含 `*.<该域名>`，不依赖只覆盖一级子域的 Universal SSL。`cf deploy` 用配置中的 `domains` 整体替换 Worker 的自定义域名（`replace_state=true`）并复位预览开关，实测重新发布后预览地址失效；`domains` 为空时 `cf deploy` 不改动域名，重新发布后预览地址保持可用。按 cf 代码，未写进 `domains` 的域名也会被这次替换移除，所以只要使用预览域名，正式与预览域名都改在控制台维护。现有 `video-development.startrekchina.org` 不能沿用为预览地址，因为预览地址总在某个域名下再加一级。`previewUrls: true` 时 `workers.dev` 预览地址可用，但正式版本的每个版本也会出现可访问的 `<版本>-<Worker 名>` 地址。
 - **验证**：正式与预览地址的首页和会话接口（经 D1）均返回 200；登录请求只接受本环境地址，对方地址与测试站地址返回 403。
 - **未实测**：定时任务（临时 Worker 未配置，以免它扫描和备份测试站数据；预览产物本就不能带定时任务）、R2 读取、真实登录与播放。
 
 **实施步骤**（涉及提交、推送和云端设置的步骤各自取得授权；实验提交保留在本地分支 `exp/env1-preview`，可作参考）：
-1. 统一构建脚本 `scripts/build.sh`，替换 `build-staging.sh`：两环境执行相同的安装、类型检查、测试与构建，模式固定为 `production`；`PREVIEW_BRANCH` 存在且不是当前分支时直接退出。
-2. `cloudflare.config.ts`：两环境同一个 Worker 名；`isPreview` 时使用预览地址 `https://dev.video.startrekchina.org` 与预览资源（现有 staging D1 与媒体桶），并省略 `domains` 与 `triggers`；正式配置的 `domains` 留空。
-3. 正式站 Worker 接入：控制台连接仓库，正式分支 `main`，切换到 Worker Previews。正式部署命令在迁移正式库后执行 `cf deploy --prebuilt --mode production`；预览命令在当前分支等于 `PREVIEW_BRANCH` 时迁移预览库后执行 `cf previews deploy --prebuilt --mode production`，否则跳过。Previews Base 构建变量设 `CLOUDFLARE_PREVIEW_BUILD=true`、`PREVIEW_BRANCH=dev` 和预览资源变量；两边都排除只改文档或原型的路径。取得 production 发布授权前，正式部署命令只做检查、不发布。
-4. 在控制台为正式站 Worker 添加 `video.startrekchina.org` 并设为“Production and Preview”；Turnstile 允许的主机名加入 `dev.video.startrekchina.org`。
-5. 预览 Secrets 写入 Previews Base：认证与备份密钥沿用站长保存的现有值，Turnstile、邮件、导出 Token 和 S3 由站长重新填写。
-6. 统一改称 preview，同步需求、计划、AGENTS 与运维说明。
-7. 推送 `dev` 生成预览，核对来源提交、迁移、登录（密码、TOTP、通行密钥）、播放与网页备份；确认正式版本不受影响。预览首份备份成功后删除旧 staging 备份。
-8. 经授权停用并删除旧 staging Worker 及其构建配置，D1 与媒体桶由预览继续使用。
+1. [x] 本地实现（2026-10-29，合入本地 `dev`，未推送）：
+   - `scripts/workers-build.sh` 取代 `build-staging.sh`，是两环境 Workers Builds 的统一入口。`build` 安装固定版本 FFmpeg，依次执行锁文件安装、类型检查、应用与工具测试和本环境构建；`deploy` 迁移本环境 D1 后发布，预览用 `cf previews deploy --prebuilt --mode preview`，正式用 `cf deploy --prebuilt --mode production`。`CLOUDFLARE_PREVIEW_BUILD=true` 时用 `preview` 模式；当前分支不是 `PREVIEW_BRANCH` 时两步都直接退出，不迁移、不发布。
+   - `cloudflare.config.ts` 的 preview 与 production 同为 `stcn-video-site`；预览地址固定为 `https://dev.video.startrekchina.org`，资源取 `PREVIEW_*`。两环境都不声明 `domains`，只有 production 声明 Cron。
+   - `APP_ENV`、备份路径与文件名、恢复工具、脚本参数和环境变量统一改为 preview；删除 Wrangler 补充发布（`prepare-staging-wrangler.mjs` 与 `deploy:staging*`）。
+   - 本地验证：类型检查、工具测试 34 项（含分支门槛 3 项）、认证与备份相关 8 个文件 192 项通过；development、preview、production 与恢复工具构建通过，预览产物为 `stcn-video-site`、预览地址、无域名与 Cron，正式产物只带 Cron；`cf d1 migrations list --mode preview` 只读核对预览库无待执行迁移。全量应用测试留给云端预览构建，云端发布未验证。
+2. 正式站 Worker（`stcn-video-site`）接入：控制台连接仓库，正式分支 `main`，切换到 Worker Previews。构建命令 `bash scripts/workers-build.sh build`，预览命令 `bash scripts/workers-build.sh deploy`；取得 production 发布授权前，正式部署命令只输出提示、不发布，授权后改为同一 `deploy`。Previews Base 构建变量设 `CLOUDFLARE_PREVIEW_BUILD=true`、`PREVIEW_BRANCH=dev`、`CLOUDFLARE_ACCOUNT_ID` 与 `PREVIEW_*`（从现有 staging 构建配置复制并改名），Production 构建变量设 `PRODUCTION_*` 与 `CLOUDFLARE_ACCOUNT_ID`；沿用现有路径排除。关闭该 Worker 的 `workers.dev` 与预览 URL。接入时平台可能对 `main` 构建一次，`main` 还没有新脚本，构建失败但不发布。
+3. `video.startrekchina.org` 现有一条不代理、已无响应的旧 CNAME，删除后在控制台为正式站 Worker 添加该域名并设为“Production and Preview”；此后上线前访问正式域名显示占位版本的 JSON。Turnstile 允许的主机名加入 `dev.video.startrekchina.org`。
+4. 预览 Secrets 写入 Previews Base：认证与备份密钥沿用 `.dev.vars.staging.secrets.json` 及站长保存的现有值，`BETTER_AUTH_SECRET` 不变库中 TOTP 才能解密；邮件和 S3 由站长重新填写。
+5. 删除旧 staging Worker 的构建配置（保留共用的仓库连接），再推送 `dev` 生成预览。旧 staging Worker 继续服务并运行 Cron，作为回退。
+6. 核对来源提交、迁移、登录（密码、TOTP、在新域名重新添加的通行密钥）、播放与网页备份，确认正式版本仍是占位版本。旧通行密钥绑定旧域名，切换后失效；会话也因域名变化全部失效。
+7. 经授权删除旧 staging Worker（停止其 Cron，`video-development.startrekchina.org` 随之失效），D1 与媒体桶由预览继续使用。预览首份网页备份成功后删除旧 staging 备份：私有 R2 的 `backups/staging/`、`backup-control/staging/`，以及 S3 中的 `video-site-staging-*`。预览备份页从空记录开始，旧定时备份设置不迁移。
 
 ## 当前运维风险
 
-- cf beta.12 固定 strict 检查因 staging 最近由 script API 更新而拒绝上传；官方 beta.16 同样固定 `strict: true`，不能仅靠升级解除。staging 采用已获准的 Wrangler 补充发布，开发、构建和迁移继续使用 cf；生成配置须核对模式、目标、全部拆分模块及静态资源，不读取或重建既有运行时 Secrets。直接 API 发布仍需另行授权，不修改 CLI 内部实现或重建 Worker。
+- cf beta.12 的 strict 检查曾因 staging Worker 被 script API 更新而拒绝上传，旧 staging 因此采用 Wrangler 补充发布；该路径已随 ENV1 移除。正式站 Worker 的占位版本是一次 upload（2026-09-10），首个预览或正式发布若被 strict 检查拒绝，先报告开发者，不恢复 Wrangler 补充发布、不直接调用 API，也不修改 CLI 内部实现或重建 Worker。
 - production 密钥交接文件仅含原四项，不含 EMAIL_API_KEY 或运行时备份 Token；不能据此认定配置齐全。备份导出、站长邮箱、外部目标及 keyring 已声明，真实配置与权限尚未验证，未启用的目标不上传假值。
 - 原生凭证路径需禁用相关应用日志以避免平台附加 URL，invocation/traces 未脱敏前保持关闭；认证小样本/静态配置不等于全部业务平台验证。
 - Time Travel 官方尚不支持新库克隆，默认隔离恢复使用完整备份；手动与定时备份已在 staging 实测，大库导出按 6.9.2 的复测条件处理，不擅自加 Queues/Workflows 或原地覆盖生产。
 
 ### 6.9 环境与备份
 
-- staging 和 prod 是两套完全独立的资源，各自有自己的 Worker、D1 和 R2。
-- 两环境不复制完整片库：可分别建立完整资料占位，staging 仅存少量自生成测试媒体/字幕，prod 保存正式片源；扫描只访问本环境绑定。
-- **开发与发布顺序（2026-10-06 确认）**：开发阶段使用本地环境与 staging，production 可以提前准备隔离资源映射、配置声明及本地构建 / dry-run。所有 v1 主要功能（认证与管理、片库与播放、进度/片单/讨论、备份与恢复）开发完成且相关测试和 staging 验收通过后，才在第六阶段补齐 production 上线配置与 Secrets，执行正式迁移、部署及上线验收；这些操作仍需站长明确授权。production 未上线不作为工程基础或第三至第五阶段未完成的依据。
+- preview 和 prod 是两套完全独立的资源：同一个 Worker 的预览与正式版本分别绑定各自的 D1、R2、Secrets 与域名（ENV1）。
+- 两环境不复制完整片库：可分别建立完整资料占位，preview 仅存少量自生成测试媒体/字幕，prod 保存正式片源；扫描只访问本环境绑定。
+- **开发与发布顺序（2026-10-06 确认）**：开发阶段使用本地环境与预览环境，production 可以提前准备隔离资源映射、配置声明及本地构建 / dry-run。所有 v1 主要功能（认证与管理、片库与播放、进度/片单/讨论、备份与恢复）开发完成且相关测试和预览环境验收通过后，才在第六阶段补齐 production 上线配置与 Secrets，执行正式迁移、部署及上线验收；这些操作仍需站长明确授权。production 未上线不作为工程基础或第三至第五阶段未完成的依据。
 - D1 利用 Time Travel 功能，可以恢复到最近 30 天内的任意时间点。
 - 备份先调用 D1 导出 API 并存入私有 R2，再加密供直接下载或上传 WebDAV / S3。配置完整的 WebDAV 或 S3 目标后，站长可在网页设定自动备份频率和执行时间，由 Worker 定时入口执行；没有外部目标时仅支持手动备份，不启用定时备份。导出包含密码哈希和 TOTP 密钥，必须加密后才能离开 Cloudflare。备份默认保留 30 天。
 - 网页数据库备份纳入 v1，提供直接下载、WebDAV 与 S3 三种目标，仅本环境 `OWNER_EMAIL` 指定的管理员可操作（6.9.4）；直接下载和外部存储均使用加密备份。
-- production 的外部目标只配置 S3（开发者 2026-10-29 确认），WebDAV 不配置、页面显示未配置。以后要启用 WebDAV，先在 staging 用该服务实测上传与回读；读取时跳转到其他地址的服务（如 123 云盘）按设计不可用。
+- production 的外部目标只配置 S3（开发者 2026-10-29 确认），WebDAV 不配置、页面显示未配置。以后要启用 WebDAV，先在预览环境用该服务实测上传与回读；读取时跳转到其他地址的服务（如 123 云盘）按设计不可用。
 - WebDAV 地址必须能从公网通过 HTTPS 访问，最好用 443 端口。如果它在家里的 NAS 上，推荐用 Cloudflare Tunnel 暴露出来，不需要在路由器上开端口。
 - Cloudflare API Token、WebDAV / S3 目标与凭证、备份加密密钥都存在 Worker Secrets 里；指定站长的 `OWNER_EMAIL` 使用 Worker 环境变量，不向浏览器公开。
 - 媒体与字幕原件的冷备由站长在项目之外自行完成，项目不提供冷备功能或配合，也不存第二份云端副本。
@@ -291,9 +295,9 @@ staging 备份断线证据（2026-10-17，`087b9c1` / 版本 `b1e7efb0`）：手
 | 类别 | 建议名称与用途 |
 | --- | --- |
 | Worker bindings | `DB`：本环境自有 D1；`MEDIA_BUCKET`：私有 R2；`ASSETS`：公开素材。认证入口使用 Better Auth 的 D1 持久化限流；站点发信/管理业务配额由 D1 精确判定。各环境资源与计数隔离。 |
-| Worker 配置 | `APP_ENV, APP_ORIGIN, WEBAUTHN_RP_ID, TURNSTILE_SITE_KEY`，以及**发信服务的发件人地址与发件域名、邮件服务商 API 基础地址**、备份目标数据库标识、Cron 调度入口和兼容日期；业务备份频率/执行时间由站长在网页设置（6.9.2），不固定为每日 04:00。真实 Cloudflare 标识只保存在本机/平台配置，缺失或混用环境时拒绝运行。发件域名需按服务商要求配置 SPF/DKIM（必要时的 DMARC），staging 与 prod 用不同的发件人标识以便区分测试邮件。`node:crypto` 支持按选定兼容日期核实，不能只凭 Vitest 自动兼容通过就认定生产可用。 |
+| Worker 配置 | `APP_ENV, APP_ORIGIN, WEBAUTHN_RP_ID, TURNSTILE_SITE_KEY`，以及**发信服务的发件人地址与发件域名、邮件服务商 API 基础地址**、备份目标数据库标识、Cron 调度入口和兼容日期；业务备份频率/执行时间由站长在网页设置（6.9.2），不固定为每日 04:00。真实 Cloudflare 标识只保存在本机/平台配置，缺失或混用环境时拒绝运行。发件域名需按服务商要求配置 SPF/DKIM（必要时的 DMARC），preview 与 prod 用不同的发件人标识以便区分测试邮件。`node:crypto` 支持按选定兼容日期核实，不能只凭 Vitest 自动兼容通过就认定生产可用。 |
 | 站长配置 | `OWNER_EMAIL`：本环境唯一获准使用网页备份的管理员邮箱，仅服务端读取；缺失、格式无效或没有匹配的正常管理员时拒绝网页备份访问，不回退到“任意管理员”。随备份模块声明并提供样例占位值，实际邮箱不入库。 |
-| Worker Secrets | `BETTER_AUTH_SECRET`：库 Cookie/JWT 签名以及 TOTP/备用码认证加密，必需且每环境独立；`TURNSTILE_SECRET_KEY`：人机验证；`EMAIL_API_KEY`：Postal HTTPS API，传输层已声明，staging 已配置；`D1_EXPORT_TOKEN`：独立运行时备份导出凭证，只授予本账号 D1 Edit；`BACKUP_ENCRYPTION_KEY`：至少 32 字节的高熵备份加密密钥。基本五项作为 cf 部署必需 Secret；可选 `BACKUP_KEYRING` 与外部目标在本地配置声明以推导类型，线上由站长按需预配并由 CLI 保留，不放入部署必需列表，不以占位值部署。备份 Token 不复用构建部署凭证，也不沿用 CLI 与 Workers Builds 存放部署凭证的 `CLOUDFLARE_API_TOKEN` 变量名，避免两类凭证混填；production Secrets 尚未上传。 |
+| Worker Secrets | `BETTER_AUTH_SECRET`：库 Cookie/JWT 签名以及 TOTP/备用码认证加密，必需且每环境独立；`TURNSTILE_SECRET_KEY`：人机验证；`EMAIL_API_KEY`：Postal HTTPS API，传输层已声明，预览环境沿用旧 staging 的配置值；`D1_EXPORT_TOKEN`：独立运行时备份导出凭证，只授予本账号 D1 Edit；`BACKUP_ENCRYPTION_KEY`：至少 32 字节的高熵备份加密密钥。基本五项作为 cf 部署必需 Secret；可选 `BACKUP_KEYRING` 与外部目标在本地配置声明以推导类型，线上由站长按需预配并由 CLI 保留，不放入部署必需列表，不以占位值部署。备份 Token 不复用构建部署凭证，也不沿用 CLI 与 Workers Builds 存放部署凭证的 `CLOUDFLARE_API_TOKEN` 变量名，避免两类凭证混填；production Secrets 尚未上传。预览环境的运行时 Secrets 写在 Previews Base，只作用于之后新建的预览；已有的 `dev` 预览用 `wrangler preview secret put --name dev` 更新。 |
 | 外部备份 Secrets | `WEBDAV_URL, WEBDAV_USERNAME, WEBDAV_PASSWORD`：预配的 HTTPS WebDAV 目录及凭证；`S3_BACKUP_ENDPOINT, S3_BACKUP_REGION, S3_BACKUP_BUCKET, S3_BACKUP_ACCESS_KEY_ID, S3_BACKUP_SECRET_ACCESS_KEY`：预配的 HTTPS S3 兼容目标及其独立最小权限凭证。与媒体访问隔离，不向浏览器下发；仅对启用目标要求完整，未配置的目标在网页中不可选，不为未启用目标强制填写假凭证。在 Worker 控制台添加时全部选「密钥」类型：文本变量会在下一次自动发布时按构建配置被覆盖；控制台保存而未部署时只生成新版本，部署后才生效。 |
 | 仅站长本机 | `TMDB_API_KEY`、目标环境资源映射和离线导入所需的最小权限 D1/R2 凭证；不把导入管理能力做成浏览器接口，不给 Worker 播放路径额外的上传管理 token。 |
 | 集中默认配置 | 站点业务默认：邀请额度 2、邀请码 30 天、预留 15 分钟、看完 90%、进度 15 秒、备份 30 天、评论 1000 字/每页 10 条/回复每批 10 条、管理高影响操作 30 次/分钟、发信间隔 60 秒/每用途每小时 5 次。认证配置统一维护 6.3 的原生参数及显式选择：滚动会话 30 天/updateAge 1 天/freshAge 5 分钟、验证与重置链接各 1 小时、二步挑战 5 分钟、备用码 10 个、TOTP 6 位/30 秒/±1 步、原生尝试/锁定/IP 限流。settings 与原生配置已调整并通过运行探针和第三阶段验收；播放、进度和备份等配置随对应阶段验证。 |
@@ -313,13 +317,13 @@ staging 备份断线证据（2026-10-17，`087b9c1` / 版本 `b1e7efb0`）：手
 2. 导出期间数据库可能无法服务查询，持续轮询中断时平台会取消导出。不得将仍在执行的导出留到下一次定时触发才继续。完成后及时读取返回的短期 `signed_url` 并流式存入私有 R2 备份对象；不能把下载 URL 返给浏览器、写日志或交给 WebDAV / S3 抓取。
 3. R2 记录本次备份 ID、环境、备份时间、导出 bookmark、schema 版本、长度和 SHA-256；只有完整写入并校验后才标记 R2 完成。备份控制状态可放在私有 R2 元数据/伴随记录，不因此追加业务表；重试复用已验证的备份 ID，避免重复导出和混淆日期。
 4. 从 R2 加密后上传所选 WebDAV / S3 目标：WebDAV 用 HTTPS `PUT`，S3 用 HTTPS S3 兼容 API。采用带版本的认证加密封装（建议 AES-GCM；若分块，每块独立唯一 nonce、认证序号/总块数，并验证最终完整性）；大小不得要求整个 SQL 常驻内存，采用有界缓冲/流处理。目标只能来自 Secret，不跟随把授权头带到其他主机的重定向。**只有 R2 完成、加密完整、所选外部目标上传成功并回读校验通过后，才记录该目标“备份完整成功”。**
-5. **上传后回读校验（已确认）**：`PUT` 成功后再用 HTTPS `GET` 把对象**流式读回**，校验**长度和 SHA-256** 与本地记录一致。**ETag 不能代替内容哈希**校验。回读可能耗时，按实际耗时在 staging 实测并纳入 15 分钟时限评估（6.16）。
+5. **上传后回读校验（已确认）**：`PUT` 成功后再用 HTTPS `GET` 把对象**流式读回**，校验**长度和 SHA-256** 与本地记录一致。**ETag 不能代替内容哈希**校验。回读可能耗时，按实际耗时在预览环境用网页手动备份实测并纳入 15 分钟时限评估（6.16）。
 6. 导出/R2/WebDAV/S3 任一失败都不创建对应成功标记：保留完整 R2 副本和**脱敏失败记录**，由站长**人工触发重试**。**不设置自动重试调度，也不做主动失败告警。**
 7. **保留策略**：默认保留 `30 天`，但**每一端（R2、WebDAV 与 S3）的最后一份完整可恢复副本受保护、可超过保留期不被删除**。清理绝不触碰媒体对象，备份与媒体清理前缀严格隔离；清理失败可重试，不把部分失败当作已删除。
 
-Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和回读校验的全流程都要在这 15 分钟内实测；必须整体由 scheduled 生命周期等待，不依赖 HTTP 返回后 30 秒的 `waitUntil`。必须在 staging 测量备份大小、耗时和内存，并验证按网页所设频率/时间正确触发；若全流程装不进单次时限，**报告站长**决定调度或恢复办法，**不擅自引入 Queues、Workflows 或其他新产品**。
+Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和回读校验的全流程都要在这 15 分钟内实测；必须整体由 scheduled 生命周期等待，不依赖 HTTP 返回后 30 秒的 `waitUntil`。备份大小、耗时和内存在预览环境用网页手动备份测量；按网页所设频率/时间触发已在旧 staging 实测（T6.1 演练），预览没有定时任务，之后只能在正式环境观察；若全流程装不进单次时限，**报告站长**决定调度或恢复办法，**不擅自引入 Queues、Workflows 或其他新产品**。
 
-**大库复测条件**（开发者 2026-10-29 确认）：现有 staging 实测对应约 0.79 MB 的导出。任一环境备份页“详细信息”中的文件大小超过 50 MB 时，在 staging 用同等规模的虚构数据重测耗时、内存及导出期间的查询中断；由站长查看记录发现，不新增告警。
+**大库复测条件**（开发者 2026-10-29 确认）：现有 staging 实测对应约 0.79 MB 的导出。任一环境备份页“详细信息”中的文件大小超过 50 MB 时，在预览环境用同等规模的虚构数据重测耗时、内存及导出期间的查询中断；由站长查看记录发现，不新增告警。
 
 #### 6.9.3 手动恢复顺序与完整性
 
@@ -343,20 +347,20 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 - **WebDAV / S3**：目标及凭证只从本环境 Worker 配置/Secrets 读取，网页只选择目标类型，不接收任意远端 URL 或凭证。WebDAV 按 6.9.2 的 HTTPS PUT/GET 处理，S3 使用 HTTPS S3 兼容 API；上传后均流式回读并校验长度与 SHA-256，ETag 不代替内容校验。目标缺配置时明确不可用，不影响其他已配置目标；按所选目标分别展示完整/失败状态，不把部分成功报告为全部成功。
 - **定时设置**：只有 WebDAV / S3 目标配置完整后才提供可用的频率与执行时间设置；仅下载时禁用并说明原因。服务端对启用请求执行相同校验，不能靠伪造表单绕过。设置只作用于本环境，可关闭定时备份；频率/时间与启用状态保存在私有备份控制记录，不因配置调度新增业务角色或公开凭证。
 - **保留与失败**：私有 R2、WebDAV 和 S3 的各端保留策略均按 6.9.2 保护最后一份完整可恢复副本；站长自行下载的本地文件不由 Worker 清理。失败由网页展示脱敏结果并人工重试，不新增自动重试或主动告警。6.9.3 的隔离手动恢复流程继续适用，网页备份不包含一键覆盖生产库的恢复功能。
-- **实现门槛**：先完成第三阶段真实认证与管理员门禁，再在第六阶段实现备份页与处理流程。网页触发任务的执行生命周期、中断和重试行为须在 staging 验证，不能依赖请求结束后短暂的 `waitUntil` 完成整次导出，也不未经确认引入新 Cloudflare 产品。
+- **实现门槛**：先完成第三阶段真实认证与管理员门禁，再在第六阶段实现备份页与处理流程。网页触发任务的执行生命周期、中断和重试行为须在预览环境验证，不能依赖请求结束后短暂的 `waitUntil` 完成整次导出，也不未经确认引入新 Cloudflare 产品。
 
 #### 6.9.5 远程数据库迁移与运维工程细节
 
-- **媒体迁移 0022**：迁移集不包含该清理脚本，不通过数据库迁移删除原画记录，不补空迁移或重排编号。未执行环境不再执行，已执行环境保留应用历史，删除源文件不回滚其数据影响。VP9 主档规则与关联重建具有本地实现及自检，实际云端状态未查询、数据未恢复，详见[导入说明](../import-media.md#迁移-0022-与现有媒体)。推送 `dev` 仍走既有 staging 自动检查、剩余迁移与部署流程，不更改或绕过流水线；查询执行状态与实际数据恢复不是本次移除文件的前置条件，恢复写入须另行授权。
+- **媒体迁移 0022**：迁移集不包含该清理脚本，不通过数据库迁移删除原画记录，不补空迁移或重排编号。未执行环境不再执行，已执行环境保留应用历史，删除源文件不回滚其数据影响。VP9 主档规则与关联重建具有本地实现及自检，实际云端状态未查询、数据未恢复，详见[导入说明](../import-media.md#迁移-0022-与现有媒体)。推送 `dev` 走预览构建的自动检查、剩余迁移与发布流程，不更改或绕过流水线；查询执行状态与实际数据恢复不是本次移除文件的前置条件，恢复写入须另行授权。
 
-- **staging 云端构建**：仅监听 `startrekchina/video-site` 的 `dev`，关闭其他分支/PR 预览；Node 24.21.0、pnpm 12.6.0，使用锁文件安装依赖。构建命令为 `bash scripts/build-staging.sh`，先下载固定版本并校验 SHA-256 的 Linux FFmpeg（生成测试媒体与转换 ASS 用）到被忽略的 `.cloudflare/build-tools`，再依次运行 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm test`、`pnpm test:tools`、`pnpm build:staging`，构建时把平台提供的 `WORKERS_CI_COMMIT_SHA` 写入成员页脚的构建提交，发布后可用它核对来源 SHA；自生成媒体仍不提交到 Git。部署命令为 `pnpm db:migrate:staging && pnpm deploy:staging:prebuilt --message "GitHub dev $WORKERS_CI_COMMIT_SHA"`，迁移继续使用 cf。任一步失败即停止，不改用本机上传或静默忽略失败；核对来源 SHA、迁移结果、实际生效版本和受影响入口后才能认定发布成功。
-- **GitHub PR 检查**：`.github/workflows/ci.yml` 在每个 PR 及手动触发时于 GitHub Actions 运行 `pnpm typecheck`、`pnpm test`、`pnpm test:tools` 和 `pnpm build`（development），Node/pnpm 版本与 staging 构建一致，ffmpeg 取 Ubuntu 软件源版本。只读权限、不使用 Secrets、不迁移或部署；`dev` 推送仍由 staging 构建把关，两者互不替代。
-- **Wrangler 补充发布边界**：固定 Wrangler 4.150.0；4.151.0 引用的 workerd 版本尚不能从 npm 安装。`scripts/prepare-staging-wrangler.mjs` 使用与 cf 一致的官方 Build Output 解析器和配置转换函数，拒绝非 staging、多 Worker、Container、缺失产物及尚未适配的模块类型；配置仅生成在被忽略的 `.cloudflare/wrangler-staging/wrangler.json`。发布使用既有 ESM 拆分模块及静态素材，不重新打包、不保留手写资源映射；Wrangler 默认保留线上 Secrets，不使用 Secrets 文件。文本变量、绑定、域名、Cron 和日志设置以构建产物为准，production 仍使用 cf 且未获发布授权。
-- **R2 大文件上传补充**：`cf r2 objects put` 单次请求上限 300 MB，且其 API 客户端每个请求 30 秒超时，经本机代理上传约 80 MB 以上的文件会超时。站长本机上传超过 64 MB 的 staging 测试媒体时，改用固定 Wrangler 4.150.0 的 `wrangler r2 object put <bucket>/<key> --file <文件> --remote`（须显式 `--remote`，否则写入本地模拟），沿用其 OAuth 登录，不导出 token；较小文件仍用 cf。2026-10-29 用该路径上传 3 个 150 秒测试单元的约 227 MB 原画与 83–89 MB 的 1080p。Wrangler 单个对象上限为 300 MiB，更大的文件仍需分段上传工具，未纳入本路径。
-- **构建环境**：在 Workers Builds 单独配置 `STAGING_*` 与 Cloudflare 账户标识，资源标识作为构建 Secret 保存，不注入 production 配置。沿用 staging 构建 token；核对其 Worker 部署与目标 D1 迁移权限，缺权限时报告开发者，不默认为可用。运行时认证、播放、邮件等 Secrets 保留在现有 staging Worker，不复制到 Git 或构建日志；构建机不依赖本机 `.env`。
-- **远程迁移执行与 D1 触发器兼容**：远程迁移统一使用 `pnpm db:migrate:staging` 与 `pnpm db:migrate:production`，脚本自行创建 `.cloudflare` 父目录，干净 checkout 无需先开发或构建。针对 Cloudflare D1 `/query` 接口将触发器内裸 `CASE…END` 错认作触发器结束导致回滚的已知问题（参考 [Cloudflare 问题记录 #4727](https://github.com/cloudflare/workers-sdk/issues/4727)），`scripts/migrate-remote.mjs` 会在临时副本中为该表达式补充等价括号，再交由 `cf d1 migrations apply --dir` 执行；CLI 正常记录原文件名并执行增量判断，原始文件和本地已应用迁移不改写，临时文件执行后清除。迁移失败先核对状态和根因，不直接重复失败的原始命令或切换工具重跑。
-- **封禁邀请码状态增量迁移**：`0011_member_security_invitation_expiry_guard.sql` 按完整文件名排在原 0011 后，替换封禁触发器，仅作废有效未使用码并原子撤销会话；已过期、已用及已作废码保留原记录。staging 已应用，production 未应用；不改写原 0011，也不批量重置历史 `revoked_at`。
-- **Secrets 与交接文件**：本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，只含原有四项密钥，未包含站长另行配置的 `EMAIL_API_KEY`；仅在获准本机直接部署的例外任务中，可用 `pnpm exec cf deploy --prebuilt --mode staging --secrets-file .dev.vars.staging.secrets.json` 上传文件中的密钥，不作为 Git 集成的常规步骤。播放改用会话鉴权后代码不再读取 `PLAYBACK_HMAC_KEY`；staging Worker 上残留的该 Secret 无害，删除属于云端操作，另经开发者授权。
+- **云端构建**（ENV1 切换后）：正式站 Worker `stcn-video-site` 连接 `startrekchina/video-site`，`main` 为正式分支，`dev` 发布名为 `dev` 的预览，其他分支的预览构建直接跳过；Node 24.21.0、pnpm 12.6.0，使用锁文件安装依赖。构建命令为 `bash scripts/workers-build.sh build`，先下载固定版本并校验 SHA-256 的 Linux FFmpeg（生成测试媒体与转换 ASS 用）到被忽略的 `.cloudflare/build-tools`，再依次运行 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm test`、`pnpm test:tools` 和 `pnpm build:preview` 或 `pnpm build:production`，构建时把平台提供的 `WORKERS_CI_COMMIT_SHA` 写入成员页脚的构建提交，发布后可用它核对来源 SHA；自生成媒体仍不提交到 Git。预览命令（及上线授权后的正式部署命令）为 `bash scripts/workers-build.sh deploy`：先 `node scripts/migrate-remote.mjs <环境>`，再用 cf 发布。任一步失败即停止，不改用本机上传或静默忽略失败；核对来源 SHA、迁移结果、实际生效版本和受影响入口后才能认定发布成功。
+- **GitHub PR 检查**：`.github/workflows/ci.yml` 在每个 PR 及手动触发时于 GitHub Actions 运行 `pnpm typecheck`、`pnpm test`、`pnpm test:tools` 和 `pnpm build`（development），Node/pnpm 版本与 Workers Builds 一致，ffmpeg 取 Ubuntu 软件源版本。只读权限、不使用 Secrets、不迁移或部署；`dev` 推送仍由预览构建把关，两者互不替代。
+- **Wrangler 的保留用途**：固定 Wrangler 4.150.0，只用于 Previews Base 运行时 Secrets（`wrangler preview base-config secret put` 与 `wrangler preview secret put`，cf 暂无对应命令）和下条的大文件上传，不再用于发布。
+- **R2 大文件上传补充**：`cf r2 objects put` 单次请求上限 300 MB，且其 API 客户端每个请求 30 秒超时，经本机代理上传约 80 MB 以上的文件会超时。站长本机上传超过 64 MB 的预览环境测试媒体时，改用固定 Wrangler 4.150.0 的 `wrangler r2 object put <bucket>/<key> --file <文件> --remote`（须显式 `--remote`，否则写入本地模拟），沿用其 OAuth 登录，不导出 token；较小文件仍用 cf。2026-10-29 用该路径上传 3 个 150 秒测试单元的约 227 MB 原画与 83–89 MB 的 1080p。Wrangler 单个对象上限为 300 MiB，更大的文件仍需分段上传工具，未纳入本路径。
+- **构建环境**：Production 与 Previews Base 分别配置 `PRODUCTION_*` / `PREVIEW_*` 与 Cloudflare 账户标识，资源标识作为构建 Secret 保存，互不注入。构建 token 由 Workers Builds 提供；核对其对正式站 Worker 的发布及两个 D1 的迁移权限，缺权限时报告开发者，不默认为可用。运行时认证、邮件等 Secrets 分别保存在正式版本与 Previews Base，不复制到 Git 或构建日志；构建机不依赖本机 `.env`。
+- **远程迁移执行与 D1 触发器兼容**：远程迁移统一使用 `pnpm db:migrate:preview` 与 `pnpm db:migrate:production`，脚本自行创建 `.cloudflare` 父目录，干净 checkout 无需先开发或构建。针对 Cloudflare D1 `/query` 接口将触发器内裸 `CASE…END` 错认作触发器结束导致回滚的已知问题（参考 [Cloudflare 问题记录 #4727](https://github.com/cloudflare/workers-sdk/issues/4727)），`scripts/migrate-remote.mjs` 会在临时副本中为该表达式补充等价括号，再交由 `cf d1 migrations apply --dir` 执行；CLI 正常记录原文件名并执行增量判断，原始文件和本地已应用迁移不改写，临时文件执行后清除。迁移失败先核对状态和根因，不直接重复失败的原始命令或切换工具重跑。
+- **封禁邀请码状态增量迁移**：`0011_member_security_invitation_expiry_guard.sql` 按完整文件名排在原 0011 后，替换封禁触发器，仅作废有效未使用码并原子撤销会话；已过期、已用及已作废码保留原记录。预览库（原 staging 库）已应用，production 未应用；不改写原 0011，也不批量重置历史 `revoked_at`。
+- **Secrets 与交接文件**：本机 `.dev.vars.staging.secrets.json` / `.dev.vars.production.secrets.json` 是被忽略的独立密钥交接文件，只含原有四项密钥，未包含站长另行配置的 `EMAIL_API_KEY`；前者是预览环境沿用的密钥。写入线上 Secrets 不属于 Git 集成的常规步骤，每次另经授权。播放改用会话鉴权后代码不再读取 `PLAYBACK_HMAC_KEY`，预览环境不写入它；旧 staging Worker 上残留的该 Secret 随旧 Worker 删除。
 - **应用日志与敏感凭据脱敏**：线上环境关闭包含请求 URL 的 invocation logs，并在平台启用 `redact_query_string`；密码重置链接等原生敏感路径（如 `/api/auth/reset-password/`）禁止产生应用日志，避免平台日志附加包含凭据的完整请求路径。邮件 fetch 请求采用 `redirect: "manual"` 并拒绝所有非 2xx（包含 3xx），一次请求、不跟随重定向、不自动重发。
 
 平台行为核对于 2026-10-04，开发时按实际兼容日期再核实：[D1 batch / Sessions](https://developers.cloudflare.com/d1/worker-api/d1-database/)、[外键](https://developers.cloudflare.com/d1/sql-api/foreign-keys/)、[R2 ranged read / If-Range 边界](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)、[Rate Limiting 一致性](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)、[node:crypto](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)、[D1 export](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/export/)、[D1 import](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/import/)、[Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)、[Workers 执行时限](https://developers.cloudflare.com/workers/platform/limits/)、[URL invocation logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)。
@@ -378,7 +382,7 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 
 ## 验证方法
 
-复用本地模拟 Cloudflare export/import、WebDAV/S3，虚构数据且不使用生产明文备份。构造上传成功但回读不一致、ETag 相同内容不同、部分失败和最后副本过期等情况；staging 另验真实耗时、维护影响、调度、生命周期和隔离恢复。早期平台/配置准备见[历史计划](../archive/plan-20261007.md)，认证和播放实测见各模块报告，不将其推广为备份/完整容量通过。
+复用本地模拟 Cloudflare export/import、WebDAV/S3，虚构数据且不使用生产明文备份。构造上传成功但回读不一致、ETag 相同内容不同、部分失败和最后副本过期等情况；预览环境另验真实耗时、维护影响、网页备份生命周期和隔离恢复，定时调度只能在正式环境观察。早期平台/配置准备见[历史计划](../archive/plan-20261007.md)，认证和播放实测见各模块报告，不将其推广为备份/完整容量通过。
 
 
 ## 验证与记录规则

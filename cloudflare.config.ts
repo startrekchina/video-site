@@ -30,18 +30,19 @@ function environment(mode: string) {
         emailFrom: "noreply@example.test",
         emailReplyTo: "support@example.test",
       };
-    case "staging":
+    // Same Worker as production; `cf previews deploy` publishes it as the Preview named after the `dev` branch.
+    case "preview":
       return {
-        worker: "stcn-video-site-staging",
-        resource: requiredEnv("STAGING_D1_DATABASE_NAME"),
-        mediaBucket: requiredEnv("STAGING_MEDIA_BUCKET_NAME"),
-        d1Id: requiredEnv("STAGING_D1_DATABASE_ID"),
-        appOrigin: requiredEnv("STAGING_APP_ORIGIN"),
-        turnstileSiteKey: requiredEnv("STAGING_TURNSTILE_SITE_KEY"),
-        emailApiBaseUrl: requiredEnv("STAGING_EMAIL_API_BASE_URL"),
-        emailSenderDomain: requiredEnv("STAGING_EMAIL_SENDER_DOMAIN"),
-        emailFrom: requiredEnv("STAGING_EMAIL_FROM"),
-        emailReplyTo: requiredEnv("STAGING_EMAIL_REPLY_TO"),
+        worker: "stcn-video-site",
+        resource: requiredEnv("PREVIEW_D1_DATABASE_NAME"),
+        mediaBucket: requiredEnv("PREVIEW_MEDIA_BUCKET_NAME"),
+        d1Id: requiredEnv("PREVIEW_D1_DATABASE_ID"),
+        appOrigin: "https://dev.video.startrekchina.org",
+        turnstileSiteKey: requiredEnv("PREVIEW_TURNSTILE_SITE_KEY"),
+        emailApiBaseUrl: requiredEnv("PREVIEW_EMAIL_API_BASE_URL"),
+        emailSenderDomain: requiredEnv("PREVIEW_EMAIL_SENDER_DOMAIN"),
+        emailFrom: requiredEnv("PREVIEW_EMAIL_FROM"),
+        emailReplyTo: requiredEnv("PREVIEW_EMAIL_REPLY_TO"),
       };
     case "production":
       return {
@@ -57,7 +58,7 @@ function environment(mode: string) {
         emailReplyTo: requiredEnv("PRODUCTION_EMAIL_REPLY_TO"),
       };
     default:
-      throw new Error(`Unknown mode "${mode}". Use development, test, staging or production.`);
+      throw new Error(`Unknown mode "${mode}". Use development, test, preview or production.`);
   }
 }
 
@@ -69,10 +70,11 @@ export default defineConfig(({ mode = "development" }) => {
       entrypoint,
       compatibilityDate: "2026-09-25",
       compatibilityFlags: ["nodejs_compat", "enable_request_signal"],
-      domains: mode === "staging" || mode === "production" ? [new URL(e.appOrigin).hostname] : [],
+      // The custom domain is managed in the dashboard: `cf deploy` would replace the Worker's domain list and drop
+      // its Preview routing, and Preview uploads reject domains and triggers.
       workersDev: false,
       previewUrls: false,
-      triggers: mode === "staging" || mode === "production" ? [triggers.scheduled({ schedule: "*/5 * * * *" })] : [],
+      triggers: mode === "production" ? [triggers.scheduled({ schedule: "*/5 * * * *" })] : [],
       observability: {
         enabled: true,
         redactQueryString: true,
@@ -82,8 +84,8 @@ export default defineConfig(({ mode = "development" }) => {
       },
       env: {
         APP_ENV: bindings.text(mode),
-        OWNER_EMAIL: bindings.text(process.env[`${mode === "production" ? "PRODUCTION" : mode === "staging" ? "STAGING" : "LOCAL"}_OWNER_EMAIL`] ?? ""),
-        BACKUP_ACCOUNT_ID: bindings.text(mode === "staging" || mode === "production" ? requiredEnv("CLOUDFLARE_ACCOUNT_ID") : ""),
+        OWNER_EMAIL: bindings.text(process.env[`${mode === "production" ? "PRODUCTION" : mode === "preview" ? "PREVIEW" : "LOCAL"}_OWNER_EMAIL`] ?? ""),
+        BACKUP_ACCOUNT_ID: bindings.text(mode === "preview" || mode === "production" ? requiredEnv("CLOUDFLARE_ACCOUNT_ID") : ""),
         BACKUP_DATABASE_ID: bindings.text(e.d1Id),
         APP_ORIGIN: bindings.text(e.appOrigin),
         WEBAUTHN_RP_ID: bindings.text(new URL(e.appOrigin).hostname),

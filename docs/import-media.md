@@ -9,15 +9,15 @@
 项目要求 Node 22.18 或更新版本。配置目标资源与 `TMDB_API_KEY` 到本工作树被 Git 忽略的 `.env`，然后执行：
 
 ```powershell
-node scripts/import-media.mjs catalog --environment staging
-node scripts/import-media.mjs catalog --environment staging --execute
+node scripts/import-media.mjs catalog --environment preview
+node scripts/import-media.mjs catalog --environment preview --execute
 ```
 
 第一条只读取 TMDB 并报告数量，第二条先获取并验证完整资料，再通过项目 cf CLI 对 D1 执行一个原子批次。重复执行用 TMDB 当前数据更新双语资料、年份和单集首播日期，保留已有作品/季/单元 ID、媒体实际时长、进度及讨论。TMDB 没有时长或首播日期时保存 null，首播日期不是 `YYYY-MM-DD` 时整次停止、不写入；没有媒体的占位不获得播放授权。
 
 执行写入前，目标数据库须已应用到 `0017_episode_air_dates.sql`（写入首播日期列）或更后的迁移，否则整批原子失败；按[运维说明](plan/operations.md#695-远程数据库迁移与运维工程细节)中的目标环境迁移命令操作，不能把本地迁移完成视为云端已迁移。
 
-目标必须显式为 `staging` 或 `prod`。必需配置为目标环境的 `STAGING_D1_DATABASE_ID` / `STAGING_MEDIA_BUCKET_NAME` 或 `PRODUCTION_D1_DATABASE_ID` / `PRODUCTION_MEDIA_BUCKET_NAME`，执行时还须具备该环境构建配置和 cf 登录。缺配置、身份歧义、另一环境资源共用、TMDB 失败都会停止；不能默认写 prod。
+目标必须显式为 `preview` 或 `prod`。必需配置为目标环境的 `PREVIEW_D1_DATABASE_ID` / `PREVIEW_MEDIA_BUCKET_NAME` 或 `PRODUCTION_D1_DATABASE_ID` / `PRODUCTION_MEDIA_BUCKET_NAME`，执行时还须具备该环境构建配置和 cf 登录。缺配置、身份歧义、另一环境资源共用、TMDB 失败都会停止；不能默认写 prod。
 
 默认读取当前工作树 `.env`，同名 shell 变量优先；`--env-file <文件>` 仅使用该文件的配置。真实配置不进入公开仓库。需要网络代理时，在进程环境中设置 `HTTPS_PROXY` / `NO_PROXY`，并用 `node --use-env-proxy ...` 启动支持该选项的 Node；工具不更改系统代理。
 
@@ -41,7 +41,7 @@ library/movie/800001/movie.zh-CN.bilingual.vtt
 
 季/集号至少两位，无多余前导零。字幕语言只能是 `zh-CN`（简体）或 `zh-TW`（繁体），轨道为 `main`（中文）或 `bilingual`（中英双语），同类多条时加后缀（如 `main.alt`）。D1 字幕标识为 `language.trackKey`（如 `zh-TW.bilingual`），因此简繁同名轨道不冲突。显示名由轨道标识推出：`zh-CN.main` 简中、`zh-CN.bilingual` 简英、`zh-TW.main` 繁中、`zh-TW.bilingual` 繁英；附加轨道在括号里只加后缀，如 `zh-CN.main.alt` 显示“简中（alt）”，播放页排在同类主轨之后。其他语言（含 `en`、`zh`、`zh-HK`、小写 `zh-cn`）和轨道名（如 `zh-CN.alternate`）都算命名错误。范围外、没有占位或命名错误的对象跳过并计入 `unknown`；不猜片名。已关联记录的对象键不再符合命名时，下一次完整扫描像对待已删除对象一样清除其已验证版本，R2 对象保留。站长的上传工具负责 multipart 和断点恢复，扫描只读取已完成对象，不提供上传替代命令。
 
-Worker 的 staging / production 配置声明 `*/5 * * * *` Cron，通过当前环境 R2 binding 扫描。默认每页 1000 项，每次最多验证 20 个新/变更对象、6 分钟窗口；D1 保存最后处理对象键及互斥租约。已发布且 ETag/长度未变的对象跳过完整校验。失败对象在下一轮完整扫描重试，后续对象可以继续处理。
+Worker 的 production 配置声明 `*/5 * * * *` Cron，通过当前环境 R2 binding 扫描；预览环境没有定时任务，不扫描、不关联新上传或同名替换的媒体（B 6.9.5）。默认每页 1000 项，每次最多验证 20 个新/变更对象、6 分钟窗口；D1 保存最后处理对象键及互斥租约。已发布且 ETag/长度未变的对象跳过完整校验。失败对象在下一轮完整扫描重试，后续对象可以继续处理。
 
 WebM 须把索引（Cues）放在第一个媒体簇之前，只有一条 VP9 视频轨和一条 Opus 音轨，轨道不加密或压缩，服务器读取文件开头 4 MiB 核对元素边界、编码、profile、时长和码率；MP4 须为 faststart，只有一条视频轨和一条 AAC 音轨，服务器有界读取元数据（最多 32 MiB），核对 box 边界、编码、时长和码率。音轨最多两个声道。两种封装通过后都再流式计算整个文件长度及 SHA-256；不把大视频整体读入内存。VTT 最大 5 MiB，验证 UTF-8、头、cue 时间、设置、安全标签和实体，拒绝 STYLE/REGION。验证前后复核对象版本；期间变化不发布。
 
@@ -109,10 +109,10 @@ WebM 须把索引（Cues）放在第一个媒体簇之前，只有一条 VP9 视
 
 ```json
 {
-  "environment": "staging",
+  "environment": "preview",
   "resources": {
     "d1DatabaseId": "00000000-0000-4000-8000-000000000001",
-    "mediaBucketName": "fictional-staging-media"
+    "mediaBucketName": "fictional-preview-media"
   },
   "media": [{
     "kind": "series", "tmdbId": 800002,
@@ -124,7 +124,7 @@ WebM 须把索引（Cues）放在第一个媒体簇之前，只有一条 VP9 视
 ```
 
 ```powershell
-node scripts/import-media.mjs preflight --environment staging --mapping .cloudflare/import/mapping.json
+node scripts/import-media.mjs preflight --environment preview --mapping .cloudflare/import/mapping.json
 ```
 
 媒体路径相对映射文件；`videos` 必须有 `original`，可选其他档位键；电影没有季集号，没有字幕时使用空数组。检查 manifest 的类型/季集身份、JPG→存在的 WebP 映射，每个档位先核对扩展名与档位的封装，再用与服务器扫描相同的 WebM/MP4 检查核对编码、声道、时长、码率和索引位置（WebM 前置 Cues、MP4 faststart），各可选档位与主档时长相差不超过 1 秒，并流式计算校验和。ASS 转 VTT 只生成内存字节并警告样式丢失；站长须自行保存合格 VTT 后上传。报告移除本机路径和配置，`cloudWrites` 恒为 0。旧 `import` 上传命令退出码为 2，不执行写入。
@@ -139,7 +139,7 @@ node scripts/import-media.mjs preflight --environment staging --mapping .cloudfl
 pnpm test:tools
 pnpm test
 pnpm typecheck
-pnpm build:staging
+pnpm build:preview
 ```
 
 测试使用虚构资料、自生成视频和回环模拟 TMDB。真实 TMDB 预检已取得 27 部作品、52 季、974 个单元；本地 scheduled 已关联 121 分钟生成视频，重复扫描没有重复引用。原子 upsert/回滚、依赖保留、格式/版本变化、失败重试、互斥、分页和失败文件后继续扫描均有检查。

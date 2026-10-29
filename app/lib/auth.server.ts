@@ -16,7 +16,7 @@ export function createAuth(env: Env, registrationUserId?: string, integration?: 
   }
   const origin = new URL(env.APP_ORIGIN);
   const secure = origin.protocol === "https:";
-  if ((env.APP_ENV === "staging" || env.APP_ENV === "production") && !secure) {
+  if ((env.APP_ENV === "preview" || env.APP_ENV === "production") && !secure) {
     throw new Error("Deployed authentication requires HTTPS");
   }
   if (origin.hostname !== env.WEBAUTHN_RP_ID) throw new Error("WebAuthn RP ID must match APP_ORIGIN");

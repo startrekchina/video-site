@@ -19,7 +19,7 @@ export function bootstrapQuery(action, username, now = Date.now()) {
 function main() {
   const args = process.argv.slice(2);
   const environment = args.find(value => value.startsWith("--env="))?.slice(6);
-  if (!["development", "staging", "production"].includes(environment)) throw new Error("必须明确指定 --env=development、staging 或 production。");
+  if (!["development", "preview", "production"].includes(environment)) throw new Error("必须明确指定 --env=development、preview 或 production。");
   if (args.some(value => value.startsWith("--") && value !== "--execute" && !value.startsWith("--env="))) throw new Error("未知参数。");
   const positional = args.filter(value => value !== "--" && !value.startsWith("--"));
   if (positional.length > 2) throw new Error("参数过多。");
@@ -28,7 +28,7 @@ function main() {
   const prefix = environment.toUpperCase();
   const databaseId = local ? "00000000-0000-4000-8000-000000000000" : process.env[`${prefix}_D1_DATABASE_ID`];
   if (!databaseId || !/^[a-f0-9-]{36}$/i.test(databaseId)) throw new Error("目标数据库未配置。");
-  if (!local && databaseId === process.env[`${environment === "staging" ? "PRODUCTION" : "STAGING"}_D1_DATABASE_ID`]) throw new Error("两环境数据库不能相同。");
+  if (!local && databaseId === process.env[`${environment === "preview" ? "PRODUCTION" : "PREVIEW"}_D1_DATABASE_ID`]) throw new Error("两环境数据库不能相同。");
   const { code, query } = bootstrapQuery(positional[0], positional[1]);
   const directory = mkdtempSync(join(tmpdir(), "video-site-bootstrap-"));
   let migrationPath;

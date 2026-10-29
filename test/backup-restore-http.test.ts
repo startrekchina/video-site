@@ -17,8 +17,8 @@ afterEach(() => vi.restoreAllMocks());
 
 it.each([false, true])("cleans a previous restore's plaintext before replacing its control record (delete fails=%s)", async fails => {
   await applyD1Migrations(env.TEST_RESTORE_DB, env.TEST_MIGRATIONS);
-  const config = { ...bindings, APP_ENV: "staging" }, control = key.replace("/test/", "/staging/");
-  const plaintextKey = `backup-restore/staging/${crypto.randomUUID()}/source.sql`, previous = { updatedAt: Date.now() - 2000, deadline: 0, plaintextKey };
+  const config = { ...bindings, APP_ENV: "preview" }, control = key.replace("/test/", "/preview/");
+  const plaintextKey = `backup-restore/preview/${crypto.randomUUID()}/source.sql`, previous = { updatedAt: Date.now() - 2000, deadline: 0, plaintextKey };
   await env.MEDIA_BUCKET.put(plaintextKey, "fictional abandoned plaintext"); await env.MEDIA_BUCKET.put(control, JSON.stringify(previous));
   const remove = env.MEDIA_BUCKET.delete.bind(env.MEDIA_BUCKET);
   vi.spyOn(env.MEDIA_BUCKET, "delete").mockImplementation(async name => {
@@ -39,7 +39,7 @@ it.each([false, true])("cleans a previous restore's plaintext before replacing i
 });
 
 it("refuses a prior cleanup pointer outside the recovery environment", async () => {
-  const config = { ...bindings, APP_ENV: "staging" }, control = key.replace("/test/", "/staging/");
+  const config = { ...bindings, APP_ENV: "preview" }, control = key.replace("/test/", "/preview/");
   const plaintextKey = `backup-restore/production/${crypto.randomUUID()}/source.sql`, previous = { updatedAt: Date.now() - 2000, deadline: 0, plaintextKey };
   await env.MEDIA_BUCKET.put(plaintextKey, "fictional protected data"); await env.MEDIA_BUCKET.put(control, JSON.stringify(previous));
   const remove = vi.spyOn(env.MEDIA_BUCKET, "delete");
@@ -73,13 +73,13 @@ it("keeps internal failures private and cannot report credential cleanup without
 it.each([
   ['{"D1_RESET_DO":true}', "D1_RESET_DO"], ["UNIQUE constraint failed: user.email fictional-private@example.test", undefined],
 ])("reports only a bare D1 code when the import rejects %s", async (error, importError) => {
-  const scope = { environment: "staging" as const, id: crypto.randomUUID() }, sql = "CREATE TABLE fictional (value TEXT);", signal = new AbortController().signal;
+  const scope = { environment: "preview" as const, id: crypto.randomUUID() }, sql = "CREATE TABLE fictional (value TEXT);", signal = new AbortController().signal;
   await stageBackup(env.MEDIA_BUCKET, { ...scope, createdAt: Date.now(), schemaVersion: "fictional", bookmark: "fictional-bookmark", authKeyId: backupKeyId(env.BETTER_AUTH_SECRET) },
     new Response(sql).body!, sql.length, signal);
   const file = await encryptBackup(env.MEDIA_BUCKET, scope, env.BACKUP_ENCRYPTION_KEY, signal);
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, result: { success: false, error } })));
   try {
-    const response = await send({ action: "restore", id: scope.id, file: file.file, keyId: file.keyId, authKeyId: file.source.authKeyId }, {}, { ...bindings, APP_ENV: "staging" });
+    const response = await send({ action: "restore", id: scope.id, file: file.file, keyId: file.keyId, authKeyId: file.source.authKeyId }, {}, { ...bindings, APP_ENV: "preview" });
     const body = await response.json<Record<string, unknown>>();
     expect(response.status).toBe(500); expect(body.error).toBe("RESTORE_FAILED"); expect(body.importError).toBe(importError);
     expect(JSON.stringify(body)).not.toContain("fictional-private");
@@ -91,14 +91,14 @@ const history = [
   { backupKey: "fictional-other-backup-key-0123456789abcdef", authSecret: "fictional-other-auth-secret-0123456789abcdef" },
 ];
 it.each([false, true])("clears restore plaintext without resuming the request and preserves a replacement lease (%s)", async replaced => {
-  const scope = { environment: "staging" as const, id: crypto.randomUUID() }, sql = "CREATE TABLE fictional (value TEXT);", signal = new AbortController().signal;
+  const scope = { environment: "preview" as const, id: crypto.randomUUID() }, sql = "CREATE TABLE fictional (value TEXT);", signal = new AbortController().signal;
   await stageBackup(env.MEDIA_BUCKET, { ...scope, createdAt: Date.now(), schemaVersion: "fictional", bookmark: "fictional-bookmark", authKeyId: backupKeyId(env.BETTER_AUTH_SECRET) },
     new Response(sql).body!, sql.length, signal);
   const file = await encryptBackup(env.MEDIA_BUCKET, scope, env.BACKUP_ENCRYPTION_KEY, signal);
   let entered!: () => void, resume!: () => void;
   const importing = new Promise<void>(resolve => { entered = resolve; }), blocked = new Promise<void>(resolve => { resume = resolve; });
   vi.stubGlobal("fetch", vi.fn(async () => { entered(); await blocked; return Response.json({ success: false }); }));
-  const controller = new AbortController(), ctx = createExecutionContext(), config = { ...bindings, APP_ENV: "staging" };
+  const controller = new AbortController(), ctx = createExecutionContext(), config = { ...bindings, APP_ENV: "preview" };
   const pending = recoveryWorker.fetch(new Request("https://recovery.example.test/operate", { method: "POST", signal: controller.signal,
     headers: { Authorization: "Bearer " + config.RESTORE_OPERATOR_TOKEN, "Content-Type": "application/json" },
     body: JSON.stringify({ action: "restore", id: scope.id, file: file.file, keyId: file.keyId, authKeyId: file.source.authKeyId }) }), config, ctx);
@@ -106,18 +106,18 @@ it.each([false, true])("clears restore plaintext without resuming the request an
     await importing;
     const plaintext = (await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects;
     expect(plaintext).toHaveLength(1);
-    const leaseKey = key.replace("/test/", "/staging/");
+    const leaseKey = key.replace("/test/", "/preview/");
     expect(await (await env.MEDIA_BUCKET.get(leaseKey))!.json()).toMatchObject({ plaintextKey: plaintext[0].key });
     const replacement = { updatedAt: Date.now(), deadline: Date.now() + 60000 };
     if (replaced) await env.MEDIA_BUCKET.put(leaseKey, JSON.stringify(replacement));
     controller.abort(); await waitOnExecutionContext(ctx);
     expect.soft((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
     expect.soft(await (await env.MEDIA_BUCKET.get(leaseKey))!.json()).toMatchObject(replaced ? replacement : { deadline: 0 });
-    expect(await env.MEDIA_BUCKET.head(`backups/staging/${scope.id}/${file.file}.bin`)).not.toBeNull();
+    expect(await env.MEDIA_BUCKET.head(`backups/preview/${scope.id}/${file.file}.bin`)).not.toBeNull();
   } finally { resume(); await pending; await waitOnExecutionContext(ctx); vi.unstubAllGlobals(); }
 }, 10000);
 it.each(["head", "delete"] as const)("retains plaintext cleanup when disconnected during its %s call", async phase => {
-  const scope = { environment: "staging" as const, id: crypto.randomUUID() }, sql = "CREATE TABLE fictional (value TEXT);", signal = new AbortController().signal;
+  const scope = { environment: "preview" as const, id: crypto.randomUUID() }, sql = "CREATE TABLE fictional (value TEXT);", signal = new AbortController().signal;
   await stageBackup(env.MEDIA_BUCKET, { ...scope, createdAt: Date.now(), schemaVersion: "fictional", bookmark: "fictional-bookmark", authKeyId: backupKeyId(env.BETTER_AUTH_SECRET) },
     new Response(sql).body!, sql.length, signal);
   const file = await encryptBackup(env.MEDIA_BUCKET, scope, env.BACKUP_ENCRYPTION_KEY, signal);
@@ -135,7 +135,7 @@ it.each(["head", "delete"] as const)("retains plaintext cleanup when disconnecte
       await remove(names); deleted = true;
     } else await remove(names);
   });
-  const controller = new AbortController(), ctx = createExecutionContext(), retained = vi.spyOn(ctx, "waitUntil"), config = { ...bindings, APP_ENV: "staging" };
+  const controller = new AbortController(), ctx = createExecutionContext(), retained = vi.spyOn(ctx, "waitUntil"), config = { ...bindings, APP_ENV: "preview" };
   const pending = recoveryWorker.fetch(new Request("https://recovery.example.test/operate", { method: "POST", signal: controller.signal,
     headers: { Authorization: "Bearer " + config.RESTORE_OPERATOR_TOKEN, "Content-Type": "application/json" },
     body: JSON.stringify({ action: "restore", id: scope.id, file: file.file, keyId: file.keyId, authKeyId: file.source.authKeyId }) }), config, ctx);
@@ -147,11 +147,11 @@ it.each(["head", "delete"] as const)("retains plaintext cleanup when disconnecte
     await retained.mock.calls[0][0];
     await new Promise(resolve => setTimeout(resolve, 0));
     expect.soft(finished).toBe(false);
-    expect.soft(await (await env.MEDIA_BUCKET.get(key.replace("/test/", "/staging/")))!.json()).toMatchObject({ deadline: 0 });
+    expect.soft(await (await env.MEDIA_BUCKET.get(key.replace("/test/", "/preview/")))!.json()).toMatchObject({ deadline: 0 });
     resume(); await background;
     expect.soft(deleted).toBe(true);
     expect.soft((await env.MEDIA_BUCKET.list({ prefix: "backup-restore/" })).objects).toHaveLength(0);
-    expect(await env.MEDIA_BUCKET.head(`backups/staging/${scope.id}/${file.file}.bin`)).not.toBeNull();
+    expect(await env.MEDIA_BUCKET.head(`backups/preview/${scope.id}/${file.file}.bin`)).not.toBeNull();
   } finally { resume(); await pending; await waitOnExecutionContext(ctx); vi.unstubAllGlobals(); }
 }, 10000);
 it.each(["sanitize", "credentials"].flatMap(action => [
