@@ -1,7 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { env } from "cloudflare:workers";
-import { asVp9 } from "./fixtures/media";
 import { applyD1Migrations } from "cloudflare:test";
 import { afterEach, expect, it, vi } from "vitest";
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
@@ -233,8 +232,8 @@ it("fails validation on missing media or a mismatched schema", async () => {
 });
 it("leaves media whose R2 version differs from the restore point to the media scan without reading it", async () => {
   const file = await artifact(); await seedCatalog(env.DB);
-  const video = asVp9(Uint8Array.from(atob(env.TEST_MEDIA_BASE64), char => char.charCodeAt(0))), vtt = "WEBVTT\n\n00:00.000 --> 00:03.000\nA fictional signal.\n";
-  const movie = "library/movie/152/movie.mp4", episode = "library/series/85948/S01/E01.mp4", track = "library/series/85948/S01/E01.zh-CN.main.vtt";
+  const video = Uint8Array.from(atob(env.TEST_WEBM_BASE64), char => char.charCodeAt(0)), vtt = "WEBVTT\n\n00:00.000 --> 00:03.000\nA fictional signal.\n";
+  const movie = "library/movie/152/movie.webm", episode = "library/series/85948/S01/E01.webm", track = "library/series/85948/S01/E01.zh-CN.main.vtt";
   for (const key of [movie, episode]) await env.MEDIA_BUCKET.put(key, video);
   await env.MEDIA_BUCKET.put(track, vtt);
   expect(await syncMedia(env)).toMatchObject({ linked: 3 });

@@ -1,4 +1,4 @@
-import { mp4Metadata, qualityTiers, subtitleTrack, validateVtt } from "../app/lib/media-format.ts";
+import { mp4Metadata, qualityTiers, subtitleTrack, tierFormat, validateVtt, webmMetadata, webmMetadataWindow } from "../app/lib/media-format.ts";
 import { settings } from "../app/lib/settings.server.ts";
 export { validateVtt } from "../app/lib/media-format.ts";
 import { execFile } from "node:child_process";
@@ -63,49 +63,56 @@ async function ffmpeg(command, args, label) {
   }
 }
 
-export async function inspectMp4(path) {
-  const label = basename(path);
-  check(extname(path).toLowerCase() === ".mp4", `${label}：仅接受 MP4，请先转码。`);
+export async function inspectVideo(path) {
+  const label = basename(path), extension = extname(path).toLowerCase();
+  check([".webm", ".mp4"].includes(extension), `${label}：仅接受 WebM（VP9）或 MP4（H.264），请先转码。`);
   let file;
   try { file = await open(path, "r"); } catch { check(false, `${label} 无法读取。`); }
   try {
     const before = await file.stat();
     check(before.isFile() && before.size > 0 && Number.isSafeInteger(before.size), `${label} 大小无效。`);
-    let offset = 0, moov = -1, moovSize = 0, mdat = -1, ftyp = false;
-    const header = Buffer.alloc(16);
-    while (offset < before.size) {
-      const { bytesRead } = await file.read(header, 0, Math.min(16, before.size - offset), offset);
-      check(bytesRead >= 8, `${label}：MP4 box 头损坏，请先转码。`);
-      let size = header.readUInt32BE(0);
-      const type = header.toString("ascii", 4, 8);
-      const headerSize = size === 1 ? 16 : 8;
-      if (size === 1) {
-        check(bytesRead === 16 && header.readBigUInt64BE(8) <= BigInt(Number.MAX_SAFE_INTEGER), `${label}：MP4 扩展长度无效。`);
-        size = Number(header.readBigUInt64BE(8));
-      } else if (size === 0) size = before.size - offset;
-      check(size >= headerSize && size <= before.size - offset, `${label}：MP4 box 长度损坏，请先转码。`);
-      if (type === "ftyp") {
-        check(offset === 0 && size >= headerSize + 8 && !ftyp, `${label}：ftyp 无效。`);
-        ftyp = true;
-      }
-      if (type === "moov") {
-        check(moov === -1 && size > headerSize, `${label}：moov 无效。`);
-        moov = offset; moovSize = size;
-      }
-      if (type === "mdat") {
-        check(size > headerSize, `${label}：媒体数据为空。`);
-        if (mdat === -1) mdat = offset;
-      }
-      offset += size;
-    }
-    check(ftyp && moov >= 0 && mdat >= 0, `${label}：不是完整 MP4，请先转码。`);
-    check(moov < mdat, `${label}：不符合 faststart，请先用 -movflags +faststart 转码。`);
-    // The scan's own metadata check, so a file that passes here passes there.
-    check(moovSize <= 32 * 1024 * 1024, `${label}：MP4 元数据超过 32 MiB，请先在本机重新封装。`);
-    const box = Buffer.alloc(moovSize), { bytesRead } = await file.read(box, 0, moovSize, moov);
-    check(bytesRead === moovSize, `${label}：moov 读取不完整。`);
     let metadata;
-    try { metadata = mp4Metadata(new Uint8Array(box.buffer, box.byteOffset, moovSize), before.size); } catch (error) { check(false, `${label}：${error.message}，请先转码。`); }
+    if (extension === ".webm") {
+      // The scan reads the same leading window, so a file that passes here passes there.
+      const length = Math.min(before.size, webmMetadataWindow), window = Buffer.alloc(length), { bytesRead } = await file.read(window, 0, length, 0);
+      check(bytesRead === length, `${label}：WebM 读取不完整。`);
+      try { metadata = webmMetadata(new Uint8Array(window.buffer, window.byteOffset, length), before.size); } catch (error) { check(false, `${label}：${error.message}，请先转码，并用 -cues_to_front 1 把索引放在开头。`); }
+    } else {
+      let offset = 0, moov = -1, moovSize = 0, mdat = -1, ftyp = false;
+      const header = Buffer.alloc(16);
+      while (offset < before.size) {
+        const { bytesRead } = await file.read(header, 0, Math.min(16, before.size - offset), offset);
+        check(bytesRead >= 8, `${label}：MP4 box 头损坏，请先转码。`);
+        let size = header.readUInt32BE(0);
+        const type = header.toString("ascii", 4, 8);
+        const headerSize = size === 1 ? 16 : 8;
+        if (size === 1) {
+          check(bytesRead === 16 && header.readBigUInt64BE(8) <= BigInt(Number.MAX_SAFE_INTEGER), `${label}：MP4 扩展长度无效。`);
+          size = Number(header.readBigUInt64BE(8));
+        } else if (size === 0) size = before.size - offset;
+        check(size >= headerSize && size <= before.size - offset, `${label}：MP4 box 长度损坏，请先转码。`);
+        if (type === "ftyp") {
+          check(offset === 0 && size >= headerSize + 8 && !ftyp, `${label}：ftyp 无效。`);
+          ftyp = true;
+        }
+        if (type === "moov") {
+          check(moov === -1 && size > headerSize, `${label}：moov 无效。`);
+          moov = offset; moovSize = size;
+        }
+        if (type === "mdat") {
+          check(size > headerSize, `${label}：媒体数据为空。`);
+          if (mdat === -1) mdat = offset;
+        }
+        offset += size;
+      }
+      check(ftyp && moov >= 0 && mdat >= 0, `${label}：不是完整 MP4，请先转码。`);
+      check(moov < mdat, `${label}：不符合 faststart，请先用 -movflags +faststart 转码。`);
+      // The scan's own metadata check, so a file that passes here passes there.
+      check(moovSize <= 32 * 1024 * 1024, `${label}：MP4 元数据超过 32 MiB，请先在本机重新封装。`);
+      const box = Buffer.alloc(moovSize), { bytesRead } = await file.read(box, 0, moovSize, moov);
+      check(bytesRead === moovSize, `${label}：moov 读取不完整。`);
+      try { metadata = mp4Metadata(new Uint8Array(box.buffer, box.byteOffset, moovSize), before.size); } catch (error) { check(false, `${label}：${error.message}，请先转码。`); }
+    }
     const hash = createHash("sha256");
     for await (const bytes of file.createReadStream({ start: 0, autoClose: false })) hash.update(bytes);
     const after = await stat(path);
@@ -249,7 +256,9 @@ export async function preflight({ environment, mappingPath, env = process.env, r
     check(Object.hasOwn(item.videos, "original"), `${id} videos 必须包含 original 原生主档。`);
     const videos = [];
     for (const tier of Object.keys(qualityTiers).filter(tier => tier in item.videos)) {
-      const video = await inspectMp4(localFile(item.videos[tier], dirname(mappingPath)));
+      const path = localFile(item.videos[tier], dirname(mappingPath)), format = tierFormat(tier);
+      check(extname(path).toLowerCase() === `.${format}`, `${id}/${tier}：须为 ${format === "webm" ? "WebM 封装的 VP9" : "MP4 封装的 H.264"} 视频，请先转码。`);
+      const video = await inspectVideo(path);
       check(video.videoCodec === qualityTiers[tier], `${id}/${tier}：须为 ${qualityTiers[tier] === "vp9" ? "VP9" : "H.264"} 视频，请先转码。`);
       check(!videos.length || Math.abs(video.durationSeconds - videos[0].durationSeconds) <= settings.qualityDurationTolerance, `${id}/${tier}：时长与 original 相差超过 ${settings.qualityDurationTolerance} 秒。`);
       videos.push({ tier, ...video });
@@ -333,7 +342,7 @@ export function catalogQueries(result) {
       VALUES (?,?,(SELECT id FROM works WHERE kind=? AND tmdb_id=?),${season ? "(SELECT s.id FROM seasons s JOIN works w ON w.id=s.work_id WHERE w.kind='series' AND w.tmdb_id=? AND s.season_number=?)" : "NULL"},?,?,?,?,?,?,?,?)
       ON CONFLICT(${season ? "season_id,episode_number" : "work_id"}) WHERE kind='${season ? "episode" : "movie"}' DO UPDATE SET
       tmdb_id=excluded.tmdb_id,title_zh=excluded.title_zh,title_en=excluded.title_en,overview_zh=excluded.overview_zh,overview_en=excluded.overview_en,air_date=excluded.air_date,
-      duration_seconds=CASE WHEN EXISTS(SELECT 1 FROM media_files WHERE playable_unit_id=playable_units.id AND format='mp4' AND variant='original') THEN playable_units.duration_seconds ELSE excluded.duration_seconds END`,
+      duration_seconds=CASE WHEN EXISTS(SELECT 1 FROM media_files WHERE playable_unit_id=playable_units.id AND format='${tierFormat("original")}' AND variant='original') THEN playable_units.duration_seconds ELSE excluded.duration_seconds END`,
       params: [`${work.kind}_${work.tmdbId}_${season ? `s${season.seasonNumber}_e${unit.episodeNumber}` : "unit"}`,season ? "episode" : "movie",work.kind,work.tmdbId,...(season ? [work.tmdbId,season.seasonNumber] : []),unit.episodeNumber,unit.tmdbId,unit.durationSeconds,unit.titleZh,unit.titleEn,unit.overviewZh,unit.overviewEn,unit.airDate] });
   }
   return queries;
@@ -348,7 +357,7 @@ export function report(result) {
 
 const help = `用法：node scripts/import-media.mjs preflight --environment staging|prod --mapping <本机 JSON> [--env-file <本机 env>] [--tmdb-mock-url <回环 HTTP 地址>]
 node scripts/import-media.mjs catalog --environment staging|prod [--env-file <本机 env>] [--execute]
-preflight 仅预检本机 MP4/VTT/ASS 和 TMDB 资料，不写入 D1/R2，不保存转换文件。
+preflight 仅预检本机 WebM/MP4/VTT/ASS 和 TMDB 资料，不写入 D1/R2，不保存转换文件。
 catalog 获取全部作品、季和单元资料；默认仅预检，--execute 经 cf 原子初始化 D1 占位，不上传媒体。
 默认读取本工作树 .env，shell 变量优先；显式 --env-file 仅使用指定文件中的变量。
 输入契约与运行限制见 docs/import-media.md。

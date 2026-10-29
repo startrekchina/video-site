@@ -1,6 +1,6 @@
 import stillManifest from "../../public/assets/stills/star-trek/manifest.json";
 import { continuation, unitHref, type Episode, type Work, type WorkCard } from "./catalog";
-import { qualityTiers } from "./media-format";
+import { qualityTiers, tierFormat } from "./media-format";
 import type { D1Reader } from "./member.server";
 
 // Deployment configuration, not a browser/admin editing surface.
@@ -44,7 +44,7 @@ export function pathUnit(params: PathParams): UnitKey | null {
 // Only bundled poster files reach the browser.
 export const posterPath = (asset: string | null) => asset?.startsWith("/assets/posters/star-trek/") && !asset.includes("..") ? asset : "";
 // Optional tiers never replace the verified original as the unit's playability or duration reference.
-const verifiedMedia = `FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = 'mp4' AND m.variant = 'original' AND m.video_codec = '${qualityTiers.original}' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''`;
+const verifiedMedia = `FROM media_files m WHERE m.playable_unit_id = u.id AND m.format = '${tierFormat("original")}' AND m.variant = 'original' AND m.video_codec = '${qualityTiers.original}' AND m.r2_etag IS NOT NULL AND m.r2_etag <> ''`;
 export const playableMedia = `SELECT 1 ${verifiedMedia}`;
 export const mediaDuration = `SELECT m.duration_seconds ${verifiedMedia}`;
 const stills = new Map(stillManifest.episodes.map(item => [`${item.tmdbId}:${item.season}:${item.episode}`, `/assets/stills/star-trek/${item.file}`]));

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/lib/theme";
 
-type Turnstile = { render: (node: HTMLElement, options: { sitekey: string; action: string; theme: string; size: "normal" | "compact"; language: string; callback: (token: string) => void; "expired-callback": () => void; "error-callback": () => void }) => string; remove: (id: string) => void };
+type Turnstile = { render: (node: HTMLElement, options: { sitekey: string; action: string; theme: string; size: "flexible" | "compact"; language: string; callback: (token: string) => void; "expired-callback": () => void; "error-callback": () => void }) => string; remove: (id: string) => void };
 declare global { interface Window { turnstile?: Turnstile } }
 let scriptPromise: Promise<void> | undefined;
 function load() {
@@ -23,12 +23,13 @@ export function Turnstile({ siteKey, onToken }: { siteKey: string; onToken: (tok
     let disposed = false;
     let id: string | undefined;
     let observer: ResizeObserver | undefined;
-    let size: "normal" | "compact" | undefined;
+    let size: "flexible" | "compact" | undefined;
     onToken(""); setFailed(false);
     load().then(() => {
       if (disposed || !node.current) return;
       observer = new ResizeObserver(([entry]) => {
-        const next = entry.contentRect.width < 300 ? "compact" : "normal";
+        // Flexible fills the field from a 300px minimum; a narrower field only fits the fixed 150px compact widget.
+        const next = entry.contentRect.width < 300 ? "compact" : "flexible";
         if (disposed || size === next) return;
         size = next;
         if (id) window.turnstile!.remove(id);

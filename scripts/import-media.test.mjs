@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { after, before, test } from "node:test";
 import { promisify } from "node:util";
 import { DatabaseSync } from "node:sqlite";
-import { catalogQueries, inspectMp4, preflight, report, validateVtt } from "./import-media.mjs";
+import { catalogQueries, inspectVideo, preflight, report, validateVtt } from "./import-media.mjs";
 
 let directory, repository, server, base, movieVideo, seriesVideo, mappingPath;
 let mode = "normal", calls = [];
@@ -19,8 +19,8 @@ const entries = [
   { kind: "series", tmdb_id: 800002, season: 2, file: "fictional-season.jpg" },
 ];
 const mapping = () => ({ environment: "staging", resources: { d1DatabaseId: env.STAGING_D1_DATABASE_ID, mediaBucketName: env.STAGING_MEDIA_BUCKET_NAME }, media: [
-  { kind: "movie", tmdbId: 800001, videos: { original: "movie.mp4" }, subtitles: [{ language: "zh-CN", trackKey: "main", sourcePath: "chinese.ass" }] },
-  { kind: "series", tmdbId: 800002, seasonNumber: 2, episodeNumber: 3, videos: { original: "episode.mp4" }, subtitles: [{ language: "zh-TW", trackKey: "bilingual", sourcePath: "english.vtt" }] },
+  { kind: "movie", tmdbId: 800001, videos: { original: "movie.webm" }, subtitles: [{ language: "zh-CN", trackKey: "main", sourcePath: "chinese.ass" }] },
+  { kind: "series", tmdbId: 800002, seasonNumber: 2, episodeNumber: 3, videos: { original: "episode.webm" }, subtitles: [{ language: "zh-TW", trackKey: "bilingual", sourcePath: "english.vtt" }] },
 ] });
 const data = {
   "movie/800001": { id: 800001, title: "Fictional film", overview: "English film", release_date: "2020-01-01" },
@@ -37,19 +37,25 @@ before(async () => {
   await writeFile(join(assets, "manifest.json"), JSON.stringify(entries));
   // Identity tests use a tiny synthetic WebP header; no third-party artwork is copied.
   for (const entry of entries) await writeFile(join(assets, entry.file.replace(".jpg", ".webp")), Buffer.from("RIFF\x04\0\0\0WEBP"));
-  const video = join(directory, "movie.mp4");
   execFileSync(process.execPath, [resolve("scripts/gen-test-media.mjs")], { stdio: "pipe", windowsHide: true });
-  movieVideo = await readFile(resolve("test/fixtures/media/signal-test.mp4"));
-  const avc = join(directory, "avc.mp4");
-  await writeFile(avc, movieVideo);
-  execFileSync("ffmpeg", ["-v", "error", "-y", "-i", avc, "-c:v", "libvpx-vp9", "-profile:v", "0", "-pix_fmt", "yuv420p", "-crf", "32", "-b:v", "0", "-cpu-used", "8", "-threads", "2", "-c:a", "copy", "-movflags", "+faststart", video], { windowsHide: true });
-  movieVideo = await readFile(video);
-  seriesVideo = join(directory, "episode.mp4");
+  const ffmpeg = (...args) => execFileSync("ffmpeg", ["-v", "error", "-y", ...args], { windowsHide: true });
+  const avc = join(directory, "avc.mp4"), video = join(directory, "movie.webm");
+  await writeFile(avc, await readFile(resolve("test/fixtures/media/signal-test.mp4")));
+  movieVideo = await readFile(resolve("test/fixtures/media/signal-test.webm"));
+  await writeFile(video, movieVideo);
+  seriesVideo = join(directory, "episode.webm");
   await writeFile(seriesVideo, movieVideo);
-  execFileSync("ffmpeg", ["-v", "error", "-y", "-i", video, "-c", "copy", join(directory, "not-faststart.mp4")], { windowsHide: true });
-  execFileSync("ffmpeg", ["-v", "error", "-y", "-i", video, "-c:v", "mpeg4", "-c:a", "copy", "-movflags", "+faststart", join(directory, "wrong-codec.mp4")], { windowsHide: true });
-  for (const [input, output] of [[avc, "short.mp4"], [video, "short-vp9.mp4"]]) execFileSync("ffmpeg", ["-v", "error", "-y", "-i", input, "-t", "2", "-c", "copy", "-movflags", "+faststart", join(directory, output)], { windowsHide: true });
-  await writeFile(join(directory, "truncated.mp4"), movieVideo.subarray(0, movieVideo.length - 100));
+  ffmpeg("-i", avc, "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", join(directory, "vp9.mp4"));
+  ffmpeg("-i", avc, "-c", "copy", join(directory, "not-faststart.mp4"));
+  ffmpeg("-i", avc, "-c:v", "mpeg4", "-c:a", "copy", "-movflags", "+faststart", join(directory, "wrong-codec.mp4"));
+  ffmpeg("-i", avc, "-c:v", "copy", "-c:a", "aac", "-ac", "6", "-movflags", "+faststart", join(directory, "surround.mp4"));
+  ffmpeg("-i", video, "-c", "copy", join(directory, "cues-last.webm"));
+  ffmpeg("-i", video, "-c:v", "copy", "-c:a", "libopus", "-ac", "6", "-cues_to_front", "1", join(directory, "surround.webm"));
+  ffmpeg("-i", avc, "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-pix_fmt", "yuv444p", "-c:a", "libopus", "-cues_to_front", "1", join(directory, "profile1.webm"));
+  ffmpeg("-i", avc, "-t", "2", "-c", "copy", "-movflags", "+faststart", join(directory, "short.mp4"));
+  ffmpeg("-i", video, "-t", "2", "-c", "copy", "-cues_to_front", "1", join(directory, "short.webm"));
+  await writeFile(join(directory, "truncated.mp4"), (await readFile(avc)).subarray(0, -100));
+  await writeFile(join(directory, "truncated.webm"), movieVideo.subarray(0, -100));
   await writeFile(join(directory, "english.vtt"), "WEBVTT\n\n00:00.000 --> 00:00.500\n<v Observer><i>Test signal</i>\n");
   await writeFile(join(directory, "chinese.ass"), "[Script Info]\nScriptType: v4.00+\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:00.50,Default,,0,0,0,,虚构 & <信号> {\\i1}启动{\\i0}\n");
   mappingPath = join(directory, "mapping.json");
@@ -78,14 +84,16 @@ async function run(input = mapping(), options = {}) {
   return preflight({ environment: "staging", mappingPath, env, repository, tmdbMockUrl: base, retryDelays: [], ...options });
 }
 
-test("real MP4: codec, box order, corruption, streamed checksum", async () => {
-  const result = await inspectMp4(join(directory, "movie.mp4"));
+test("real WebM and MP4: codec, index order, channels, corruption, streamed checksum", async () => {
+  const result = await inspectVideo(join(directory, "movie.webm"));
   assert.equal(result.checksumSha256, createHash("sha256").update(movieVideo).digest("hex"));
   assert.equal(result.byteLength, movieVideo.length);
-  assert.equal(result.videoCodec, "vp9"); assert.equal(result.audioCodec, "aac"); assert.ok(result.durationSeconds > 0);
-  await assert.rejects(inspectMp4(join(directory, "not-faststart.mp4")), /faststart/u);
-  await assert.rejects(inspectMp4(join(directory, "wrong-codec.mp4")), /H.264/u);
-  await assert.rejects(inspectMp4(join(directory, "truncated.mp4")), /长度损坏/u);
+  assert.equal(result.videoCodec, "vp9"); assert.equal(result.audioCodec, "opus"); assert.ok(result.durationSeconds > 0);
+  assert.deepEqual(await inspectVideo(join(directory, "avc.mp4")).then(({ videoCodec, audioCodec }) => [videoCodec, audioCodec]), ["h264", "aac"]);
+  for (const [file, message] of [
+    ["cues-last.webm", /cues must be placed before the first cluster/u], ["surround.webm", /mono or stereo/u], ["profile1.webm", /profile 0/u], ["truncated.webm", /boundary is invalid/u],
+    ["surround.mp4", /mono or stereo/u], ["not-faststart.mp4", /faststart/u], ["wrong-codec.mp4", /H.264/u], ["truncated.mp4", /长度损坏/u],
+  ]) await assert.rejects(inspectVideo(join(directory, file)), message, file);
 });
 
 test("VTT syntax, safe markup, numeric entities and UTF-8", () => {
@@ -147,16 +155,17 @@ test("subtitles accept only the four SUB1 kinds and suffixed extras, rejecting o
 });
 
 test("videos require the original and list optional tiers in their codecs within its duration tolerance", async () => {
-  const tiers = mapping(); tiers.media[0].videos = { "480p": "short.mp4", "720p": "short.mp4", original: "short-vp9.mp4" };
+  const tiers = mapping(); tiers.media[0].videos = { "480p": "short.mp4", "720p": "short.mp4", original: "short.webm" };
   assert.deepEqual(report(await run(tiers)).media[0].videos.map(({ tier, videoCodec }) => [tier, videoCodec]), [["original", "vp9"], ["720p", "h264"], ["480p", "h264"]]);
   for (const [videos, message] of [
-    [{ original: "movie.mp4", "1080p": "avc.mp4" }, /1080p：须为 VP9 视频/u],
-    [{ original: "avc.mp4" }, /original：须为 VP9 视频/u],
-    [{ original: "movie.mp4", "720p": "movie.mp4" }, /720p：须为 H.264 视频/u],
-    [{ original: "movie.mp4", "360p": "movie.mp4" }, /只能使用 original、2160p、1080p、720p、480p 档位/u],
-    [{ "720p": "movie.mp4" }, /必须包含 original 原生主档/u],
+    [{ original: "movie.webm", "1080p": "avc.mp4" }, /1080p：须为 WebM 封装的 VP9 视频/u],
+    [{ original: "vp9.mp4" }, /original：须为 WebM 封装的 VP9 视频/u],
+    [{ original: "movie.webm", "720p": "movie.webm" }, /720p：须为 MP4 封装的 H.264 视频/u],
+    [{ original: "movie.webm", "720p": "vp9.mp4" }, /720p：须为 H.264 视频/u],
+    [{ original: "movie.webm", "360p": "avc.mp4" }, /只能使用 original、2160p、1080p、720p、480p 档位/u],
+    [{ "720p": "avc.mp4" }, /必须包含 original 原生主档/u],
     [{}, /非空对象/u],
-    [{ original: "movie.mp4", "480p": "short.mp4" }, /480p：时长与 original 相差超过 1 秒/u],
+    [{ original: "movie.webm", "480p": "short.mp4" }, /480p：时长与 original 相差超过 1 秒/u],
   ]) {
     const input = mapping(); input.media[0].videos = videos;
     await assert.rejects(run(input), message); assert.equal(calls.length, 0);
@@ -245,7 +254,7 @@ test("catalog placeholders: all units, stable upserts, actual media duration and
     assert.equal(db.prepare("SELECT COUNT(*) AS n FROM playable_units").get().n, 2);
     const id = "series_800002_s2_e3";
     db.prepare("UPDATE playable_units SET duration_seconds=4 WHERE id=?").run(id);
-    db.prepare("INSERT INTO media_files VALUES ('media',?,'mp4','original','fictional.mp4',10,'fictional-checksum',4,'vp9','aac',20,NULL)").run(id);
+    db.prepare("INSERT INTO media_files VALUES ('media',?,'webm','original','fictional.webm',10,'fictional-checksum',4,'vp9','opus',20,NULL)").run(id);
     result.units.find(unit => unit.seasonId).durationSeconds = 1200;
     result.units.find(unit => unit.seasonId).titleEn = "Updated name";
     batch(catalogQueries(result));

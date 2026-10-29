@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import { mp4BoxHeader, mp4Metadata, qualityTiers, subtitleTrack, validateVtt, type QualityTier } from "./media-format";
+import { mp4BoxHeader, mp4Metadata, qualityTiers, subtitleTrack, tierFormat, validateVtt, webmMetadata, webmMetadataWindow, type QualityTier } from "./media-format";
 import { settings } from "./settings.server";
 
 export const mediaSyncCron = "*/5 * * * *";
 const windowMs = 6 * 60_000;
 const tiers = Object.keys(qualityTiers) as QualityTier[];
-const tierSuffix = new RegExp(`^\\.(${tiers.filter(tier => tier !== "original").join("|")})\\.mp4$`, "u");
-// An unsuffixed video is the original; subtitles have no variant.
+// An unsuffixed video is the original; each tier names the container its codec requires (B 6.6).
+const videoSuffix = new RegExp(`^(?:\\.(${tiers.filter(tier => tier !== "original").join("|")}))?\\.(webm|mp4)$`, "u");
+// Subtitles have no variant.
 type Identity = { kind: "movie" | "series"; tmdbId: number; season: number | null; episode: number | null; language: string | null; trackKey: string | null; variant?: QualityTier };
 export function mediaIdentity(key: string): Identity | null {
   const series = /^library\/series\/([1-9]\d*)\/S(\d{2,})\/E(\d{2,})(.*)$/u.exec(key);
@@ -15,9 +16,10 @@ export function mediaIdentity(key: string): Identity | null {
   const tmdbId = Number((series ?? movie)![1]), season = series ? Number(series[2]) : null, episode = series ? Number(series[3]) : null;
   if (!Number.isSafeInteger(tmdbId) || series && (!Number.isSafeInteger(season) || !Number.isSafeInteger(episode) || String(season).padStart(2, "0") !== series[2] || String(episode).padStart(2, "0") !== series[3] || episode === 0)) return null;
   const suffix = series ? series[4] : movie![2];
-  const trackKey = /^\.(.+)\.vtt$/u.exec(suffix)?.[1], subtitle = trackKey ? subtitleTrack(trackKey) : null, tier = tierSuffix.exec(suffix);
-  if (suffix !== ".mp4" && !tier && !subtitle) return null;
-  return { kind: series ? "series" : "movie", tmdbId, season, episode, language: subtitle?.language ?? null, trackKey: subtitle ? trackKey! : null, ...suffix === ".mp4" ? { variant: "original" as const } : tier ? { variant: tier[1] as QualityTier } : {} };
+  const trackKey = /^\.(.+)\.vtt$/u.exec(suffix)?.[1], subtitle = trackKey ? subtitleTrack(trackKey) : null, video = videoSuffix.exec(suffix);
+  const variant = video ? (video[1] ?? "original") as QualityTier : undefined;
+  if (!subtitle && (!variant || tierFormat(variant) !== video![2])) return null;
+  return { kind: series ? "series" : "movie", tmdbId, season, episode, language: subtitle?.language ?? null, trackKey: subtitle ? trackKey! : null, ...variant ? { variant } : {} };
 }
 const identityKey = (value: Pick<Identity, "kind" | "tmdbId" | "season" | "episode">) => `${value.kind}:${value.tmdbId}:${value.season}:${value.episode}`;
 function requireValid(condition: unknown) { if (!condition) throw new Error("MEDIA_INVALID"); }
@@ -40,7 +42,8 @@ async function range(bucket: R2Bucket, key: string, head: R2Object, offset: numb
 // variant is absent for subtitles.
 export async function inspectR2Media(bucket: R2Bucket, key: string, head: R2Object, variant: QualityTier | undefined, signal: AbortSignal) {
   requireValid(Number.isSafeInteger(head.size) && head.size > 0); let metadata: ReturnType<typeof mp4Metadata> | undefined;
-  if (variant) {
+  if (variant && tierFormat(variant) === "webm") metadata = webmMetadata(await range(bucket, key, head, 0, Math.min(head.size, webmMetadataWindow), signal), head.size);
+  else if (variant) {
     let at = 0, ftyp = false, moov = -1, mdat = -1, count = 0;
     while (at < head.size) {
       requireValid(++count <= 10000);
@@ -49,14 +52,14 @@ export async function inspectR2Media(bucket: R2Bucket, key: string, head: R2Obje
       if (box.type === "moov") {
         requireValid(moov < 0 && box.size <= 32 * 1024 * 1024); moov = at;
         metadata = mp4Metadata(await range(bucket, key, head, at, box.size, signal), head.size);
-        // Each tier must use its own codec (B 6.6); reject before reading the whole object.
-        requireValid(metadata.videoCodec === qualityTiers[variant]);
       }
       if (box.type === "mdat") { requireValid(box.size > box.headerSize); if (mdat < 0) mdat = at; }
       at += box.size;
     }
     requireValid(ftyp && moov >= 0 && mdat > moov && metadata);
   } else requireValid(head.size <= 5 * 1024 * 1024);
+  // Each tier must use its own codec (B 6.6); reject before reading the whole object.
+  if (variant) requireValid(metadata?.videoCodec === qualityTiers[variant]);
   const object = await bucket.get(key, { onlyIf: { etagMatches: head.etag } });
   if (!object || !("body" in object) || object.etag !== head.etag || object.size !== head.size) throw new Error("MEDIA_CHANGED");
   const hash = createHash("sha256"), bytes = variant ? null : new Uint8Array(head.size); let length = 0;
@@ -123,17 +126,17 @@ export async function syncMedia(env: Env) {
         // The recorded version no longer matches R2, so the record stays unplayable unless the current object passes validation.
         if (knownObject?.r2_etag) await db.prepare(`UPDATE ${table} SET r2_etag = NULL WHERE id = ?`).bind(knownObject.id).run();
         const inspected = await inspectR2Media(env.MEDIA_BUCKET, object.key, object, variant, controller.signal);
-        const existing = await db.prepare(`SELECT checksum_sha256, byte_length FROM ${table} WHERE playable_unit_id = ? AND ${identity.language ? "track_key = ?" : "format = 'mp4' AND variant = ?"}`)
-          .bind(unitId, identity.language ? identity.trackKey! : variant).first<{ checksum_sha256: string; byte_length: number }>();
+        const existing = await db.prepare(`SELECT checksum_sha256, byte_length FROM ${table} WHERE playable_unit_id = ? AND ${identity.language ? "track_key = ?" : "format = ? AND variant = ?"}`)
+          .bind(unitId, ...identity.language ? [identity.trackKey!] : [tierFormat(variant!), variant]).first<{ checksum_sha256: string; byte_length: number }>();
         controller.signal.throwIfAborted();
         if (variant && variant !== "original" && Math.abs(inspected.durationSeconds! - originals.get(unitId)!) > settings.qualityDurationTolerance) {
           result.unattached++; console.warn(JSON.stringify({ event: "media_sync_variant_unattached", unitId, reason: "DURATION_MISMATCH", ...identity })); continue;
         }
         // A replacement rewrites the existing row in place, so its id, media URL and member data stay unchanged.
         const upsert = () => db.prepare(`INSERT INTO media_files (id, playable_unit_id, format, variant, object_key, byte_length, checksum_sha256, duration_seconds, video_codec, audio_codec, bitrate, r2_etag)
-          VALUES (?, ?, 'mp4', ?, ?, ?, ?, ?, ?, 'aac', ?, ?) ON CONFLICT (playable_unit_id, format, variant) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
-          checksum_sha256 = excluded.checksum_sha256, duration_seconds = excluded.duration_seconds, video_codec = excluded.video_codec, bitrate = excluded.bitrate, r2_etag = excluded.r2_etag`)
-          .bind(crypto.randomUUID(), unitId, variant, object.key, inspected.byteLength, inspected.checksum, inspected.durationSeconds!, inspected.videoCodec!, inspected.bitrate!, object.etag);
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (playable_unit_id, format, variant) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
+          checksum_sha256 = excluded.checksum_sha256, duration_seconds = excluded.duration_seconds, video_codec = excluded.video_codec, audio_codec = excluded.audio_codec, bitrate = excluded.bitrate, r2_etag = excluded.r2_etag`)
+          .bind(crypto.randomUUID(), unitId, tierFormat(variant!), variant, object.key, inspected.byteLength, inspected.checksum, inspected.durationSeconds!, inspected.videoCodec!, inspected.audioCodec!, inspected.bitrate!, object.etag);
         if (identity.language) await db.prepare(`INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256, r2_etag)
           VALUES (?, ?, ?, 'vtt', ?, ?, ?, ?, ?, ?) ON CONFLICT (playable_unit_id, track_key) DO UPDATE SET object_key = excluded.object_key, byte_length = excluded.byte_length,
           checksum_sha256 = excluded.checksum_sha256, r2_etag = excluded.r2_etag`)

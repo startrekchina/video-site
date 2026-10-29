@@ -68,6 +68,9 @@ export function validateVtt(bytes: Uint8Array, label = "字幕") {
 // The required native-resolution main comes first, followed by optional tiers from high to low (B 6.6).
 export const qualityTiers = { original: "vp9", "2160p": "vp9", "1080p": "vp9", "720p": "h264", "480p": "h264" } as const;
 export type QualityTier = keyof typeof qualityTiers;
+// iOS Safari decodes VP9 only from WebM, so the codec fixes the container (B 6.6).
+const containers = { vp9: "webm", h264: "mp4" } as const;
+export const tierFormat = (tier: QualityTier) => containers[qualityTiers[tier]];
 
 // SUB1 track keys: <zh-CN|zh-TW>.<main|bilingual>[.<suffix>]; an extra track of a kind adds only its suffix to the kind's label.
 const subtitleKinds: Record<string, string> = { "zh-CN.main": "简中", "zh-CN.bilingual": "简英", "zh-TW.main": "繁中", "zh-TW.bilingual": "繁英" };
@@ -146,6 +149,7 @@ export function mp4Metadata(bytes: Uint8Array, byteLength: number) {
     } else {
       check(entry[0].type === "mp4a" && entry[0].body + 28 <= entry[0].end, "MP4 requires AAC audio");
       const audioVersion = view.getUint16(entry[0].body + 8); check(audioVersion <= 1, "AAC sample version is unsupported");
+      check(view.getUint16(entry[0].body + 16) <= 2, "Audio must be mono or stereo");
       const esds = one(children(entry[0], audioVersion === 1 ? 44 : 28), "esds"), es = descriptor(esds.body + 4, esds.end);
       check(es.tag === 3 && es.body + 3 <= es.end, "AAC ES descriptor is invalid");
       const flags = bytes[es.body + 2]; let next = es.body + 3;
@@ -164,4 +168,93 @@ export function mp4Metadata(bytes: Uint8Array, byteLength: number) {
   // Browsers play only the first audio track, so a second one would be silent weight.
   check(videoCount === 1 && audioCount === 1, "MP4 requires one video track and one AAC audio track");
   return { durationSeconds, bitrate: Math.max(1, Math.round(byteLength * 8 / durationSeconds)), videoCodec, audioCodec: "aac" };
+}
+
+// Header, track list, index and the first video frame header all sit at the front of a seekable WebM.
+export const webmMetadataWindow = 4 * 1024 * 1024;
+const ids = { ebml: 0x1a45dfa3, docType: 0x4282, segment: 0x18538067, info: 0x1549a966, scale: 0x2ad7b1, duration: 0x4489, tracks: 0x1654ae6b, entry: 0xae,
+  number: 0xd7, type: 0x83, codec: 0x86, audio: 0xe1, channels: 0x9f, encodings: 0x6d80, cues: 0x1c53bb6b, cluster: 0x1f43b675, simpleBlock: 0xa3, group: 0xa0, block: 0xa1 };
+// bytes is the file's leading webmMetadataWindow (or the whole file when smaller).
+export function webmMetadata(bytes: Uint8Array, byteLength: number) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const vint = (at: number, id: boolean) => {
+    check(at < bytes.length, "WebM metadata is incomplete or not at the front");
+    let length = 1;
+    while (length <= 8 && !(bytes[at] & 0x80 >> length - 1)) length++;
+    check(length <= (id ? 4 : 8) && at + length <= bytes.length, "WebM element header is invalid");
+    let value = id ? bytes[at] : bytes[at] & 0xff >> length;
+    for (let n = 1; n < length; n++) value = value * 256 + bytes[at + n];
+    return { value, length, unknown: !id && value === 2 ** (7 * length) - 1 };
+  };
+  let elementCount = 0;
+  const element = (at: number, end: number) => {
+    check(++elementCount <= 100000, "WebM has too many metadata elements");
+    const id = vint(at, true), size = vint(at + id.length, false), body = at + id.length + size.length;
+    // Only the segment may run to the end of the file; a live-recorded WebM must be remuxed first.
+    check(!size.unknown || id.value === ids.segment, "WebM element size is unknown");
+    const stop = size.unknown ? end : body + size.value;
+    check(Number.isSafeInteger(stop) && stop <= end, "WebM element boundary is invalid");
+    return { id: id.value, body, end: stop };
+  };
+  const loaded = <T extends { end: number }>(item: T) => { check(item.end <= bytes.length, "WebM metadata is incomplete or not at the front"); return item; };
+  const children = (parent: { body: number; end: number }) => {
+    const result: { id: number; body: number; end: number }[] = [];
+    for (let at = parent.body; at < parent.end;) { const child = element(at, parent.end); result.push(child); at = child.end; }
+    return result;
+  };
+  const uint = (item: { body: number; end: number }) => {
+    check(item.end - item.body <= 6, "WebM integer is too large");
+    let value = 0; for (let n = item.body; n < item.end; n++) value = value * 256 + bytes[n]; return value;
+  };
+  const text = (item: { body: number; end: number }) => String.fromCharCode(...bytes.subarray(item.body, item.end)).replace(/\0+$/u, "");
+
+  const header = loaded(element(0, byteLength));
+  check(header.id === ids.ebml && children(header).some(item => item.id === ids.docType && text(item) === "webm"), "File is not WebM");
+  const segment = element(header.end, byteLength);
+  check(segment.id === ids.segment && segment.end === byteLength, "WebM segment does not cover the file");
+  let scale = 1_000_000, duration = NaN, cues = false, profile = -1, videoTrack = -1, audioCount = 0, videoCount = 0;
+  for (let at = segment.body; at < segment.end && profile < 0;) {
+    const item = element(at, segment.end); at = item.end;
+    if (item.id === ids.info) for (const field of children(loaded(item))) {
+      if (field.id === ids.scale) scale = uint(field);
+      if (field.id === ids.duration) duration = field.end - field.body === 8 ? view.getFloat64(field.body) : field.end - field.body === 4 ? view.getFloat32(field.body) : NaN;
+    }
+    if (item.id === ids.tracks) for (const entry of children(loaded(item)).filter(child => child.id === ids.entry)) {
+      const fields = children(entry), value = (id: number) => fields.find(field => field.id === id);
+      check(!value(ids.encodings), "WebM tracks must not be encrypted or compressed");
+      const type = value(ids.type), codec = value(ids.codec), number = value(ids.number);
+      check(type && codec && number, "WebM track entry is incomplete");
+      if (uint(type) === 1) { check(text(codec) === "V_VP9", "WebM video must be VP9"); videoTrack = uint(number); videoCount++; }
+      else if (uint(type) === 2) {
+        const channels = children(value(ids.audio) ?? { body: 0, end: 0 }).find(field => field.id === ids.channels);
+        check(text(codec) === "A_OPUS", "WebM audio must be Opus");
+        check((channels ? uint(channels) : 1) <= 2, "Audio must be mono or stereo"); audioCount++;
+      } else check(false, "WebM may hold only one video and one audio track");
+    }
+    if (item.id === ids.cues) cues = true;
+    if (item.id === ids.cluster) {
+      // Players need the index before the media data to seek without reading the whole file.
+      check(cues, "WebM cues must be placed before the first cluster");
+      for (let child = item.body; child < item.end && profile < 0;) {
+        const block = element(child, item.end); child = block.end;
+        // A block group may outgrow the window, so stop at its Block instead of walking every child.
+        let payload = block.id === ids.simpleBlock ? block : undefined;
+        if (block.id === ids.group) for (let part = block.body; part < block.end && !payload;) { const piece = element(part, block.end); part = piece.end; if (piece.id === ids.block) payload = piece; }
+        if (!payload) continue;
+        const track = vint(payload.body, false), frame = payload.body + track.length + 3;
+        if (track.value !== videoTrack) continue;
+        check(frame < bytes.length && frame < payload.end && !(bytes[frame - 1] & 0x06), "WebM first video frame is unreadable");
+        // VP9 uncompressed header: frame marker 0b10, then the profile's low and high bits; profile 0 is 8-bit 4:2:0.
+        check(bytes[frame] >> 6 === 2, "WebM first video frame is not VP9");
+        profile = (bytes[frame] >> 5 & 1) | (bytes[frame] >> 4 & 1) << 1;
+      }
+      check(profile >= 0, "WebM first cluster has no video frame");
+    }
+  }
+  check(videoCount === 1 && audioCount === 1, "WebM requires one VP9 video track and one Opus audio track");
+  check(profile >= 0, "WebM has no video frame");
+  check(profile === 0, "VP9 must be profile 0, 8-bit 4:2:0");
+  const durationSeconds = duration * scale / 1e9;
+  check(scale > 0 && durationSeconds > 0 && Number.isFinite(durationSeconds), "WebM duration is invalid");
+  return { durationSeconds, bitrate: Math.max(1, Math.round(byteLength * 8 / durationSeconds)), videoCodec: "vp9" as const, audioCodec: "opus" };
 }

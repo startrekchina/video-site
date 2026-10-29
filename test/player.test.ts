@@ -14,7 +14,7 @@ const state = vi.hoisted(() => ({
   pageState: [] as unknown[], pageIndex: null as number | null, refIndex: 0, handlers: new Map<string, Handler[]>(),
   location: { state: null as unknown }, navigation: "POP", danmaku: null as unknown,
   art: { currentTime: 1234, duration: 4000, seek: 0, url: "", destroy: vi.fn(), hotkey: { add: vi.fn() },
-    on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() }, notice: { show: "" },
+    on: vi.fn(), once: vi.fn(), play: vi.fn(), switchQuality: vi.fn(), video: { error: null as { code: number } | null }, controls: { update: vi.fn() }, subtitle: { switch: vi.fn(), show: false }, setting: { update: vi.fn() }, notice: { show: "" },
     width: 1200, fullscreen: false, fullscreenWeb: false, isFocus: false, template: { $controlsCenter: { name: "controls-center" }, $player: { contains: vi.fn((_node: unknown) => false) } },
     plugins: { artplayerPluginDanmuku: { reset: vi.fn(), mount: vi.fn(), option: {} as Record<string, unknown>, isHide: false } } },
 }));
@@ -46,7 +46,7 @@ const emit = (event: string) => Promise.all((state.handlers.get(event) ?? []).ma
 beforeEach(() => {
   vi.clearAllMocks();
   state.effects.length = 0; state.refs.length = 0; state.refIndex = 0; state.pageState.length = 0; state.pageIndex = null;
-  state.handlers.clear(); state.location = { state: null }; state.navigation = "POP"; state.art.currentTime = 1234; state.art.url = ""; state.art.subtitle.show = false;
+  state.handlers.clear(); state.location = { state: null }; state.navigation = "POP"; state.art.currentTime = 1234; state.art.url = ""; state.art.subtitle.show = false; state.art.video.error = null;
   const listen = (event: string, handler: Handler) => { state.handlers.set(event, [...state.handlers.get(event) ?? [], handler]); };
   state.art.on.mockImplementation(listen); state.art.once.mockImplementation(listen);
   state.art.subtitle.switch.mockReset().mockResolvedValue(undefined);
@@ -229,8 +229,8 @@ it("keeps a member's pause across a reconnect and reports a blocked automatic re
 const tiers: PlaybackSource = { ...source, qualities: [{ label: "原画", url: "/media/source" }, { label: "2160p", url: "/media/p2160" }, { label: "1080p", url: "/media/p1080" }, { label: "720p", url: "/media/p720" }] };
 type Control = { name: string; html: string; selector: { html: string; default: boolean }[]; onSelect: (item: { html: string }) => Promise<string> };
 const control = () => (state.options as { controls: Control[] }).controls[0];
-function remember(label: string | null) {
-  const storage = { getItem: vi.fn(() => label), setItem: vi.fn() };
+function remember(label: string | null, vp9Unsupported = false) {
+  const storage = { getItem: vi.fn((key: string) => key === "player-quality" ? label : vp9Unsupported ? "1" : null), setItem: vi.fn(), removeItem: vi.fn() };
   vi.stubGlobal("localStorage", storage); return storage;
 }
 
@@ -306,6 +306,47 @@ it("reconnects on a newly chosen quality when the current one has failed", async
   expect(state.art.switchQuality).not.toHaveBeenCalled();
   expect(state.art.url).toBe("http://localhost:6120/media/p1080"); expect(state.message).toHaveBeenLastCalledWith(null);
   await emit("video:canplay"); expect(state.art.currentTime).toBe(1234);
+});
+
+const decodeFailure = async (code: number, status = 200) => { state.art.video.error = { code }; fetch.mockResolvedValueOnce(new Response(null, { status })); await emit("video:error"); };
+
+it("switches to the highest H.264 tier and remembers this browser when a reachable VP9 tier cannot be decoded", async () => {
+  const storage = remember(null); await mount({ source: tiers }); state.message.mockClear();
+  await emit("video:timeupdate");
+  await decodeFailure(4);
+  expect(storage.setItem).toHaveBeenCalledExactlyOnceWith("player-vp9-unsupported", "1");
+  expect(state.art.url).toBe("http://localhost:6120/media/p720");
+  expect(state.art.controls.update).toHaveBeenCalledWith(expect.objectContaining({ name: "quality", html: "720p" }));
+  expect(state.message).toHaveBeenLastCalledWith({ text: "本设备无法播放该清晰度，已切换到 720p。", reconnect: false });
+  state.art.currentTime = 0; await emit("video:canplay"); expect(state.art.currentTime).toBe(1234);
+});
+
+it("opens on H.264 once this browser is marked, and choosing a VP9 tier by hand tries it again", async () => {
+  const storage = remember("1080p", true); await mount({ source: tiers });
+  expect(state.options).toMatchObject({ url: "http://localhost:6120/media/p720" }); expect(control().html).toBe("720p");
+  expect(await control().onSelect({ html: "2160p" })).toBe("2160p");
+  expect(storage.removeItem).toHaveBeenCalledExactlyOnceWith("player-vp9-unsupported");
+  expect(state.art.switchQuality).toHaveBeenCalledExactlyOnceWith("http://localhost:6120/media/p2160");
+});
+
+it("treats unreachable files, connection errors and H.264 decode failures as ordinary failures", async () => {
+  const storage = remember(null); await mount({ source: tiers }); state.message.mockClear();
+  for (const [code, status, text] of [[4, 404, "片源暂时无法播放"], [2, 200, "播放连接中断"]] as const) {
+    await decodeFailure(code, status);
+    expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining(text), reconnect: true });
+    (state.refs[1].current as () => void)(); expect(state.art.url).toBe("http://localhost:6120/media/source");
+  }
+  await control().onSelect({ html: "720p" }); await decodeFailure(3);
+  expect(state.message).toHaveBeenLastCalledWith({ text: expect.stringContaining("播放连接中断"), reconnect: true });
+  expect(storage.setItem).not.toHaveBeenCalledWith("player-vp9-unsupported", "1");
+});
+
+it("says the device cannot play a VP9-only unit instead of offering a reconnect", async () => {
+  const storage = remember(null); await mount(); state.message.mockClear();
+  await decodeFailure(3);
+  expect(storage.setItem).toHaveBeenCalledExactlyOnceWith("player-vp9-unsupported", "1");
+  expect(state.message).toHaveBeenLastCalledWith({ text: "本设备无法播放该片源。", reconnect: false });
+  expect(state.art.url).toBe("");
 });
 
 it.each(["AbortError", "NotAllowedError"])("keeps reporting after a quality resume rejects with %s", async name => {
