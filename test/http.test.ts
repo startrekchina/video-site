@@ -29,6 +29,7 @@ describe("worker responses", () => {
     const expired = await (await fetchPath("/reset-password?error=INVALID_TOKEN")).text();
     expect(expired).toContain("重设链接无效或已过期"); expect(expired).toMatch(/href="\/forgot-password"/); expect(expired).not.toContain('name="newPassword"');
     expect(await (await fetchPath("/verify-email?error=EMAIL_CHANGE_ACCOUNT")).text()).toContain("不属于当前登录的账号");
+    expect(await (await fetchPath("/verify-email?error=EMAIL_IN_USE")).text()).toContain("这个邮箱已被其他账号使用");
   });
   it("titles public pages with the site name, the page's own name first", async () => {
     for (const [path, title] of [["/", "星际舰队档案馆"], ["/login", "登录 · 星际舰队档案馆"], ["/about", "关于 · 星际舰队档案馆"], ["/missing-star", "页面不存在 · 星际舰队档案馆"]]) {

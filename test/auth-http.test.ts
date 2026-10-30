@@ -380,7 +380,7 @@ it("keeps current emails unique without letting a pending change reserve the add
   expect((await authHttp(new Request(links[0], { headers: { Cookie: other } }), env)).status).toBe(302);
   expect(await emailOf(quinn.id)).toBe("shared@example.test");
   const conflict = await authHttp(new Request(links[1], { headers: { Cookie: cookie } }), env);
-  expect(conflict.headers.get("Location")).not.toBe(`${env.APP_ORIGIN}/verify-email`);
+  expect(conflict.status).toBe(302); expect(conflict.headers.get("Location")).toBe(`${env.APP_ORIGIN}/verify-email?error=EMAIL_IN_USE`);
   expect(await emailOf(nova.id)).toBe(nova.email); expect(await emailOf(quinn.id)).toBe("shared@example.test");
 });
 
