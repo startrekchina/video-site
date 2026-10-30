@@ -15,6 +15,9 @@ fi
 
 case "${1:-}" in
   build)
+    # cloudflare.config.ts falls back to an empty OWNER_EMAIL, which silently locks everyone out of the backup pages.
+    owner="${mode^^}_OWNER_EMAIL"
+    : "${!owner:?$owner is required for $mode builds}"
     # Workers Builds has no ffmpeg; install a pinned build for test fixtures without root access.
     # BtbN prunes daily autobuilds after about two weeks; pin a month-end release, which it keeps.
     tools="$PWD/.cloudflare/build-tools"
