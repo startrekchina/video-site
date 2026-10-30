@@ -4,11 +4,11 @@
 
 ## 范围与状态
 
-承接 A7、B 6.9/6.10/6.16/7，依赖第三至第五阶段主要功能。T6.1 的暂存、认证加密、手动备份、WebDAV/S3、各端保留、隔离恢复工具及条件式定时调度具有本地实现。开发者确认频率由站长在配置完整的外部渠道后于管理面板自行设置；当前控件提供每天、每周或每隔 1–30 天及北京时间。staging 已实测站长页面 S3 手动备份与回读、北京时间定时备份及隔离恢复演练，见 [T6.1 staging 备份与恢复演练](#t61-staging-备份与恢复演练)；2026-10-22 的新隔离恢复库经开发者真实设备验收，旧登录失效、密码/TOTP、已有通行密钥及播放均通过，原 staging 和 Cron 已恢复；staging 当前密钥的独立副本已保存，并与现存全部备份核对指纹（2026-10-29），production 密钥在上传其 Secrets 时同样保存；单次备份内存证据仍有缺口，T6.1 整体仍未完成验收。媒体与字幕冷备由站长在项目之外自行完成，不属于本计划的任务或上线门槛。T6.2 production 发布待实施。staging 已接通 GitHub `dev` 云端自动发布，production 只有资源/密钥准备记录和构建/dry-run，不是已发布。
+承接 A7、B 6.9/6.10/6.16/7，依赖第三至第五阶段主要功能。T6.1 的暂存、认证加密、手动备份、WebDAV/S3、各端保留、隔离恢复工具及条件式定时调度具有本地实现。开发者确认频率由站长在配置完整的外部渠道后于管理面板自行设置；当前控件提供每天、每周或每隔 1–30 天及北京时间。staging 已实测站长页面 S3 手动备份与回读、北京时间定时备份及隔离恢复演练，见 [T6.1 staging 备份与恢复演练](#t61-staging-备份与恢复演练)；2026-10-22 的新隔离恢复库经开发者真实设备验收，旧登录失效、密码/TOTP、已有通行密钥及播放均通过，原 staging 和 Cron 已恢复；staging 当前密钥的独立副本已保存，并与现存全部备份核对指纹（2026-10-29），production 密钥在上传其 Secrets 时同样保存；单次备份内存证据仍有缺口，T6.1 整体仍未完成验收。媒体与字幕冷备由站长在项目之外自行完成，不属于本计划的任务或上线门槛。T6.2 production 发布待实施。预览已接通 GitHub `dev` 云端自动发布，production 只有资源/密钥准备记录和构建/dry-run，不是已发布。
 
 云端现状：`dev` 推送由正式站 Worker `stcn-video-site` 的 Workers Builds 构建并发布预览 `dev.video.startrekchina.org`，发布链路见 [6.9.5](#695-远程数据库迁移与运维工程细节)；production 不启用自动发布，正式部署命令在发布授权前只输出提示。旧的独立 staging Worker 已在 [ENV1](#env1-预览环境并入同一个-worker) 中删除（2026-10-30），按日期记录的 staging 证据指它，预览环境沿用它的 D1 与媒体桶。
 
-构建触发器排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2026-10-15 授权，正式站 Worker 接入时沿用）：推送只改这些文件时不构建、不部署，GitHub 上也不显示构建状态；同一推送含其他文件时照常构建。`test/` 不排除，测试改动仍经过预览构建中的测试门禁。一次推送超过 20 个提交或 3000 个文件，或没有文件改动时，平台忽略路径规则强制构建。正式触发器的规则可由 `cf builds triggers update` 维护，预览的规则在控制台 Previews 配置中维护（触发器接口拒绝修改预览触发器），见 [Build watch paths](https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/)。
+预览构建排除 `docs/*`、`*.md` 与 `prototypes/*`（开发者 2026-10-15 授权）：推送只改这些文件时不构建、不部署，GitHub 上也不显示构建状态；同一推送含其他文件时照常构建。`test/` 不排除，测试改动仍经过预览构建中的测试门禁。正式触发器不排除任何路径（开发者 2026-10-30 决定：正式构建频率低，只改文档的合并也照常构建）。一次推送超过 20 个提交或 3000 个文件，或没有文件改动时，平台忽略路径规则强制构建。正式触发器的规则由 `cf builds triggers update` 维护，预览的规则在控制台 Previews 配置中维护（触发器接口拒绝修改预览触发器），见 [Build watch paths](https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/)。
 
 ## 任务与验收
 
@@ -36,6 +36,7 @@
 - [ ] DEP1 按 [B 6.9.5](../detailed-requirements.md#695-github-分支构建与发布)接通并验收 Workers Builds 分支发布：先完成预览环境，production 接通与验收遵守 T6.2 上线门槛；核对 `main` 的 PR 合并与分支保护、现有 cf 工具链兼容性、构建/运行时配置、迁移顺序与失败中止。正式站按 [ENV1](#env1-预览环境并入同一个-worker) 的同一 Worker 结构接入，ENV1 在上线前完成。
 - DEP1 staging 自动发布自检（2026-10-14）：GitHub `push_event` 来源 `dev` 的 `1ce197c`，构建 `f447c6db-bdc2-4ac5-a3e0-72d718f3c343` 在云端通过锁文件安装、类型检查、272 项应用测试、23 项工具测试、staging 构建、cf 增量迁移和 Wrangler 发布。版本 `f77d338b-efaa-412d-b81d-ef1612bf00d0` 于 18:18 北京时间生效，100% 流量，版本消息记录完整来源 SHA；未从本机上传。D1 的 `0008_legacy_invitation_guard_retirement.sql`、`0011_member_security_invitation_expiry_guard.sql`、`0013_invitation_source_guard.sql` 已应用，只读迁移列表无待应用项；11 个既有 Secrets、D1/R2 和四个限流绑定与发布前一致。
 - DEP1 staging 入口烟测：无 Cookie 的 `/`、`/about` 返回 `200`，`/series` 和 `/watch/series_103516_s1_e1` 返回 `302` 到登录，匿名 `/media/00000000-0000-4000-8000-000000000000` 返回 `401`；入口带 `noindex`、`no-store, private` 和 `nosniff`，首页引用的客户端 JS 返回 `200`。Chrome 当前剧集→电影只读导航正常，无客户端 error；Node 直连连接重置，系统 HTTP 客户端可访问。专项性能与实机/开发者验收及 production 链路仍待完成。
+- DEP1 `main` 分支保护核对（2026-10-30，只读）：仓库规则集要求经 PR 合并（0 个批准），merge、squash、rebase 三种方式都允许，禁止删除与强制推送，没有绕过名单；开发者决定维持现状。AGENTS 要求的 merge commit 方式靠协作约定保证，规则集不强制。
 - staging 媒体桶迁至 APAC（2026-10-16，开发者授权）：新桶对象与原桶逐一一致，Workers Builds 构建 Secret 与本机 `.env` 改指新桶，`38457f4` 起生效；原 ENAM 桶按开发者决定暂时保留作回退备份，过程见[账号与性能计划](authentication.md#t458-数据位置与成员机房测量)。
 - staging 诊断恢复核验：首次多提交[复验](../staging-revalidation-20261014.md)确认 D1 优化、核心安全与日志脱敏，并定位签发 R2 串行等待；仅并行 HEAD 的修复已通过 A/B/B/A 实测，三个签发入口中位耗时降低约 24%–26%，历史尾延迟未复现、尚未整体验收。cf 恢复原始 `cbb16db` 版本 `323dc854-6954-48a5-a543-30d40827a7bf` 至 100% 流量，11 个 Secrets、绑定和观测配置一致；首次 6 账号/4 版本与修复复测 2 账号/2 版本分别清理。恢复后实际请求日志确认原版本且无诊断事件；修复随后经 PR #26 进入 `dev` 并随 staging 自动发布，没有 production 操作。
 - 诊断版本清理边界：平台拒删最新上传版本（API 10339）；沿已确认的 strict 补充路径，以固定 Wrangler 4.150.0 `versions upload` 上传无探针的干净 `cbb16db` 副本 `512c4b13-b83b-459a-99db-5f6466385a55`，只上传、不部署，再用 cf 删除停用诊断版本。该原版副本保留且未激活，原始版本继续 100% 流量；不能将其称为未清除的诊断或已发布修复。清理时一次 D1 `fetch failed` 重试后通过，未扩大删除范围；完整[恢复与清理证据](../staging-revalidation-20261014.md#修复恢复与清理)及 JSON 独立记录。
@@ -49,7 +50,15 @@
 - [x] T6.1 演练隔离手动恢复、重加密与旧凭证清理、角色/封禁/设备复核、历史讨论人工重删；补齐密钥保管和恢复说明。
   - 隔离恢复做过三次：10-21、10-22（切换 staging 并经开发者实机验收），以及 10-29 用现行工具恢复与校验。重加密与旧凭证清理在 10-21、10-22 通过，相关函数此后未改。`review` 列出的 1 名正常管理员与 2 台设备经开发者 2026-10-29 确认为本人账号及其通行密钥。演练恢复点与切换在同一天，期间无讨论删除，人工重删经开发者确认不适用；管理员删除已另有 staging 验证。密钥保管见 6.9.1 的密钥轮换规则，staging 副本已核对，恢复步骤见[隔离恢复工具](#隔离恢复工具)。
 - [ ] T6.2 全部主要功能、相关测试与预览环境端到端通过，核对日志、权限/封禁、并发及平台边界。
-- [ ] T6.2 补齐 production 独立 Secrets、邮件与 S3 备份目标，核 Worker/D1/R2/Turnstile/域名和隔离；获明确授权后正式迁移、部署与 HTTPS/权限/安全头验收，记录发布版本。
+  - 上线前总检查（2026-10-30，预览，虚构成员与测试媒体，开发者授权写 D1/R2）：匿名入口、登录跳转、安全头、媒体 `401` 与 404 通过；删除会话或封禁后新媒体请求立即拒绝；伪造的重置令牌没有出现在任何日志事件里。字幕四类、电影播放与片单队列见[播放计划](playback.md#任务与验证摘要)；访客认证页、成员各页和管理后台在桌面/手机 × 浅色/深色无横向溢出，管理员能打开封禁对话框（未提交）。发现 `/account` 在深色下变回浅色：服务端按 UTC、浏览器按本地时区格式化时间，hydration 不一致后 React 重建页面丢掉主题，已改为与站内其他时间一致的 `Asia/Shanghai` 并补回归用例，随 `46b8d15` 发布后预览复验通过，见[基础计划 UI1](foundation.md#任务与验收摘要)。测试媒体与成员夹具已删除，`check_*_target` 与其被邀请人留给开发者做管理员网页操作。两小时长播经开发者豁免。
+  - 待开发者完成：预览真实邮件（注册验证、重发、找回、改邮箱）；在 `check_*_target` 上做管理员网页操作（连带封禁、解封、额度、角色，需 5 分钟内带 TOTP 登录）；真实手机补验注册与登舰证软键盘、四类字幕、自动播放受限提示。
+- [ ] T6.2 补齐 production 独立 Secrets、邮件与 S3 备份目标，核 Worker/D1/R2/Turnstile/域名和隔离；获明确授权后正式迁移、部署与 HTTPS/权限/安全头验收，记录发布版本。上线清单：
+  1. 构建变量：补 `PRODUCTION_OWNER_EMAIL`（缺失时正式构建在安装前失败），核对现有 `PRODUCTION_*` 的 D1、媒体桶、发件与 Turnstile 站点密钥。
+  2. 运行时 Secrets（正式版本，全部选密钥类型）：`BETTER_AUTH_SECRET`、`BACKUP_ENCRYPTION_KEY` 按 [6.9.1](#691-绑定secrets-与集中配置) 生成，上传时存入密码管理器与离线副本；`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、只授权正式 D1 导出的 `D1_EXPORT_TOKEN`、正式专用的 5 项 `S3_BACKUP_*`；不配 WebDAV。
+  3. 平台：Turnstile 组件加入 `video.startrekchina.org`；发件域名在邮件服务处已验证；正式 D1 与媒体桶和构建变量一致、与预览隔离。
+  4. 授权后发布：正式部署命令改为 `bash scripts/workers-build.sh deploy`，控制台把 `video.startrekchina.org` 改为“Production and Preview”；经 PR 合入 `main` 触发首次正式构建、迁移与发布，记录版本和来源 SHA。
+  5. 初始数据：`pnpm admin:bootstrap invite --env=production --execute` 生成首个邀请码，站长注册并验证邮箱后用同一工具的 `promote` 提升为管理员；片库资料按[导入说明](../import-media.md)导入，媒体与字幕按固定命名上传，由 Cron 扫描关联。
+  6. 发布后验收：HTTPS 与安全头、匿名跳转与媒体 `401`、真实邮件注册与找回、站长网页备份到 S3 并回读、首轮 Cron 扫描与首次定时备份、日志无凭证。
 
 ## 备份内核边界
 
@@ -166,7 +175,7 @@ Cloudflare 导出响应均为模拟，D1/R2 使用本地 workerd；未做浏览�
 
 staging 实测结果与剩余缺口见 [T6.1 staging 备份与恢复演练](#t61-staging-备份与恢复演练)。
 
-staging 站长配置：指定用户名与邮箱已交叉核对为同一已验证、注册完成的正常账号，角色为 `admin`。站长邮箱由本环境 Workers Builds 的 `STAGING_OWNER_EMAIL` Secret 提供，构建生成运行时 `OWNER_EMAIL`，避免后续自动发布丢失配置；其他构建变量保持不变。运行时邮箱与账号匹配已核对，不在仓库保存真实邮箱。此项不代表备份渠道已就绪或 T6.1 已验收。
+站长配置：站长邮箱由本环境构建变量 `PREVIEW_OWNER_EMAIL` 或 `PRODUCTION_OWNER_EMAIL` 提供，构建生成运行时 `OWNER_EMAIL`，自动发布不会丢失配置；`cloudflare.config.ts` 缺值时退回空字符串，会让所有人进不了备份页，所以 `scripts/workers-build.sh build` 在缺少本环境变量时于安装前失败。预览沿用旧 staging 已核对的站长账号与邮箱（指定用户名与邮箱为同一已验证、注册完成的正常 `admin` 账号）；正式触发器的构建变量中还没有 `PRODUCTION_OWNER_EMAIL`（2026-10-30 只读核对变量名），补齐前合入 `main` 的正式构建会在这一步失败，列入 T6.2。真实邮箱不入仓库。
 
 2026-10-17 staging 交付：`dev` 的 `6809761` 经 Workers Builds 自动发布，应用全量 386 项、工具 21 项、类型检查和 staging 构建通过；版本 `61d59218-ea51-4d87-bf20-efa66f673e24` 承载 100% 流量，来源 SHA 一致。除站长邮箱外的运行时绑定及 11 个 Secrets 与发布前一致；公开首页 `200`，匿名备份页跳转登录，状态接口 `401`，均为 `private, no-store`。未使用指定账号代登录或执行备份，完整浏览器操作及平台演练缺口不变；production 未操作。
 
@@ -262,7 +271,7 @@ staging 备份断线证据（2026-10-17，`087b9c1` / 版本 `b1e7efb0`）：手
    - `cloudflare.config.ts` 的 preview 与 production 同为 `stcn-video-site`；预览地址固定为 `https://dev.video.startrekchina.org`，资源取 `PREVIEW_*`。两环境都不声明 `domains`，只有 production 声明 Cron。
    - `APP_ENV`、备份路径与文件名、恢复工具、脚本参数和环境变量统一改为 preview；删除 Wrangler 补充发布（`prepare-staging-wrangler.mjs` 与 `deploy:staging*`）。
    - 本地验证：类型检查、工具测试 34 项（含分支门槛 3 项）、认证与备份相关 8 个文件 192 项通过；development、preview、production 与恢复工具构建通过，预览产物为 `stcn-video-site`、预览地址、无域名与 Cron，正式产物只带 Cron；`cf d1 migrations list --mode preview` 只读核对预览库无待执行迁移。全量应用测试留给云端预览构建，云端发布未验证。
-2. [x] 正式站 Worker（`stcn-video-site`）接入（2026-10-29）：用 `cf builds workers create` 连接共用的仓库连接，正式分支 `main`；再用 `cf workers-builds workers migrate-to-previews` 切换到 Worker Previews（只建配置时平台仍生成旧版非正式分支触发器）。构建命令 `bash scripts/workers-build.sh build`，预览命令 `bash scripts/workers-build.sh deploy`；取得 production 发布授权前，正式部署命令只输出提示、不发布，授权后改为同一 `deploy`。构建 token 沿用 “stcn-video-site-staging build token”。Previews Base 构建变量为 `CLOUDFLARE_PREVIEW_BUILD=true`、`PREVIEW_BRANCH=dev`、`CLOUDFLARE_ACCOUNT_ID` 与 `PREVIEW_*`（值与旧 staging 当前版本的绑定逐项核对一致，站长邮箱取自该版本的 `OWNER_EMAIL`），Production 构建变量为 `PRODUCTION_*` 与 `CLOUDFLARE_ACCOUNT_ID`，资源标识均为构建 Secret；沿用现有路径排除。该 Worker 的 `workers.dev` 与预览 URL 已关闭（返回 404）。接入没有触发构建，正式版本仍是 2026-09-10 的占位版本。接入后，除 `main` 外任何分支的推送都会在该 Worker 上建预览记录并构建，尚无 `workers-build.sh` 的旧分支构建会失败，但不迁移、不发布。
+2. [x] 正式站 Worker（`stcn-video-site`）接入（2026-10-29）：用 `cf builds workers create` 连接共用的仓库连接，正式分支 `main`；再用 `cf workers-builds workers migrate-to-previews` 切换到 Worker Previews（只建配置时平台仍生成旧版非正式分支触发器）。构建命令 `bash scripts/workers-build.sh build`，预览命令 `bash scripts/workers-build.sh deploy`；取得 production 发布授权前，正式部署命令只输出提示、不发布，授权后改为同一 `deploy`。构建 token 沿用 “stcn-video-site-staging build token”。Previews Base 构建变量为 `CLOUDFLARE_PREVIEW_BUILD=true`、`PREVIEW_BRANCH=dev`、`CLOUDFLARE_ACCOUNT_ID` 与 `PREVIEW_*`（值与旧 staging 当前版本的绑定逐项核对一致，站长邮箱取自该版本的 `OWNER_EMAIL`），Production 构建变量为 `PRODUCTION_*` 与 `CLOUDFLARE_ACCOUNT_ID`，资源标识均为构建 Secret；沿用现有路径排除（正式触发器的排除于 2026-10-30 按开发者决定清空，见[范围与状态](#范围与状态)）。该 Worker 的 `workers.dev` 与预览 URL 已关闭（返回 404）。接入没有触发构建，正式版本仍是 2026-09-10 的占位版本。接入后，除 `main` 外任何分支的推送都会在该 Worker 上建预览记录并构建，尚无 `workers-build.sh` 的旧分支构建会失败，但不迁移、不发布。
 3. [x] 删除了 `video.startrekchina.org` 不代理、已无响应的旧 CNAME，在控制台为正式站 Worker 添加该域名并设为“Preview”（2026-10-29）：平台只建了 `*.video.startrekchina.org` 的代理记录，正式域名本身不解析；预览证书在首个预览创建后签发。Turnstile 组件的主机名加入 `dev.video.startrekchina.org`，旧主机名保留到删除旧 staging Worker 时去掉，组件密钥不变。
 4. [x] 预览 Secrets 写入 Previews Base（2026-10-30）：`BETTER_AUTH_SECRET`、`BACKUP_ENCRYPTION_KEY` 沿用旧 staging 的值（站长已存入密码管理器与离线副本），`TURNSTILE_SECRET_KEY` 与组件当前密钥一致，`EMAIL_API_KEY`、`D1_EXPORT_TOKEN` 与 5 项 `S3_BACKUP_*` 由站长提供；10 项都保存在本机 `.dev.vars.preview.secrets.json`。`BETTER_AUTH_SECRET` 不变，库中 TOTP 才能解密。当前 `cf` 没有 Previews Base 的密钥命令，用项目固定版本的 `wrangler preview base-config secret bulk` 写入，共 10 项，控制台显示为加密的 Secret；没有配置 WebDAV。
 5. [x] 删除旧 staging Worker 的构建配置（保留共用的仓库连接与构建 token），再推送 `dev` 生成预览（2026-10-30，`15aa0d9`）：预览构建成功，应用测试 40 个文件 615 项与工具测试通过，迁移无待执行项，发布到 `https://dev.video.startrekchina.org`；正式版本仍是 2026-09-10 的占位版本，正式域名仍不解析。每次预览部署另有 `<部署短 ID>.video.startrekchina.org` 地址，指向同一预览。旧 staging Worker 继续服务并运行 Cron，作为回退。
@@ -272,7 +281,7 @@ staging 备份断线证据（2026-10-17，`087b9c1` / 版本 `b1e7efb0`）：手
 ## 当前运维风险
 
 - cf beta.12 的 strict 检查曾因 staging Worker 被 script API 更新而拒绝上传，旧 staging 因此采用 Wrangler 补充发布；该路径已随 ENV1 移除。正式站 Worker 的占位版本是一次 upload（2026-09-10），首个预览或正式发布若被 strict 检查拒绝，先报告开发者，不恢复 Wrangler 补充发布、不直接调用 API，也不修改 CLI 内部实现或重建 Worker。
-- production 密钥交接文件仅含原四项，不含 EMAIL_API_KEY 或运行时备份 Token；不能据此认定配置齐全。备份导出、站长邮箱、外部目标及 keyring 已声明，真实配置与权限尚未验证，未启用的目标不上传假值。
+- production 密钥交接文件仅含原四项，不含 EMAIL_API_KEY 或运行时备份 Token；不能据此认定配置齐全。备份导出、站长邮箱、外部目标及 keyring 已声明，真实配置与权限尚未验证，未启用的目标不上传假值。正式构建变量缺 `PRODUCTION_OWNER_EMAIL`，补齐前合入 `main` 的正式构建会失败（正式部署命令在授权前本就只输出提示）。
 - 原生凭证路径需禁用相关应用日志以避免平台附加 URL，invocation/traces 未脱敏前保持关闭；认证小样本/静态配置不等于全部业务平台验证。
 - Time Travel 官方尚不支持新库克隆，默认隔离恢复使用完整备份；手动与定时备份已在 staging 实测，大库导出按 6.9.2 的复测条件处理，不擅自加 Queues/Workflows 或原地覆盖生产。
 
@@ -333,7 +342,7 @@ Cron 当前最长执行时间为 15 分钟，导出轮询、加密、上传和�
 3. 优先按事故选择 Time Travel 或完整备份。网页下载、WebDAV 或 S3 副本须验证密文认证、备份元数据、长度和校验，先在 Cloudflare 内解密到私有对象再导入；不在本机下载未加密 SQL，不让包含密码哈希/TOTP 数据的明文副本离开 Cloudflare。
 4. SQL 恢复使用当时官方支持的导入流程。当前 D1 REST import 为 `init → 上传 SQL → ingest → poll`，参数和临时地址以官方响应为准；上传及轮询在 Cloudflare 内完成，不能把 SQL 文本交给站长本机 CLI 作为中间明文文件。在隔离目标确认 schema 兼容、外键完整、业务计数与摘要一致后，再执行目标切换。
 5. 核对 `media_files` 和字幕关联的 R2 对象；版本或长度与恢复点不同、或对象缺失的记录清除已验证版本并分别计数，切换后由媒体扫描完整验证，完成前不可播；**恢复 D1 不会恢复 R2 媒体，也不会恢复 Worker Secrets**。缺媒体时由站长从自己的冷备按固定命名重新上传；尚未补齐的文件保持不可播，不先开放错误地址。
-6. **重新开放前统一撤销**：删除旧 Better Auth 会话、临时 verification 记录并撤销未使用邀请码及全部二步备用码；切换认证签名 Secret，使恢复点带回的邮箱 JWT 失效；媒体按会话鉴权，删除旧会话即同时作废恢复点带回的播放权限。切换认证 Secret 前在 Cloudflare 内以旧 Secret 解密并重加密保留的 TOTP，备用码以库可识别的空组作废；验证完整后才切换，不靠已恢复的数据库版本计数拒绝旧凭证。密码哈希与通行密钥按恢复点保留，TOTP 设备保留；恢复可能带回后来解绑的设备，重开前由站长复核。工具入口及当前演练边界见[隔离恢复工具](#隔离恢复工具)，真实 staging 演练尚未完成。
+6. **重新开放前统一撤销**：删除旧 Better Auth 会话、临时 verification 记录并撤销未使用邀请码及全部二步备用码；切换认证签名 Secret，使恢复点带回的邮箱 JWT 失效；媒体按会话鉴权，删除旧会话即同时作废恢复点带回的播放权限。切换认证 Secret 前在 Cloudflare 内以旧 Secret 解密并重加密保留的 TOTP，备用码以库可识别的空组作废；验证完整后才切换，不靠已恢复的数据库版本计数拒绝旧凭证。密码哈希与通行密钥按恢复点保留，TOTP 设备保留；恢复可能带回后来解绑的设备，重开前由站长复核。工具入口见[隔离恢复工具](#隔离恢复工具)；该流程已在旧 staging 演练三次，含恢复后的真实登录与播放验收，见 T6.1。
 7. **角色与封禁状态由站长逐条复核**；无法确认的账号保持**维护状态**而不是直接放行。
 8. **邀请码**：恢复出的全部未使用码撤销后，`validUnused = 0`，`occupied = used`，`available = total - used`；已用记录仍占额度，不因恢复返还（6.5.2）。
 9. **旧讨论（已确认做法）**：恢复点中的历史评论和回复**照原样恢复**，不做自动识别或自动清理。维护期间由管理员**人工 review 并重新手动删除**需要移除的内容。**不引入隐藏标记、软删除、删除 ID 台账，也不批量清空正常讨论**；**接受无法自动识别全部历史删除**这一事实，**不宣称历史备份或恢复点已被擦除**。
