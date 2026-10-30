@@ -1,4 +1,4 @@
-import { exports } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { member, login } from "./fixtures/auth";
 import { dependencies } from "../package.json";
@@ -68,6 +68,16 @@ describe("worker responses", () => {
       expect(missing.status).toBe(404); expectSecurityHeaders(missing); expect(await missing.text()).toContain('aria-label="账号菜单"');
       const about = await exports.default.fetch("http://localhost:6120/about", { headers: { Cookie: cookie } });
       expect(await about.text()).not.toContain("我有邀请码");
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("renders account times in China time, as the browser does on hydration, whatever the server clock zone", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+    try {
+      await member(); const cookie = await login();
+      // 20:30 UTC is already the next morning in Asia/Shanghai; a UTC render would mismatch and drop the dark theme on hydration.
+      await env.DB.prepare("UPDATE session SET updatedAt = ?").bind("2026-10-29T20:30:00.000Z").run();
+      const html = await (await exports.default.fetch("http://localhost:6120/account", { headers: { Cookie: cookie } })).text();
+      expect(html).toContain("最近活跃于 2026/10/30 04:30:00");
     } finally { vi.unstubAllGlobals(); }
   });
   it("shows members the build, edge node and Ray ID of the request that loaded the root data", async () => {

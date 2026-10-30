@@ -108,11 +108,11 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
     <aside className="absolute inset-y-0 left-full hidden pl-8 xl:block" aria-label="本页导航"><div className="sticky top-24"><LineNav items={SECTIONS} activeHref={"#" + active} /></div></aside>
     <PageHeading><PageHeadingTagline>账号与安全</PageHeadingTagline><PageHeadingTitle>管理登录方式、二步验证和登录设备.</PageHeadingTitle>
       <PageHeadingDescription className="font-mono text-sm"><dl className="flex flex-wrap gap-x-6 gap-y-1">
-        {[["用户名", account.username], ["身份", account.role === "admin" ? "管理员" : "成员"], ["加入于", new Date(account.joinedAt).toLocaleDateString("zh-CN")]].map(([title, value]) =>
+        {[["用户名", account.username], ["身份", account.role === "admin" ? "管理员" : "成员"], ["加入于", new Date(account.joinedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })]].map(([title, value]) =>
           <div key={title}><dt className="inline">{title} </dt><dd className="inline text-foreground">{value}</dd></div>)}</dl></PageHeadingDescription></PageHeading>
     <div className="h-4" />
     <Panel id="methods" className="scroll-mt-16"><PanelHeader><PanelTitle>登录方式</PanelTitle></PanelHeader><ul className="divide-y divide-line">
-      <Row icon={<KeyRoundIcon />} title="密码" meta={account.passwordUpdatedAt ? "上次修改于 " + new Date(account.passwordUpdatedAt).toLocaleDateString("zh-CN") : "使用用户名和密码登录"}
+      <Row icon={<KeyRoundIcon />} title="密码" meta={account.passwordUpdatedAt ? "上次修改于 " + new Date(account.passwordUpdatedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" }) : "使用用户名和密码登录"}
         action={<Button variant="outline" size="sm" onClick={() => open("password")}>修改</Button>} />
       <Row icon={<MailIcon />} title="注册邮箱" meta={account.email} action={<Button variant="outline" size="sm" onClick={() => open("email")}>修改</Button>} />
       <Row icon={<ShieldCheckIcon />} title={<span className="flex flex-wrap items-center gap-2">二步验证{account.totp ? <Tag className="text-success">已开启</Tag> : <Tag>未开启</Tag>}</span>}
@@ -129,7 +129,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
         revalidator.revalidate(); toast.add({ title: "通行密钥已添加。", type: "success" });
       })}>添加</StatusButton></PanelHeader>
       {!account.passkeys.length ? <p className="px-4 py-6 text-sm text-muted-foreground">添加通行密钥后，可以用指纹、面容或设备 PIN 免密码登录。</p>
-        : <ul className="divide-y divide-line">{account.passkeys.map(key => <Row key={key.id} icon={<FingerprintIcon />} title={key.name || "通行密钥"} meta={"添加于 " + new Date(key.createdAt).toLocaleDateString("zh-CN")}
+        : <ul className="divide-y divide-line">{account.passkeys.map(key => <Row key={key.id} icon={<FingerprintIcon />} title={key.name || "通行密钥"} meta={"添加于 " + new Date(key.createdAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}
           action={<Button variant="ghost" size="icon-sm" aria-label={"删除 " + (key.name || "通行密钥")} onClick={() => { setSelectedKey(key); open("delete-passkey"); }}><Trash2Icon /></Button>} />)}</ul>}
     </Panel><Separator />
     <Panel id="sessions" className="scroll-mt-16"><PanelHeader><PanelTitle>登录设备<PanelTitleSup>({account.sessions.length})</PanelTitleSup></PanelTitle>
@@ -139,7 +139,7 @@ export default function AccountPage({ loaderData: account }: Route.ComponentProp
       })}>退出其他设备</Button>}</PanelHeader>
       <ul className="divide-y divide-line">{account.sessions.map(session => <Row key={session.id} icon={/iPhone|iPad|Android/.test(session.userAgent ?? "") ? <SmartphoneIcon /> : <LaptopIcon />}
         title={<span className="flex flex-wrap items-center gap-2">{device(session.userAgent)}{session.current && <Tag>当前</Tag>}</span>}
-        meta={"最近活跃于 " + new Date(session.updatedAt).toLocaleString("zh-CN")}
+        meta={"最近活跃于 " + new Date(session.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}
         action={!session.current && <Button variant="ghost" size="sm" className="text-destructive" disabled={action.busy} onClick={() => void action.run(async () => { await revoke(session.id); revalidator.revalidate(); })}>退出</Button>} />)}</ul>
       <div className="screen-line-top flex justify-center py-4"><Button variant="ghost" size="sm" disabled={action.busy} onClick={() => void action.run(async () => { await call("/api/auth/sign-out", {}); window.location.assign("/login"); })}>退出当前账号</Button></div>
     </Panel>
