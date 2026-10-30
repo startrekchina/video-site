@@ -44,6 +44,7 @@ function Timeline({ works, ...props }: { works: WorkCard[] } & React.ComponentPr
                   <Poster
                     src={w.poster}
                     alt=""
+                    sizes="64px"
                     className="w-16 shrink-0 transition-[filter] duration-300 pointer-fine:grayscale group-hover/tl:grayscale-0 group-focus-visible/tl:grayscale-0"
                   />
                   <div className="flex min-w-0 flex-col gap-1 py-1">

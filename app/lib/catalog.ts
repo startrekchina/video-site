@@ -8,6 +8,9 @@ export function workCard({ seasons, units, ...card }: Work): WorkCard { return c
 export const displayTitle = (unit: { titleZh: string | null; titleEn: string | null }) => unit.titleZh || unit.titleEn || "标题暂缺";
 export const episodeCode = (unit: Pick<Episode, "seasonNumber" | "number">) => `S${String(unit.seasonNumber).padStart(2, "0")}E${String(unit.number).padStart(2, "0")}`;
 export const formatRuntime = (minutes: number | null | undefined) => minutes == null ? "时长暂缺" : `${Math.ceil(minutes)} 分钟`;
+// Pages load display-size copies of a work poster (w<width>/ beside the original, made by scripts/poster-sizes.mjs), never the original.
+export const POSTER_WIDTHS = [160, 320, 480] as const;
+export const posterSize = (src: string, width: number) => src.replace(/[^/]+$/, file => `w${width}/${file}`);
 export function workProgress(work: WorkCard) { return { total: work.episodeCount, watched: work.watchedCount }; }
 export function presentationNavigation(currentUrl: URL, nextUrl: URL) {
   if (currentUrl.pathname !== nextUrl.pathname || !["/series", "/movies", "/search"].includes(currentUrl.pathname) || currentUrl.search === nextUrl.search) return false;

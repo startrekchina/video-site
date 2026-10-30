@@ -3,7 +3,7 @@ import { useRef, useState } from "react"
 import { PlayIcon } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 
-import { episodeCode, formatRuntime, seasonHref, unitHref } from "@/lib/catalog"
+import { episodeCode, formatRuntime, posterSize, seasonHref, unitHref } from "@/lib/catalog"
 import { useStageHeader } from "@/lib/header-tone"
 import { Poster, ProgressBar } from "@/components/site/media"
 import { Button } from "@/components/ui/button"
@@ -148,7 +148,7 @@ export function HeroTheatre({ items, label }: { items: { work: WorkCard; unit: E
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-1">
         {s.poster && <img
           key={s.key}
-          src={s.poster}
+          src={posterSize(s.poster, 160)}
           alt=""
           className="absolute inset-0 size-full scale-125 animate-in object-cover opacity-60 blur-3xl saturate-150 duration-700 fade-in motion-reduce:animate-none"
         />}
@@ -172,7 +172,7 @@ export function HeroTheatre({ items, label }: { items: { work: WorkCard; unit: E
           >
             <Plate className="p-1.5 sm:p-2">
               <div className="relative">
-                <Poster src={s.poster} alt="" loading="eager" fetchPriority="high" />
+                <Poster src={s.poster} alt="" sizes="(min-width: 640px) 176px, 100px" loading="eager" fetchPriority="high" />
                 <span className="absolute inset-0 flex items-center justify-center rounded-poster transition-colors group-hover/poster:bg-black/30">
                   <span className="flex size-12 scale-90 items-center justify-center rounded-full bg-white/90 text-zinc-950 opacity-0 transition group-hover/poster:scale-100 group-hover/poster:opacity-100 max-sm:hidden">
                     <PlayIcon className="size-5 translate-x-px fill-current" />

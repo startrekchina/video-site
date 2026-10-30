@@ -2,7 +2,7 @@ import { env, exports } from "cloudflare:workers";
 import { expect, it, vi } from "vitest";
 import { catalog, catalogCards, homeStages, pathWork, singleParameter, workHref } from "@/lib/catalog.server";
 import posters from "../public/assets/posters/star-trek/manifest.json";
-import { resumeTarget } from "@/lib/catalog";
+import { POSTER_WIDTHS, posterSize, resumeTarget } from "@/lib/catalog";
 import { currentMember } from "@/lib/member.server";
 import { fixtureKeys, seedCatalog } from "./fixtures/catalog";
 import { member, login, uncached } from "./fixtures/auth";
@@ -348,6 +348,13 @@ it("gives every manifest work a page path that resolves back to it (B 6.11)", ()
     const [, kind, name] = /^\/(series|movies)\/([a-z0-9-]+)$/u.exec(path) ?? [];
     expect(pathWork(kind === "series" ? { code: name } : { slug: name }), path).toEqual(works[index]);
   }
+});
+
+it("ships every display size of each manifest work poster", () => {
+  const shipped = new Set(Object.keys(import.meta.glob("../public/assets/posters/star-trek/w*/*.webp")).map(path => path.slice("../public".length)));
+  const wanted = posters.filter(entry => entry.season === null)
+    .flatMap(entry => POSTER_WIDTHS.map(width => posterSize(`/assets/posters/star-trek/${entry.file.replace(/\.jpg$/u, ".webp")}`, width)));
+  expect(wanted.filter(path => !shipped.has(path))).toEqual([]);
 });
 
 it("links a work page to the neighbouring works of its kind and its seasons by page path", async () => {
