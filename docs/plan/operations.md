@@ -53,8 +53,8 @@
   - 上线前总检查（2026-10-30，预览，虚构成员与测试媒体，开发者授权写 D1/R2）：匿名入口、登录跳转、安全头、媒体 `401` 与 404 通过；删除会话或封禁后新媒体请求立即拒绝；伪造的重置令牌没有出现在任何日志事件里。字幕四类、电影播放与片单队列见[播放计划](playback.md#任务与验证摘要)；访客认证页、成员各页和管理后台在桌面/手机 × 浅色/深色无横向溢出，管理员能打开封禁对话框（未提交）。发现 `/account` 在深色下变回浅色：服务端按 UTC、浏览器按本地时区格式化时间，hydration 不一致后 React 重建页面丢掉主题，已改为与站内其他时间一致的 `Asia/Shanghai` 并补回归用例，随 `46b8d15` 发布后预览复验通过，见[基础计划 UI1](foundation.md#任务与验收摘要)。测试媒体与成员夹具已删除，`check_*_target` 与其被邀请人留给开发者做管理员网页操作。两小时长播经开发者豁免。
   - 待开发者完成：预览真实邮件（注册验证、重发、找回、改邮箱）；在 `check_*_target` 上做管理员网页操作（连带封禁、解封、额度、角色，需 5 分钟内带 TOTP 登录）；真实手机补验注册与登舰证软键盘、四类字幕、自动播放受限提示。
 - [ ] T6.2 补齐 production 独立 Secrets、邮件与 S3 备份目标，核 Worker/D1/R2/Turnstile/域名和隔离；获明确授权后正式迁移、部署与 HTTPS/权限/安全头验收，记录发布版本。上线清单：
-  1. 构建变量：补 `PRODUCTION_OWNER_EMAIL`（缺失时正式构建在安装前失败），核对现有 `PRODUCTION_*` 的 D1、媒体桶、发件与 Turnstile 站点密钥。
-  2. 运行时 Secrets（正式版本，全部选密钥类型）：`BETTER_AUTH_SECRET`、`BACKUP_ENCRYPTION_KEY` 按 [6.9.1](#691-绑定secrets-与集中配置) 生成，上传时存入密码管理器与离线副本；`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、只授权正式 D1 导出的 `D1_EXPORT_TOKEN`、正式专用的 5 项 `S3_BACKUP_*`；不配 WebDAV。
+  1. 构建变量：`PRODUCTION_OWNER_EMAIL` 已补齐（开发者 2026-10-30 在控制台添加，只读核对变量名；目前为明文，宜改为 Secret），站长注册时核对它与站长账号邮箱一致；核对现有 `PRODUCTION_*` 的 D1、媒体桶、发件与 Turnstile 站点密钥。
+  2. 运行时 Secrets（正式版本，全部选密钥类型）：`BETTER_AUTH_SECRET`、`BACKUP_ENCRYPTION_KEY` 按 [6.9.1](#691-绑定secrets-与集中配置) 生成，上传时存入密码管理器与离线副本；`TURNSTILE_SECRET_KEY`、`EMAIL_API_KEY`、只授权正式 D1 导出的 `D1_EXPORT_TOKEN`、正式专用的 5 项 `S3_BACKUP_*`；不配 WebDAV。删除 2026-10-30 误加的运行时密钥 `PRODUCTION_OWNER_EMAIL`（只在未生效的第 2 个版本里，代码不读取）。
   3. 平台：Turnstile 组件加入 `video.startrekchina.org`；发件域名在邮件服务处已验证；正式 D1 与媒体桶和构建变量一致、与预览隔离。
   4. 授权后发布：正式部署命令改为 `bash scripts/workers-build.sh deploy`，控制台把 `video.startrekchina.org` 改为“Production and Preview”；经 PR 合入 `main` 触发首次正式构建、迁移与发布，记录版本和来源 SHA。
   5. 初始数据：`pnpm admin:bootstrap invite --env=production --execute` 生成首个邀请码，站长注册并验证邮箱后用同一工具的 `promote` 提升为管理员；片库资料按[导入说明](../import-media.md)导入，媒体与字幕按固定命名上传，由 Cron 扫描关联。
@@ -175,7 +175,7 @@ Cloudflare 导出响应均为模拟，D1/R2 使用本地 workerd；未做浏览�
 
 staging 实测结果与剩余缺口见 [T6.1 staging 备份与恢复演练](#t61-staging-备份与恢复演练)。
 
-站长配置：站长邮箱由本环境构建变量 `PREVIEW_OWNER_EMAIL` 或 `PRODUCTION_OWNER_EMAIL` 提供，构建生成运行时 `OWNER_EMAIL`，自动发布不会丢失配置；`cloudflare.config.ts` 缺值时退回空字符串，会让所有人进不了备份页，所以 `scripts/workers-build.sh build` 在缺少本环境变量时于安装前失败。预览沿用旧 staging 已核对的站长账号与邮箱（指定用户名与邮箱为同一已验证、注册完成的正常 `admin` 账号）；正式触发器的构建变量中还没有 `PRODUCTION_OWNER_EMAIL`（2026-10-30 只读核对变量名），补齐前合入 `main` 的正式构建会在这一步失败，列入 T6.2。真实邮箱不入仓库。
+站长配置：站长邮箱由本环境构建变量 `PREVIEW_OWNER_EMAIL` 或 `PRODUCTION_OWNER_EMAIL` 提供，构建生成运行时 `OWNER_EMAIL`，自动发布不会丢失配置；`cloudflare.config.ts` 缺值时退回空字符串，会让所有人进不了备份页，所以 `scripts/workers-build.sh build` 在缺少本环境变量时于安装前失败。预览沿用旧 staging 已核对的站长账号与邮箱（指定用户名与邮箱为同一已验证、注册完成的正常 `admin` 账号）；正式触发器的构建变量已补齐 `PRODUCTION_OWNER_EMAIL`（开发者 2026-10-30 添加，只读核对变量名）。真实邮箱不入仓库。
 
 2026-10-17 staging 交付：`dev` 的 `6809761` 经 Workers Builds 自动发布，应用全量 386 项、工具 21 项、类型检查和 staging 构建通过；版本 `61d59218-ea51-4d87-bf20-efa66f673e24` 承载 100% 流量，来源 SHA 一致。除站长邮箱外的运行时绑定及 11 个 Secrets 与发布前一致；公开首页 `200`，匿名备份页跳转登录，状态接口 `401`，均为 `private, no-store`。未使用指定账号代登录或执行备份，完整浏览器操作及平台演练缺口不变；production 未操作。
 
@@ -281,7 +281,7 @@ staging 备份断线证据（2026-10-17，`087b9c1` / 版本 `b1e7efb0`）：手
 ## 当前运维风险
 
 - cf beta.12 的 strict 检查曾因 staging Worker 被 script API 更新而拒绝上传，旧 staging 因此采用 Wrangler 补充发布；该路径已随 ENV1 移除。正式站 Worker 的占位版本是一次 upload（2026-09-10），首个预览或正式发布若被 strict 检查拒绝，先报告开发者，不恢复 Wrangler 补充发布、不直接调用 API，也不修改 CLI 内部实现或重建 Worker。
-- production 密钥交接文件仅含原四项，不含 EMAIL_API_KEY 或运行时备份 Token；不能据此认定配置齐全。备份导出、站长邮箱、外部目标及 keyring 已声明，真实配置与权限尚未验证，未启用的目标不上传假值。正式构建变量缺 `PRODUCTION_OWNER_EMAIL`，补齐前合入 `main` 的正式构建会失败（正式部署命令在授权前本就只输出提示）。
+- production 密钥交接文件仅含原四项，不含 EMAIL_API_KEY 或运行时备份 Token；不能据此认定配置齐全。备份导出、站长邮箱、外部目标及 keyring 已声明，真实配置与权限尚未验证，未启用的目标不上传假值。
 - 原生凭证路径需禁用相关应用日志以避免平台附加 URL，invocation/traces 未脱敏前保持关闭；认证小样本/静态配置不等于全部业务平台验证。
 - Time Travel 官方尚不支持新库克隆，默认隔离恢复使用完整备份；手动与定时备份已在 staging 实测，大库导出按 6.9.2 的复测条件处理，不擅自加 Queues/Workflows 或原地覆盖生产。
 
