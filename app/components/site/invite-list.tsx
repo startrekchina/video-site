@@ -21,7 +21,7 @@ export function InviteList({ invitations, now, codes, self, busy, revoke, showIs
       <span className={cn("min-w-0 break-all font-mono text-sm tracking-wide", STATUS[status].className)}>{code ?? "邀请 " + invite.id.slice(0, 8)}</span>
       <StatusDot status={status} />
       <span className="text-xs text-muted-foreground">{showIssuer && <>邀请人 <span className="font-mono text-foreground">{invite.issuer ?? "初始邀请"}</span> · </>}
-        {status === "used" ? <>已邀请 <span className="font-mono text-foreground">{invite.usedBy}</span></> : <>有效至 {new Date(invite.expires_at).toLocaleDateString("zh-CN")}</>}</span>
+        {status === "used" ? <>已邀请 <span className="font-mono text-foreground">{invite.usedBy}</span></> : <>有效至 {new Date(invite.expires_at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" })}</>}</span>
       <div className="ml-auto flex items-center gap-1">
         {status === "unused" && code && <CopyButton variant="ghost" size="icon-sm" text={() => window.location.origin + "/register?code=" + encodeURIComponent(code)} aria-label="复制注册链接" />}
         {status === "unused" && (!showIssuer || invite.issuerId === self) && <Button variant="ghost" size="sm" className="text-destructive" disabled={busy} onClick={() => revoke(invite.id)}>作废</Button>}

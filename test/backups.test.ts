@@ -138,7 +138,7 @@ it.each(["lease", "job"])("releases an interrupted backup whose initial %s write
 
 it("reports corrupt job records without hiding readable jobs or authorizing cleanup", async () => {
   mockExport(); const good = await create(), damaged = await create(), original = await state(damaged.id);
-  const mutations = [{ ...original, result: {} }, { ...original, result: { ...original.result, source: { environment: "staging" } } },
+  const mutations = [{ ...original, result: {} }, { ...original, result: { ...original.result, source: { environment: "preview" } } },
     { ...original, receipt: { target: "webdav", destinationId: "0".repeat(64), name: "foreign-file.stcnbak", verifiedAt: Date.now() } }];
   for (const record of mutations) {
     await env.MEDIA_BUCKET.put(stateKey(damaged.id), JSON.stringify(record));

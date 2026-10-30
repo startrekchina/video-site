@@ -220,15 +220,22 @@ it("rejects live/nonempty targets, wrong environments and unavailable key pairs 
   await target.db.prepare("CREATE TABLE occupied (id INTEGER)").run();
   await expect(restoreBackup(runtime, target, file.source, file.file, keys, signal())).rejects.toThrow(); expect(network).not.toHaveBeenCalled();
 });
-it("fails validation on missing media or a mismatched schema", async () => {
-  const file = await artifact();
+it("fails validation on a mismatched schema", async () => {
+  await artifact();
   await expect(validateRestoredDatabase(env.DB, env.MEDIA_BUCKET, "wrong-schema", signal())).rejects.toThrow();
-  await env.DB.batch([
-    env.DB.prepare("INSERT INTO works (id, kind, tmdb_id) VALUES ('fictional', 'movie', 1)"),
-    env.DB.prepare("INSERT INTO playable_units (id, kind, work_id, tmdb_id) VALUES ('fictional', 'movie', 'fictional', 1)"),
-    env.DB.prepare("INSERT INTO subtitle_tracks (id, playable_unit_id, language, format, display_name, track_key, object_key, byte_length, checksum_sha256) VALUES ('fictional', 'fictional', 'en', 'vtt', 'English', 'en.main', 'library/missing.vtt', 10, ?)").bind("a".repeat(64)),
-  ]);
-  await expect(validateRestoredDatabase(env.DB, env.MEDIA_BUCKET, file.source.schemaVersion, signal())).rejects.toThrow();
+});
+it("restores media deleted after the restore point as missing until the same name is uploaded again", async () => {
+  const file = await artifact(); await seedCatalog(env.DB);
+  const video = Uint8Array.from(atob(env.TEST_WEBM_BASE64), char => char.charCodeAt(0)), movie = "library/movie/152/movie.webm";
+  await env.MEDIA_BUCKET.put(movie, video);
+  expect(await syncMedia(env)).toMatchObject({ linked: 1 });
+  await env.MEDIA_BUCKET.delete(movie);
+  expect(await validateRestoredDatabase(env.DB, env.MEDIA_BUCKET, file.source.schemaVersion, signal())).toMatchObject({ mediaVerified: true, mediaPending: 0, mediaMissing: 1 });
+  const version = async () => (await env.DB.prepare("SELECT r2_etag FROM media_files WHERE object_key = ?").bind(movie).first<{ r2_etag: string | null }>())!.r2_etag;
+  expect(await version()).toBeNull();
+  await env.MEDIA_BUCKET.put(movie, video);
+  expect(await syncMedia(env)).toMatchObject({ failed: 0 });
+  expect(await version()).toBe((await env.MEDIA_BUCKET.head(movie))!.etag);
 });
 it("leaves media whose R2 version differs from the restore point to the media scan without reading it", async () => {
   const file = await artifact(); await seedCatalog(env.DB);

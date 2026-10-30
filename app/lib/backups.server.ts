@@ -43,7 +43,7 @@ const invalid = () => new APIError("BAD_REQUEST", { code: "INVALID_INPUT", messa
 const invalidRecord = () => new APIError("SERVICE_UNAVAILABLE", { code: "BACKUP_RECORD_INVALID", message: "备份控制记录损坏，请检查存储记录后重试。" });
 const isInvalidRecord = (error: unknown) => error instanceof APIError && error.body?.code === "BACKUP_RECORD_INVALID";
 function environment(env: Env): BackupScope["environment"] {
-  if (env.APP_ENV === "development" || env.APP_ENV === "test" || env.APP_ENV === "staging" || env.APP_ENV === "production") return env.APP_ENV;
+  if (env.APP_ENV === "development" || env.APP_ENV === "test" || env.APP_ENV === "preview" || env.APP_ENV === "production") return env.APP_ENV;
   throw new APIError("SERVICE_UNAVAILABLE", { code: "BACKUP_CONFIG_INVALID", message: "当前环境的备份配置无效。" });
 }
 const control = (env: Env) => `backup-control/${environment(env)}/`;

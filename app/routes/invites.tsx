@@ -60,7 +60,7 @@ export default function InvitesPage({ loaderData: invites }: Route.ComponentProp
         })} /><p className="screen-line-top px-4 py-3 text-xs text-muted-foreground">邀请码只在生成后显示一次，请及时复制保存。已使用的邀请码会计入额度，未使用的邀请码作废或过期后会自动返还额度。</p></>}
     </Panel>
     <Dialog open={!!created} onOpenChange={value => { if (!value) { setCreated(null); action.clear(); } }}><DialogContent>
-      <DialogHeader><DialogTitle>邀请码已生成</DialogTitle><DialogDescription>有效至 {created && new Date(created.expiresAt).toLocaleString("zh-CN")}。请通过私信把注册链接发给朋友。</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>邀请码已生成</DialogTitle><DialogDescription>有效至 {created && new Date(created.expiresAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。请通过私信把注册链接发给朋友。</DialogDescription></DialogHeader>
       {created && <><code className="break-all rounded-lg border bg-muted p-3 font-mono text-sm">{created.code}</code><div className="flex flex-wrap gap-2">
         <CopyButton variant="outline" size="sm" text={created.code}>复制邀请码</CopyButton><CopyButton variant="outline" size="sm" text={() => window.location.origin + "/register?code=" + encodeURIComponent(created.code)}>复制注册链接</CopyButton>
       </div></>}<DialogFooter><Button onClick={() => { setCreated(null); action.clear(); }}>完成</Button></DialogFooter>

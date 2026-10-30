@@ -6,7 +6,8 @@
 
 ## 目录结构
 
-- `public/assets/posters/star-trek/`(本目录,提交到 git):WebP 压缩版,质量 80,保留原分辨率,79 张约 30 MB,前端高保真原型直接引用此目录
+- `public/assets/posters/star-trek/`(本目录,提交到 git):WebP 压缩版,质量 80,保留原分辨率,79 张约 30 MB,前端高保真原型直接引用此目录,也是显示尺寸版本的生成来源
+- `w160/`、`w320/`、`w480/`(提交到 git):作品主海报的显示尺寸版本,宽 160/320/480 px、质量 75,27 张各三档约 1.4 MB;正式站页面只加载这些文件,按显示宽度经 `srcset` 选档。季海报不在页面显示,不生成。新增或替换作品主海报后,在仓库根目录运行 `node scripts/poster-sizes.mjs`(需带 libwebp 的 FFmpeg);缺少任一档时 `test/catalog.test.ts` 失败
 - `assets-raw/posters/star-trek/`(仓库根目录,仅本地保留,不入 git):JPG 原图,79 张约 63 MB,生产环境导入 R2 时使用
 - 两处文件同名,仅扩展名不同(原型用 `.webp`,原图 `.jpg`);`manifest.json` 中 `file` 字段记录的是原图 `.jpg` 文件名
 - 原图丢失时可按 `manifest.json` 中 `image` 字段的 TMDB 地址重新抓取

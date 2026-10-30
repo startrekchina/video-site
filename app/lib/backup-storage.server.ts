@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from "node:crypto";
 
 const magic = Buffer.from("STCNBKP1"), headerLimit = 4096, maxSqlBytes = 2 ** 36 - 32;
-type Environment = "development" | "test" | "staging" | "production";
+type Environment = "development" | "test" | "preview" | "production";
 export type BackupScope = { environment: Environment; id: string };
 export type BackupMetadata = BackupScope & { createdAt: number; schemaVersion: string; bookmark: string; authKeyId?: string };
 type Fingerprint = { byteLength: number; sha256: string };
@@ -10,7 +10,7 @@ type Source = Omit<BackupMetadata, "bookmark"> & Fingerprint;
 function requireValid(value: unknown, code = "BACKUP_INVALID"): asserts value { if (!value) throw new Error(code); }
 const hex = (value: unknown, length: number): value is string => typeof value === "string" && value.length === length && /^[a-f0-9]+$/u.test(value);
 function prefix(scope: BackupScope) {
-  requireValid(["development", "test", "staging", "production"].includes(scope.environment)
+  requireValid(["development", "test", "preview", "production"].includes(scope.environment)
     && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(scope.id));
   return `backups/${scope.environment}/${scope.id}/`;
 }

@@ -4,7 +4,7 @@ import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { playbackHttp, playbackSource } from "@/lib/playback.server";
 import { syncMedia } from "@/lib/media-sync.server";
 import { episodeKey, fixtureKeys, seedCatalog } from "./fixtures/catalog";
-import { login, member, request } from "./fixtures/auth";
+import { login, member, password, request } from "./fixtures/auth";
 
 const video = "/media/source", subtitle = "/subtitles/zh";
 let cookie: string;
@@ -109,6 +109,20 @@ it("authorizes every request from the live session and hides metadata from anyon
   expect((await http(video, {}, other)).status).toBe(200);
   await env.DB.prepare('DELETE FROM session WHERE userId <> ?').bind(id).run();
   await expectHidden(await http(subtitle, {}, other), 401);
+}, 60000);
+
+it("serves repeated GET, HEAD and Range requests from one IP and member without spending auth or business quotas", async () => {
+  const ip = "192.0.2.251", from = { "cf-connecting-ip": ip };
+  const quotas = async () => (await env.DB.batch(["rateLimit", "rate_limit_counters", "email_deliveries"].map(table => env.DB.prepare(`SELECT * FROM "${table}" ORDER BY 1`)))).map(rows => rows.results);
+  const before = await quotas();
+  // 120 requests exceed the native global budget of 100 per window.
+  for (let round = 0; round < 20; round++) for (const options of [{ headers: from }, { method: "HEAD", headers: from }, { headers: { ...from, Range: "bytes=2-5" } }]) {
+    for (const url of [video, subtitle]) { const response = await http(url, options); expect([200, 206]).toContain(response.status); await response.arrayBuffer(); }
+  }
+  expect(await quotas()).toEqual(before);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ success: true, hostname: "localhost", action: "auth" })));
+  try { expect((await exports.default.fetch(request("/api/auth/sign-in/username", { username: "Kepler", password }, "", from))).status).toBe(200); } finally { vi.unstubAllGlobals(); }
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM rateLimit WHERE key LIKE ?").bind(`%${ip}%`).first<number>("n")).toBe(1);
 }, 60000);
 
 it.each(["video", "subtitle"])("returns sanitized 404 for unverified, stale, replaced, resized or missing %s objects", async target => {

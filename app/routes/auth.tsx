@@ -45,6 +45,7 @@ function AuthFlow({ loaderData: config }: Route.ComponentProps) {
   const resetInvalid = reset && (params.has("error") || !params.get("token"));
   const title = second ? "二步验证" : login ? "登录" : register ? inviteStep ? "创建账号" : "使用邀请码注册" : reset ? "重设密码" : verified ? "邮箱验证" : resend ? "等待邮箱验证" : "找回密码";
   const description = verified ? (params.get("error") === "EMAIL_CHANGE_ACCOUNT" ? "该链接已使用，或不属于当前登录的账号。如需修改邮箱，请到「账号与安全」重新提交。"
+      : params.get("error") === "EMAIL_IN_USE" ? "这个邮箱已被其他账号使用，你的邮箱没有修改。如需修改，请到「账号与安全」换一个邮箱重新提交。"
       : params.has("error") ? "验证链接无效或已过期。注册验证请重新发送验证邮件；修改邮箱请到「账号与安全」重新提交。" : "邮箱已验证。")
     : resend ? (params.get("delivery") === "accepted" ? "账号注册已成功。请查收邮件并点击链接完成验证；若未收到，请检查垃圾邮件或稍后重试。"
       : params.get("delivery") ? "账号已注册，但验证邮件可能没有发出。若几分钟后仍未收到，请在下方重新发送。"

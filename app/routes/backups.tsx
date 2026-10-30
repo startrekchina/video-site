@@ -21,7 +21,7 @@ import { toast } from "@/components/ui/toast";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const labels: Record<BackupTarget, string> = { download: "加密下载", webdav: "WebDAV", s3: "S3" };
-const environments: Record<string, string> = { development: "本地开发", test: "测试", staging: "测试站", production: "正式站" };
+const environments: Record<string, string> = { development: "本地开发", test: "测试", preview: "预览环境", production: "正式站" };
 type Status = Awaited<ReturnType<typeof backupStatus>>;
 type Job = Status["items"][number];
 const frequencyLabels: Record<BackupFrequency, string> = { daily: "每天", weekly: "每周", interval: "每隔几天" };

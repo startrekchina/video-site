@@ -2,16 +2,17 @@ import type React from "react"
 import { CheckIcon } from "lucide-react"
 import { Link } from "react-router"
 
-import { formatRuntime, type WorkCard } from "@/lib/catalog"
+import { formatRuntime, POSTER_WIDTHS, posterSize, type WorkCard } from "@/lib/catalog"
 import { workProgress } from "@/lib/catalog"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 
-export function Poster({ src, alt, className, ...props }: React.ComponentProps<"img"> & { src: string; alt: string }) {
+/** `sizes` is the rendered width, so the browser picks the smallest display-size copy that stays sharp. */
+export function Poster({ src, alt, className, ...props }: React.ComponentProps<"img"> & { src: string; alt: string; sizes: string }) {
   const [failed, setFailed] = useState<string | null>(null)
   return (
     <div className={cn("diagonal-stripes relative aspect-2/3 overflow-hidden rounded-poster bg-muted", className)}>
-      {src && failed !== src && <img onError={() => setFailed(src)} src={src} alt={alt} loading="lazy" decoding="async" {...props} className="relative size-full object-cover select-none" draggable={false} />}
+      {src && failed !== src && <img onError={() => setFailed(src)} src={posterSize(src, POSTER_WIDTHS.at(-1)!)} srcSet={POSTER_WIDTHS.map(width => `${posterSize(src, width)} ${width}w`).join(", ")} alt={alt} loading="lazy" decoding="async" {...props} className="relative size-full object-cover select-none" draggable={false} />}
       <div className="pointer-events-none absolute inset-0 rounded-[inherit] inset-ring-1 inset-ring-foreground/10" />
     </div>
   )
@@ -52,6 +53,7 @@ export function WorkTile({ work, className, loading }: { work: WorkCard; classNa
           src={work.poster}
           alt={work.titleZh}
           loading={loading}
+          sizes="(min-width: 640px) 240px, 50vw"
           className="transition-[filter] duration-300 ease-[cubic-bezier(0.42,0,0.58,1)] pointer-fine:grayscale group-hover/tile:grayscale-0 group-has-focus-visible/tile:grayscale-0"
         />
         {work.code && (

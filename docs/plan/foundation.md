@@ -8,7 +8,7 @@
 
 ## 任务与验收摘要
 
-- [x] DSK 基础防护与配置清理的实现与本地自检（2026-10-26，基线 `58d408d`）：动态响应与静态资源使用禁止嵌入的 CSP，配置只声明实际使用的绑定。`http`、`settings` 与原生限流定向用例通过；development 构建产物保留静态 CSP，类型检查通过。隔离浏览器直接访问登录页正常、官方 Turnstile 测试控件显示成功，在 iframe 中的登录页不显示。临时夹具与虚构配置均已清理，staging 未复验。
+- [x] DSK 基础防护与配置清理的实现与本地自检（2026-10-26，基线 `58d408d`）：动态响应与静态资源使用禁止嵌入的 CSP，配置只声明实际使用的绑定。`http`、`settings` 与原生限流定向用例通过；development 构建产物保留静态 CSP，类型检查通过。隔离浏览器直接访问登录页正常、官方 Turnstile 测试控件显示成功，在 iframe 中的登录页不显示。临时夹具与虚构配置均已清理；staging 复验通过（2026-10-29），见[复验记录](../staging-recheck-20261029.md)。
 
 - [x] DOC1 文档职责调整为 A/B 与核心/模块计划四层，链接、内容保留、任务状态及敏感信息检查通过；[检查记录](../documentation-restructure-20261011.md)。
 - [x] DOC2 按站长要求继续精炼 A，保留八项核心能力及目标/范围；细则承接、链接和差异检查通过，不改变产品或阶段状态，见[精炼记录](../documentation-restructure-20261011.md#核心需求二次精炼)。
@@ -23,9 +23,10 @@
 - [x] T2.3 本地/staging 配置与 Secrets 可用，staging/production 隔离声明、资源映射及构建/dry-run 通过；production 发布属于 T6.2。
 - [x] T2.5 版本化 D1 迁移、约束与虚构数据/生成媒体夹具通过；认证迁移由 authentication 维护。
 - [x] T2.6 前端基础从原型单向迁入；关于页/404 的桌面、手机、浅深色、主题及键盘复核通过。其余页面按各模块验收。
-- [ ] UI1 界面文案对齐实际行为（开发者 2026-10-15 批准两步）：统一术语并修正与行为不符的说明；需改逻辑的部分包括播放登录失效改为“重新登录”、全屏出错先退出全屏、重设与邮件链接失效落到页面说明、同步字幕按语言显示（迁移 `0014`）、剧集简称补全、首页通行密钥直接登录、非 Apple 平台显示 Ctrl、认证请求的网络/网关错误兜底与限流分钟换算；站名统一为“星际舰队档案馆”并为各页补标题（B 6.14）；B 故事 23/26 按会话鉴权改写；原型共有界面同步，并删除恢复码、管理员重置与免邮箱注册等旧流程。实现与本地自检通过：类型检查、257 项应用测试、21 项工具测试及正式/原型构建；原型关于、播放、注册页与找回锚点已浏览器查看，正式工程登录态页面、手机与深色主题未复核。
-- [ ] UI2 正式站同步原型 10-20 至 10-22 的纯前端改动：访客首页（桌面固定 9:5 象限星图、UFP 徽记与标题栏，手机登舰证，下接三步、成员能力、守则和常见问题，B 6.11/6.14）、页脚透视线稿、深浅色单键切换（跟随系统不存储，系统变化时清除，B 6.11）、关于页文案与技术说明图标墙、登录/注册说明，以及观看页（字幕只在播放器内选择、原名/年份/时长信息行、续播位置改由播放器提示、按集切换保留片单）。需后端或尚未确认的部分不在本项：页脚构建/边缘节点/技术栈（由 UI3 承接）、片单队列条（由[社区计划](community.md#任务与验收) T5.2 队列条承接）、首播日期（由[片库计划 AIR1](catalog.md#air1-单集首播日期) 承接）、字幕标签与文案（由[片库计划 SUB1](catalog.md#sub1-字幕四类标记) 承接）、状态/维护/欢迎/片库报告页、首页候选。实现与本地自检通过：类型检查、505 项应用测试、构建；本地浏览器查看访客首页桌面/手机、邀请码跳转注册、关于页桌面/320px、页脚线稿、主题按钮与 D 键、成员页脚和观看页结构。字幕切换与续播提示因本地缺媒体文件只由单测覆盖；待开发者复核。
-- [x] UI3 成员页脚图签按原型以工程信息替换片库统计（B 6.14）：Vite `define` 在构建时写入 `__BUILD_COMMIT__`，Workers Builds 取 `WORKERS_CI_COMMIT_SHA`，本地取 `git rev-parse HEAD`，两者都取不到时构建失败，测试用固定虚构值；提交号只经根 loader 下发，客户端脚本不含提交号，部署不改变带 hash 的资源名（T4.8）。Worker 入口把请求头 `cf-ray` 中的 Ray ID 与 `request.cf.colo` 经 load context 交给根 loader；页脚读根数据，技术栈版本读 `package.json`；`SiteFooter` 与关于页共用 `REPO`、`ExternalLink`、`Field`。`catalogSummary` 只查作品列表，根 loader 与作品页各少一条计数 SQL。实现与本地自检通过：类型检查、http（含成员页脚、无 colo、404 出错页、两次 `.data` 各带本次 Ray ID、访客精简页脚）、player、catalog、request-performance 用例及开发构建，客户端资源中查不到提交号；http、catalog、request-performance 因本机冷启动超过 60 秒预热时限，用只放宽预热时限的临时副本运行；与片库、片单各项合并后的全量运行中 http、request-performance 原文件通过，结果与 catalog 冷启动超时见[片库计划集成自检](catalog.md#air1-单集首播日期)。本地浏览器（2026-10-25，6120）：成员关于页桌面与 320px 的图签字段、顺序与链接和原型一致且无横向溢出，访客页与登录页只有底栏；请求 ID 按原型显示 16 位 Ray ID（开发者 2026-10-25 确认，本站 36 位 `X-Request-Id` 在两种宽度下都会折成 3 行），本地没有 `cf-ray` 时显示“—”。staging（2026-10-25，`c1c33f2`）成员页脚显示构建 `c1c33f2`、边缘节点 HKG 和 16 位 Ray ID。
+- [x] UI1 界面文案对齐实际行为（开发者 2026-10-15 批准两步）：统一术语并修正与行为不符的说明；需改逻辑的部分包括播放登录失效改为“重新登录”、全屏出错先退出全屏、重设与邮件链接失效落到页面说明、同步字幕按语言显示（迁移 `0014`）、剧集简称补全、首页通行密钥直接登录、非 Apple 平台显示 Ctrl、认证请求的网络/网关错误兜底与限流分钟换算；站名统一为“星际舰队档案馆”并为各页补标题（B 6.14）；B 故事 23/26 按会话鉴权改写；原型共有界面同步，并删除恢复码、管理员重置与免邮箱注册等旧流程。实现与本地自检通过：类型检查、257 项应用测试、21 项工具测试及正式/原型构建；原型关于、播放、注册页与找回锚点已浏览器查看。预览复核（2026-10-30，虚构成员）：正式工程的访客认证页、成员各页与管理后台在 1440×1000 与 360×800、浅色与深色下核对，无横向溢出；发现 `/account` 深色主题在 hydration 后丢失——服务端按 UTC、浏览器按本地时区格式化时间，文本不一致使 React 重建页面并清掉 `<html>` 的 `dark`。账号页、管理后台与邀请列表的时间改按 `Asia/Shanghai` 格式化（与片单、播放页和备份页一致），`test/http.test.ts` 补回归用例；修复随 `46b8d15` 发布到预览后，桌面与手机深色整页加载均保持深色，服务端渲染时间与浏览器一致。
+- [x] UI2 正式站同步原型 10-20 至 10-22 的纯前端改动：访客首页（桌面固定 9:5 象限星图、UFP 徽记与标题栏，手机登舰证，下接三步、成员能力、守则和常见问题，B 6.11/6.14）、页脚透视线稿、深浅色单键切换（跟随系统不存储，系统变化时清除，B 6.11）、关于页文案与技术说明图标墙、登录/注册说明，以及观看页（字幕只在播放器内选择、原名/年份/时长信息行、续播位置改由播放器提示、按集切换保留片单）。需后端或尚未确认的部分不在本项：页脚构建/边缘节点/技术栈（由 UI3 承接）、片单队列条（由[社区计划](community.md#任务与验收) T5.2 队列条承接）、首播日期（由[片库计划 AIR1](catalog.md#air1-单集首播日期) 承接）、字幕标签与文案（由[片库计划 SUB1](catalog.md#sub1-字幕四类标记) 承接）、状态/维护/欢迎/片库报告页、首页候选。实现与本地自检通过：类型检查、505 项应用测试、构建；本地浏览器查看访客首页桌面/手机、邀请码跳转注册、关于页桌面/320px、页脚线稿、主题按钮与 D 键、成员页脚和观看页结构。字幕切换与续播提示因本地缺媒体文件只由单测覆盖；开发者 2026-10-29 在 staging 验收。
+- [x] UI3 成员页脚图签按原型以工程信息替换片库统计（B 6.14）：Vite `define` 在构建时写入 `__BUILD_COMMIT__`，Workers Builds 取 `WORKERS_CI_COMMIT_SHA`，本地取 `git rev-parse HEAD`，两者都取不到时构建失败，测试用固定虚构值；提交号只经根 loader 下发，客户端脚本不含提交号，部署不改变带 hash 的资源名（T4.8）。Worker 入口把请求头 `cf-ray` 中的 Ray ID 与 `request.cf.colo` 经 load context 交给根 loader；页脚读根数据，技术栈版本读 `package.json`；`SiteFooter` 与关于页共用 `REPO`、`ExternalLink`、`Field`。`catalogSummary` 只查作品列表，根 loader 与作品页各少一条计数 SQL。实现与本地自检通过：类型检查、http（含成员页脚、无 colo、404 出错页、两次 `.data` 各带本次 Ray ID、访客精简页脚）、player、catalog、request-performance 用例及开发构建，客户端资源中查不到提交号；http、catalog、request-performance 因本机冷启动超过 60 秒预热时限，用只放宽预热时限的临时副本运行；与片库、片单各项合并后的全量运行中 http、request-performance 原文件通过，结果与 catalog 冷启动超时见[片库计划集成自检](catalog.md#air1-单集首播日期)。本地浏览器（2026-10-25，6120）：成员关于页桌面与 320px 的图签字段、顺序与链接和原型一致且无横向溢出，访客页与登录页只有底栏；请求 ID 按原型显示 16 位 Ray ID（开发者 2026-10-25 确认，本站 36 位 `X-Request-Id` 在两种宽度下都会折成 3 行），本地没有 `cf-ray` 时显示“—”。staging（2026-10-25，`c1c33f2`）成员页脚显示构建 `c1c33f2`、边缘节点 HKG 和 16 位 Ray ID。开发者 2026-10-29 验收。
+- [x] IMG1 海报显示尺寸版本（开发者 2026-10-30 决定）：预览的成员首页加载原尺寸海报（最大近 1 MB），手机模拟慢速 4G 首屏约 15 秒，见[性能证据](../performance-20261030.md#冷缓存首屏)。方案见[总体架构](#61-总体架构)的海报一条。实现与本地自检通过：类型检查；`test/catalog.test.ts` 22 项，新增用例逐一核对 27 张作品主海报的三档文件，临时移走一个文件时失败；渲染海报的 `works-timeline`、`player` 共 49 项；development 构建产物含 81 个显示尺寸文件。预览核对（`277979a`，2026-10-30，虚构成员，测完删除）：手机（390 px、3 倍）与桌面（1280 px、2 倍）下，首页、剧集与电影网格、时间轴、作品页、片单列表、片单页、播放页队列条均未请求原图，所选档位与显示宽度相符（如手机网格 170 px 用 480 档、桌面作品页 160 px 用 320 档、片单 36 px 用 160 档），截图清晰；时间轴横向可视区外的海报照常延迟加载。成员首页 LCP 中位数 15.2 → 3.98 秒，图片 3.23 → 0.31 MB。
 - [ ] E2E1 建立少量关键路径的 Playwright Test 回归：先确认首批场景与环境，再接入隔离数据、真实页面操作、可按场景筛选的执行入口及失败证据保护；方案见[浏览器验证方案](#浏览器验证方案)。未接入不宣称自动化浏览器回归已通过。
 
 证据：[基础截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase2/README.md)、[新认证文案截图](https://github.com/startrekchina/video-site/blob/803be06/docs/screenshots/phase2-better-auth/README.md)、[历史计划](../archive/plan-20261007.md)。命令与日常使用见根 README，不复制完整开发日志。
@@ -76,7 +77,7 @@ staging 核对（2026-10-15，`78914f2`）：入口脚本、根样式与字体�
 | --- | --- | --- |
 | 运行与包管理 | Node 24、pnpm 12 | 构建脚本需批准 `esbuild`、`workerd` |
 | 框架 | `react-router` / `@react-router/dev` 7.18.4，`future.v8_viteEnvironmentApi: true` | 需求定为 v7；自定义 `app/entry.server.tsx`（`renderToReadableStream`） |
-| Cloudflare 集成 | `cf` 1.0.0-beta.12、`@cloudflare/vite-plugin` 2.0 beta、Vite 8；Wrangler 4.150.0 补充 staging 发布 | `cloudflare.config.ts` 为权威配置，Wrangler 配置仅从 Build Output 生成，不提交资源映射 |
+| Cloudflare 集成 | `cf` 1.0.0-beta.12、`@cloudflare/vite-plugin` 2.0 beta、Vite 8；Wrangler 4.150.0 仅用于 Previews Base Secrets 与大文件上传 | `cloudflare.config.ts` 为权威配置，不提交资源映射 |
 | 测试 | `vitest` 4.1、`@cloudflare/vitest-plugin`（`experimental.newConfig`） | 读取 `cloudflare.config.ts`，`mode` 为 `test`；D1 迁移在 setup 中应用 |
 | 类型 | `.cloudflare/types/index.d.ts`（Vite 插件自动生成，`Env` 由配置推断） | `react-router typegen && tsc` 作为类型检查 |
 
@@ -84,12 +85,12 @@ staging 核对（2026-10-15，`78914f2`）：入口脚本、根样式与字体�
 
 - `cf` 与 Vite 插件均为 beta，锁定精确版本；升级单独提交并重跑相关完整验证，不借文档拆分升级工具链。
 - **v7 与 Build Output 目录不一致**：Vite 插件 2.0 把客户端产物强制输出到 `.cloudflare/output/v0/workers/default/assets`，React Router v7 仍从 `build/client` 读写 manifest。用一个小 Vite 插件在构建时双向同步，待 [remix-run/react-router#15480](https://github.com/remix-run/react-router/pull/15480) 进入 v7 后删除。官方插件声明正式支持的是 React Router v8；是否升级 v8 属于需求变更，须站长决定并同步本技术基线和 README。
-- **`cf build` 不向 React Router 转发 `--mode`**：staging / prod 构建使用 `react-router build --mode <mode>`；production 预备路径为 `cf deploy --prebuilt --mode production`，staging 使用[运维计划的 Wrangler 补充发布](operations.md#695-远程数据库迁移与运维工程细节)。部署目标须与构建一致；本地开发直接 `cf dev`（mode 为 `development`）。
-- **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；staging / prod 的真实 ID 由被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
-- **远程 D1 触发器解析**：staging 的 `/query` 将 0010 内裸 `CASE…END` 错认作触发器结束；该迁移完整回滚，0009 已成功。[同类问题](https://github.com/cloudflare/workers-sdk/issues/4727)用等价括号规避。`pnpm db:migrate:staging` / `db:migrate:production` 只规范临时副本，再交给 cf 的增量迁移 runner，原始迁移不改写；SQLite 正反用例及 staging 0010/0011 实测通过。
-- **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `staging` / `production`）返回完整配置；Worker 名、D1、R2、Rate Limiting namespace 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 staging / prod。
+- **`cf build` 不向 React Router 转发 `--mode`**：preview / prod 构建使用 `react-router build --mode <mode>`，再由 [`scripts/workers-build.sh`](operations.md#695-远程数据库迁移与运维工程细节) 分别以 `cf previews deploy --prebuilt --mode preview` 与 `cf deploy --prebuilt --mode production` 发布。部署目标须与构建一致；本地开发直接 `cf dev`（mode 为 `development`）。
+- **D1 迁移命令只接受数据库 ID**：本地用固定的占位 ID（全零 UUID 变体）并 `--local --persist-to .cloudflare/state`，与 `cf dev` 的本地状态目录一致；preview / prod 的真实 ID 由构建变量或被忽略的 `.env` 注入 `cloudflare.config.ts`，命令行同样从本机读取，不写入仓库。
+- **远程 D1 触发器解析**：staging 的 `/query` 将 0010 内裸 `CASE…END` 错认作触发器结束；该迁移完整回滚，0009 已成功。[同类问题](https://github.com/cloudflare/workers-sdk/issues/4727)用等价括号规避。`pnpm db:migrate:preview` / `db:migrate:production` 只规范临时副本，再交给 cf 的增量迁移 runner，原始迁移不改写；SQLite 正反用例及 staging 0010/0011 实测通过。
+- **环境隔离**：`cloudflare.config.ts` 按 `mode`（`development` / `test` / `preview` / `production`）返回完整配置；preview 与 production 共用 Worker 名，D1、R2 和 `APP_ENV` 各自独立，缺失真实资源标识时拒绝构建 preview / prod。
 - **Secrets**：`bindings.secret()` 声明的是必需项，本地开发缺失时警告，**实际部署会拒绝缺少声明的 Secret**。认证、Turnstile、备份加密、备份 API Token 与邮件五项线上必需；历史 keyring 和 WebDAV / S3 可选 Secret 只在本地声明以推导类型，线上按需预配并由 CLI 保留，不强制为未启用目标上传占位凭证。备份 Token 是独立运行时 Secret，不能将构建机部署凭证当作已配置的运行时备份权限。线上可用部署时 `--secrets-file` 写入，密钥文件必须被 Git 忽略；既有四项密钥交接文件不包含站长另行配置的 EMAIL_API_KEY 或新增备份 Token，不能据此宣称 production 已齐备。
-- **云端复用与日志**：按站长授权复用既有 staging Worker 与访问域名，D1 名称/ID 和 R2 桶名分别从本机 `.env` 注入，不能按数据库名推断媒体桶。Custom Domain 通过 `worker.domains` 管理；关闭 workers.dev / preview URLs。启用应用日志、query 脱敏并关闭 invocation logs；原生 traces 含路径，凭证路径脱敏验证前保持关闭。
+- **云端复用与日志**：预览环境沿用旧 staging 的 D1 与媒体桶，D1 名称/ID 和 R2 桶名分别从构建变量或本机 `.env` 注入，不能按数据库名推断媒体桶。自定义域名在控制台维护，配置不声明 `worker.domains`（见[运维计划 ENV1](operations.md#env1-预览环境并入同一个-worker)）；关闭 workers.dev / preview URLs。启用应用日志、query 脱敏并关闭 invocation logs；原生 traces 含路径，凭证路径脱敏验证前保持关闭。
 
 ### 6.1 总体架构
 
@@ -98,6 +99,8 @@ staging 核对（2026-10-15，`78914f2`）：入口脚本、根样式与字体�
 - R2 存放媒体文件和字幕文件。R2 存储桶不公开，只通过 Worker 访问。
 - 海报和非播放页选集列表使用的小尺寸单集剧照留在仓库的 `public/` 目录下，作为 Workers 静态资源公开访问，不需要登录。站长知道这样会让外人看出这是一个星际迷航站，并接受这一点。
 - 单集剧照以 `public/assets/stills/star-trek/manifest.json` 为准，按作品 TMDB ID、季号、集号匹配，可为空。默认输出 240×135 的 WebP（质量 55），保留原始画面比例并补边；列表按小尺寸 16:9 展示，懒加载，加载失败时保留同尺寸占位。播放页的选集列表不显示剧照，视频时间轴的预览缩略图仍在范围外。
+- 页面只加载海报的显示尺寸版本：作品主海报另存宽 160/320/480 px 的 WebP（质量 75，位于原图旁的 `w160/`、`w320/`、`w480/`），由 `scripts/poster-sizes.mjs` 从原尺寸 WebP 生成；`Poster` 组件按调用处给出的显示宽度（`sizes`）用 `srcset` 选档，影院背景光固定用 160 px。季海报不在页面显示，不生成。原尺寸 WebP 保留，作为生成来源和原型素材。
+- 中文字体沿用 Noto Sans SC 可变字体的按字切片（B 6.14），开发者 2026-10-30 决定保持现状：每页只下载用到的切片，首次访问约 0.8–1.2 MB，之后长期缓存；文字先以系统字体显示，不推迟首屏。预览实测访客首页所用 19 片：可变字体 1,064 KB，静态 400 + 500 两个字重 1,136 KB，换静态字重没有收益；换系统字体需修改 B 6.14 的字体与各设备一致要求。
 - 界面以简体中文为源文字，简繁切换在首次生产发布后按 [ZH1](#zh1-简繁切换) 实施，不做中英双语界面；保留原型中的英文作品回退资料、星图标注、等宽辅助标签和评论时间格式。
 - 全站返回 `X-Robots-Tag: noindex`，并配置 `robots.txt` 禁止所有爬虫。公开访客页同样不允许索引。
 - 原型既是页面和交互基准，也是前端代码的迁移来源。正式应用使用 React Router 框架模式和真实的服务端权限校验，优先沿用经审查的页面、展示组件、样式和已定稿交互，不要求全面重写前端；原型保留、迁移边界和验收遵循 6.15。
@@ -139,13 +142,13 @@ node scripts/gen-test-media.mjs
 | Workers Vitest / Node | HTTP 权限、并发、数据一致性、媒体边界和导入幂等等；浏览器层不机械重复全部组合。 |
 | Playwright Test（待接入） | 固定操作与行为断言，回归少量稳定关键路径；默认由测试框架启动管理浏览器，以独立上下文隔离角色和会话，不连接个人日常会话作为默认测试环境。 |
 | CDP 探索与现场排查 | 复现问题、观察页面及请求；稳定且有回归价值的发现收成自动化用例，临时点击记录不充当长期回归门禁。 |
-| staging / 人工实机 | 真实配置、外部服务、设备能力与视觉确认；手机视口模拟、虚拟验证器和短片段不替代相应实机及长时验收。 |
+| 预览环境 / 人工实机 | 真实配置、外部服务、设备能力与视觉确认；手机视口模拟、虚拟验证器和短片段不替代相应实机及长时验收。 |
 
 首批候选从 B 第 7 节选取：受保护页面登录回跳；搜索、空结果、详情切季与正确单集；关键菜单/对话框的开关、取消及焦点；自生成视频播放、拖动、字幕与退出/撤销后的新媒体请求拒绝，媒体缺失时的出错提示与原地重新连接；封禁专用成员后刷新失去访问。自动化与长播证据分界见[播放验证方案](playback.md#播放验证方案)。实施前以中文确认具体操作和断言，不在本计划复制业务规则；新增注册、邮件及通行密钥场景时明确自动化覆盖段与真实服务/设备待验段。
 
-- **环境与身份**：优先独立本地测试数据，启动/复用服务遵守 AGENTS；staging 执行须明确目标及数据变更授权，不将测试授权当作部署授权。只使用虚构账号及自生成媒体，走真实应用链路；隔离本地环境如需模拟外部服务须标明覆盖边界。
-- **人机验证与登录夹具**：按 [认证计划本地认证验收边界](authentication.md#本地认证验收边界)，仅 development 且官方 always-pass Site Key/Secret 配对时接受对应测试响应；test、staging、production 仍严格校验 hostname/action。staging/prod 不设认证或 CAPTCHA 旁路，也不增加默认可关闭的生产开关。登录后的业务可复用专用登录态；注册/登录本身须走对应流程，真人挑战、邮件与设备待验段明确分开，复用登录态或跳过的步骤不计作注册/登录验收。
-- **数据隔离**：浏览器上下文不隔离 D1/R2。测试数据有可识别的本次运行归属；staging 的状态修改只针对本次专用数据，清理不重置共享库、不删除他人内容，并避免并行用例共用可变账号。
+- **环境与身份**：优先独立本地测试数据，启动/复用服务遵守 AGENTS；预览环境执行须明确目标及数据变更授权，不将测试授权当作部署授权。只使用虚构账号及自生成媒体，走真实应用链路；隔离本地环境如需模拟外部服务须标明覆盖边界。
+- **人机验证与登录夹具**：按 [认证计划本地认证验收边界](authentication.md#本地认证验收边界)，仅 development 且官方 always-pass Site Key/Secret 配对时接受对应测试响应；test、preview、production 仍严格校验 hostname/action。preview/prod 不设认证或 CAPTCHA 旁路，也不增加默认可关闭的生产开关。登录后的业务可复用专用登录态；注册/登录本身须走对应流程，真人挑战、邮件与设备待验段明确分开，复用登录态或跳过的步骤不计作注册/登录验收。
+- **数据隔离**：浏览器上下文不隔离 D1/R2。测试数据有可识别的本次运行归属；预览环境的状态修改只针对本次专用数据，清理不重置共享库、不删除他人内容，并避免并行用例共用可变账号。
 - **证据保护**：会话状态文件、截图、视频、trace 和报告可能含 Cookie、邮箱、验证链接或播放凭证，不提交仓库或公开发布；需要共享的证据先脱敏。失败保留可定位的操作与断言，不能靠重试直至变绿掩盖不稳定行为。
 - **执行与验收**：按 [AGENTS 验证规则](../../AGENTS.md#验证)定向选测和复用有效证据；工具接入、自检通过和站长验收分别记录。已有真实手机待验项仍由片库/播放计划维护；E2E1 不替代这些门槛，也不自动接通发布流水线。
 

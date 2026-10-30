@@ -227,12 +227,12 @@ async function metadata(request, path, identity, movie = false) {
 }
 
 export async function preflight({ environment, mappingPath, env = process.env, repository = root, tmdbMockUrl, allUnits = false, timeoutMs = 15_000, retryDelays = [1000, 2000] }) {
-  check(["staging", "prod"].includes(environment), "必须明确选择 staging 或 prod。" );
+  check(["preview", "prod"].includes(environment), "必须明确选择 preview 或 prod。" );
   const input = await jsonFile(mappingPath, "媒体映射");
   fields(input, ["environment", "resources", "media"], "媒体映射");
   fields(input.resources, ["d1DatabaseId", "mediaBucketName"], "resources");
   check(input.environment === environment, "映射环境与命令环境不一致。" );
-  const prefix = environment === "prod" ? "PRODUCTION" : "STAGING", other = environment === "prod" ? "STAGING" : "PRODUCTION";
+  const prefix = environment === "prod" ? "PRODUCTION" : "PREVIEW", other = environment === "prod" ? "PREVIEW" : "PRODUCTION";
   const database = env[`${prefix}_D1_DATABASE_ID`], bucket = env[`${prefix}_MEDIA_BUCKET_NAME`];
   check(typeof database === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(database) && typeof bucket === "string" && /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/u.test(bucket), "目标环境 D1/R2 配置缺失或无效。" );
   check(database.toLowerCase() !== env[`${other}_D1_DATABASE_ID`]?.toLowerCase() && bucket !== env[`${other}_MEDIA_BUCKET_NAME`] && database === input.resources.d1DatabaseId && bucket === input.resources.mediaBucketName, "D1/R2 资源未隔离或映射不匹配。" );
@@ -355,8 +355,8 @@ export function report(result) {
   };
 }
 
-const help = `用法：node scripts/import-media.mjs preflight --environment staging|prod --mapping <本机 JSON> [--env-file <本机 env>] [--tmdb-mock-url <回环 HTTP 地址>]
-node scripts/import-media.mjs catalog --environment staging|prod [--env-file <本机 env>] [--execute]
+const help = `用法：node scripts/import-media.mjs preflight --environment preview|prod --mapping <本机 JSON> [--env-file <本机 env>] [--tmdb-mock-url <回环 HTTP 地址>]
+node scripts/import-media.mjs catalog --environment preview|prod [--env-file <本机 env>] [--execute]
 preflight 仅预检本机 WebM/MP4/VTT/ASS 和 TMDB 资料，不写入 D1/R2，不保存转换文件。
 catalog 获取全部作品、季和单元资料；默认仅预检，--execute 经 cf 原子初始化 D1 占位，不上传媒体。
 默认读取本工作树 .env，shell 变量优先；显式 --env-file 仅使用指定文件中的变量。
@@ -370,7 +370,7 @@ async function main() {
   if (values.help) { console.log(help); return; }
   if (positionals.length === 1 && positionals[0] === "import") { console.error(UPLOAD_BLOCKER); process.exitCode = 2; return; }
   const initializing = positionals[0] === "catalog";
-  check(positionals.length === 1 && ["catalog", "preflight"].includes(positionals[0]) && ["staging", "prod"].includes(values.environment) && (initializing ? !values.mapping : values.mapping && !values.execute), help);
+  check(positionals.length === 1 && ["catalog", "preflight"].includes(positionals[0]) && ["preview", "prod"].includes(values.environment) && (initializing ? !values.mapping : values.mapping && !values.execute), help);
   check(!values.execute || !values["tmdb-mock-url"], "模拟 TMDB 不允许执行云端写入。");
   console.error(`目标环境：${values.environment}；${values.execute ? "初始化资料" : "仅预检"}。`);
   let env = process.env;
@@ -382,13 +382,13 @@ async function main() {
   if (!initializing) { console.log(JSON.stringify(report(await preflight({ environment: values.environment, mappingPath: resolve(values.mapping), env, tmdbMockUrl: values["tmdb-mock-url"] })), null, 2)); return; }
   const directory = await mkdtemp(join(tmpdir(), "video-catalog-")), mappingPath = join(directory, "mapping.json"), batchPath = join(directory, "batch.json");
   try {
-    const prefix = values.environment === "prod" ? "PRODUCTION" : "STAGING";
+    const prefix = values.environment === "prod" ? "PRODUCTION" : "PREVIEW";
     await writeFile(mappingPath, JSON.stringify({ environment: values.environment, resources: { d1DatabaseId: env[`${prefix}_D1_DATABASE_ID`], mediaBucketName: env[`${prefix}_MEDIA_BUCKET_NAME`] }, media: [] }), { mode: 0o600 });
     const result = await preflight({ environment: values.environment, mappingPath, env, allUnits: true, tmdbMockUrl: values["tmdb-mock-url"] });
     const queries = catalogQueries(result);
     if (values.execute) {
       await writeFile(batchPath, JSON.stringify(queries), { mode: 0o600 });
-      const response = await runFile(process.execPath, [join(root,"node_modules/cf/bin/cf"),"d1","query",env[`${prefix}_D1_DATABASE_ID`],"--mode",values.environment === "prod" ? "production" : "staging","--batch",`@${batchPath}`], { cwd: root, env: { ...process.env,...env }, encoding: "utf8", maxBuffer: 10 * 1024 * 1024, windowsHide: true });
+      const response = await runFile(process.execPath, [join(root,"node_modules/cf/bin/cf"),"d1","query",env[`${prefix}_D1_DATABASE_ID`],"--mode",values.environment === "prod" ? "production" : "preview","--batch",`@${batchPath}`], { cwd: root, env: { ...process.env,...env }, encoding: "utf8", maxBuffer: 10 * 1024 * 1024, windowsHide: true });
       const output = JSON.parse(response.stdout), rows = Array.isArray(output) ? output : output.result;
       check(Array.isArray(rows) && rows.length === queries.length && rows.every(row => row.success === true), "D1 未确认全部资料原子写入，请核对后重试。");
     }

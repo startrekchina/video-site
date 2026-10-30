@@ -1,6 +1,6 @@
 name: CI
 
-# dev pushes are already gated by the staging Workers Builds; this covers PRs before they merge.
+# dev pushes are already gated by the Preview build in Workers Builds; this covers PRs before they merge.
 on:
   pull_request:
   workflow_dispatch:
@@ -31,5 +31,5 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm test:tools
-      # Development mode needs no environment secrets; staging/production builds stay in Workers Builds.
+      # Development mode needs no environment secrets; preview/production builds stay in Workers Builds.
       - run: pnpm build

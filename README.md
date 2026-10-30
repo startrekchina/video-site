@@ -104,7 +104,7 @@ pnpm admin:bootstrap promote <username> --env=development --execute
 
 ### 部署
 
-staging 的常规发布使用 Cloudflare Workers Builds，从 GitHub `dev` 在云端执行检查、D1 迁移和部署；只改文档或原型的推送按配置跳过。production 尚未发布，也未启用自动部署；首次发布必须完成既定验收并取得开发者明确授权。构建命令、环境隔离、Secrets 与 Wrangler 补充路径见[运维与部署计划](docs/plan/operations.md)。
+正式站与预览环境是同一个 Worker，常规发布使用 Cloudflare Workers Builds：GitHub `dev` 的推送在云端执行检查、D1 迁移，并发布 `dev` 预览（`dev.video.startrekchina.org`）；只改文档或原型的推送按配置跳过，其他分支的推送不发布预览。production 尚未发布，也未启用自动部署；首次发布必须完成既定验收并取得开发者明确授权。统一构建脚本、环境隔离与 Secrets 见[运维与部署计划](docs/plan/operations.md)。
 
 ---
 

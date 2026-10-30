@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { symmetricEncrypt } from "better-auth/crypto";
 import { createAuth } from "@/lib/auth.server";
 import { authHttp } from "@/lib/auth-http.server";
-import { sha256 } from "@/lib/registration.server";
+import { registerWithInvitation, sha256 } from "@/lib/registration.server";
 import { adminHttp } from "@/lib/admin.server";
 import { invitationsHttp } from "@/lib/invitations.server";
 import { accountHttp } from "@/lib/account.server";
@@ -157,6 +157,22 @@ it("atomically cascades through ordinary descendants and stops at another admin;
   expect(await env.DB.prepare("SELECT count(*) AS n FROM email_deliveries").first<number>("n")).toBe(deliveries);
   expect(await env.DB.prepare("SELECT count(*) AS n FROM session WHERE userId = ?").bind(target.id).first<number>("n")).toBe(0);
   await expect(adminPost(target.id, "unban", admin)).rejects.toMatchObject({ statusCode: 409 });
+});
+
+it("keeps a member whose registration committed first active when only the invitation issuer is banned", async () => {
+  const admin = await setupAdmin(); const issuer = await member("Root"); const anti = { cookie: await login("Root") };
+  const issued = await (await issue(anti)).json() as { data: { code: string } };
+  expect(await registerWithInvitation(env, { username: "Ensign", email: "ensign@example.test", password, invitationCode: issued.data.code })).toMatchObject({ status: "registered" });
+  const child = (await env.DB.prepare("SELECT user_id FROM member_profiles WHERE invited_by_user_id = ?").bind(issuer.id).first<string>("user_id"))!;
+  await env.DB.prepare('UPDATE "user" SET emailVerified = 1 WHERE id = ?').bind(child).run();
+  const childCookie = await login("Ensign");
+  const result = await adminPost(issuer.id, "ban", admin, { cascade: false });
+  expect((await result.json() as { data: { changed: number } }).data.changed).toBe(1);
+  const status = (id: string) => env.DB.prepare("SELECT status FROM member_profiles WHERE user_id = ?").bind(id).first<string>("status");
+  expect(await status(issuer.id)).toBe("banned"); expect(await status(child)).toBe("active");
+  expect(await env.DB.prepare("SELECT invited_by_user_id FROM member_profiles WHERE user_id = ?").bind(child).first<string>("invited_by_user_id")).toBe(issuer.id);
+  expect(await env.DB.prepare("SELECT count(*) AS n FROM session WHERE userId = ?").bind(child).first<number>("n")).toBe(1);
+  expect((await invitationsHttp(request("/invites/data", undefined, uncached(childCookie)), env)).status).toBe(200);
 });
 
 it("preserves expired invitations when banning and unbanning their issuer", async () => {

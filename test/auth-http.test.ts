@@ -301,3 +301,98 @@ it("binds and verifies TOTP, requires the second factor and consumes backup code
   expect((await http("/two-factor/verify-backup-code", { code: setup.backupCodes[1] }, cookies(another))).status).toBe(403);
   expect(await count("session")).toBe(0);
 });
+
+async function enableTotp(cookie: string) {
+  const enabled = await http("/two-factor/enable", { password }, cookie);
+  const { backupCodes } = await enabled.json() as { backupCodes: string[] };
+  const secret = await symmetricDecrypt({ key: env.BETTER_AUTH_SECRET, data: (await env.DB.prepare("SELECT secret FROM twoFactor").first<string>("secret"))! });
+  const code = await createOTP(secret, { digits: 6, period: 30 }).totp();
+  const verified = await http("/two-factor/verify-totp", { code, trustDevice: false }, cookies(enabled, cookie));
+  expect(verified.status).toBe(200);
+  // Enabling replaces the session, so later member requests need the reissued cookie.
+  return { codes: backupCodes, cookie: cookies(verified, cookies(enabled, cookie)) };
+}
+
+it("keeps a backup code consumed when the session write fails and admits a new sign-in with another code", async () => {
+  const user = await member(); const { codes } = await enableTotp(await login());
+  const pending = await http("/sign-in/username", { username: "Nova", password });
+  await env.DB.prepare("CREATE TRIGGER fictional_session_failure BEFORE INSERT ON session BEGIN SELECT RAISE(ABORT, 'Fictional session failure'); END").run();
+  const failed = await http("/two-factor/verify-backup-code", { code: codes[0] }, cookies(pending));
+  expect(failed.status).toBe(500); expect(await count("session")).toBe(1);
+  expect((await createAuth(env).api.viewBackupCodes({ body: { userId: user.id } })).backupCodes).toEqual(codes.slice(1));
+  await env.DB.prepare("DROP TRIGGER fictional_session_failure").run();
+  expect((await http("/two-factor/verify-backup-code", { code: codes[1] }, cookies(failed, cookies(pending)))).status).not.toBe(200);
+  const again = await http("/sign-in/username", { username: "Nova", password });
+  expect((await http("/two-factor/verify-backup-code", { code: codes[0] }, cookies(again))).status).not.toBe(200);
+  expect((await http("/two-factor/verify-backup-code", { code: codes[1] }, cookies(again))).status).toBe(200);
+  expect(await count("session")).toBe(2);
+});
+
+it("keeps TOTP, passkeys and unused backup codes after an email password reset", async () => {
+  const user = await member(); const { codes } = await enableTotp(await login());
+  await env.DB.prepare(`INSERT INTO passkey (id, name, publicKey, userId, credentialID, counter, deviceType, backedUp, createdAt)
+    VALUES ('fictional-passkey', 'Fictional key', 'fictional-public-key', ?, 'fictional-credential', 0, 'singleDevice', 0, ?)`).bind(user.id, new Date().toISOString()).run();
+  expect((await http("/request-password-reset", { email: user.email, redirectTo: `${env.APP_ORIGIN}/reset-password` })).status).toBe(200);
+  expect((await http("/reset-password", { token: new URL(links[0]).pathname.split("/").pop()!, newPassword: "Replacement 1701" })).status).toBe(200);
+  expect(await count("session")).toBe(0); expect(await count("passkey")).toBe(1);
+  expect(await env.DB.prepare('SELECT twoFactorEnabled FROM "user" WHERE id = ?').bind(user.id).first("twoFactorEnabled")).toBe(1);
+  expect((await createAuth(env).api.viewBackupCodes({ body: { userId: user.id } })).backupCodes).toEqual(codes);
+  const pending = await http("/sign-in/username", { username: "Nova", password: "Replacement 1701" });
+  expect(await pending.clone().json()).toMatchObject({ twoFactorRedirect: true }); expect(await count("session")).toBe(0);
+  expect((await http("/two-factor/verify-backup-code", { code: codes[0] }, cookies(pending))).status).toBe(200);
+});
+
+it("replaces the whole backup code group when regenerated with the current password", async () => {
+  await member(); const { codes: old, cookie } = await enableTotp(await login());
+  expect((await http("/two-factor/generate-backup-codes", { password: "Wrong password" }, cookie)).status).not.toBe(200);
+  const regenerated = await http("/two-factor/generate-backup-codes", { password }, cookie);
+  expect(regenerated.status).toBe(200);
+  const { backupCodes } = await regenerated.json() as { backupCodes: string[] };
+  expect(backupCodes).toHaveLength(10); expect(backupCodes.filter(code => old.includes(code))).toEqual([]);
+  const pending = await http("/sign-in/username", { username: "Nova", password });
+  for (const code of [old[0], old[9]]) expect((await http("/two-factor/verify-backup-code", { code }, cookies(pending))).status).toBe(401);
+  expect((await http("/two-factor/verify-backup-code", { code: backupCodes[0] }, cookies(pending))).status).toBe(200);
+});
+
+it("resends verification over HTTP once within the shared verification quota", async () => {
+  const user = await member("Nova", false);
+  const resend = () => http("/send-verification-email", { email: user.email, callbackURL: `${env.APP_ORIGIN}/verify-email` });
+  await reserveMail(env, user.email, "registration_verification");
+  const shared = await resend(); expect(shared.status).toBe(429); expect(Number(shared.headers.get("Retry-After"))).toBeGreaterThan(0);
+  await env.DB.prepare("UPDATE email_deliveries SET created_at = created_at - 61000").run();
+  expect((await resend()).status).toBe(200); expect(links).toHaveLength(1);
+  expect((await resend()).status).toBe(429); expect(links).toHaveLength(1);
+  expect((await env.DB.prepare("SELECT status FROM email_deliveries WHERE purpose = 'verification_resend'").all()).results).toEqual([{ status: "accepted" }]);
+  expect((await authHttp(new Request(links[0]), env)).status).toBe(302);
+  expect(await env.DB.prepare('SELECT emailVerified FROM "user" WHERE id = ?').bind(user.id).first("emailVerified")).toBe(1);
+});
+
+const changeEmail = (newEmail: string, cookie: string) => http("/change-email", { newEmail, callbackURL: `${env.APP_ORIGIN}/verify-email` }, cookie);
+const emailOf = (id: string) => env.DB.prepare('SELECT email FROM "user" WHERE id = ?').bind(id).first<string>("email");
+
+it("keeps current emails unique without letting a pending change reserve the address", async () => {
+  const nova = await member(), quinn = await member("Quinn"); const cookie = await login(), other = await login("Quinn"), now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  expect((await changeEmail(quinn.email, cookie)).status).toBe(200); expect(links).toHaveLength(0);
+  expect((await changeEmail("shared@example.test", other)).status).toBe(200);
+  clock.mockReturnValue(now + 61000);
+  expect((await changeEmail("shared@example.test", cookie)).status).toBe(200); expect(links).toHaveLength(2);
+  expect((await authHttp(new Request(links[0], { headers: { Cookie: other } }), env)).status).toBe(302);
+  expect(await emailOf(quinn.id)).toBe("shared@example.test");
+  const conflict = await authHttp(new Request(links[1], { headers: { Cookie: cookie } }), env);
+  expect(conflict.status).toBe(302); expect(conflict.headers.get("Location")).toBe(`${env.APP_ORIGIN}/verify-email?error=EMAIL_IN_USE`);
+  expect(await emailOf(nova.id)).toBe(nova.email); expect(await emailOf(quinn.id)).toBe("shared@example.test");
+});
+
+it("invalidates the other pending email changes once the first one completes", async () => {
+  const nova = await member(); const cookie = await login(), now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  expect((await changeEmail("first@example.test", cookie)).status).toBe(200);
+  clock.mockReturnValue(now + 61000);
+  expect((await changeEmail("second@example.test", cookie)).status).toBe(200); expect(links).toHaveLength(2);
+  const completed = await authHttp(new Request(links[1], { headers: { Cookie: cookie } }), env);
+  expect(completed.status).toBe(302); expect(await emailOf(nova.id)).toBe("second@example.test");
+  const stale = await authHttp(new Request(links[0], { headers: { Cookie: cookies(completed, cookie) } }), env);
+  expect(stale.status).toBe(302); expect(stale.headers.get("Location")).toBe(`${env.APP_ORIGIN}/verify-email?error=EMAIL_CHANGE_ACCOUNT`);
+  expect(await emailOf(nova.id)).toBe("second@example.test");
+});

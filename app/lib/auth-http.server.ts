@@ -12,6 +12,12 @@ const postPaths = new Set(["/register", "/sign-in/username", "/sign-out", "/requ
   "/two-factor/get-totp-uri", "/two-factor/generate-backup-codes", "/passkey/verify-registration", "/passkey/verify-authentication", "/passkey/delete-passkey"]);
 const getPaths = new Set(["/get-session", "/verify-email", "/passkey/generate-register-options", "/passkey/generate-authenticate-options", "/passkey/list-user-passkeys"]);
 
+// D1 reports unique violations only in the message, sometimes on a wrapped cause.
+function uniqueViolation(error: unknown, column: string) {
+  for (let cause = error; cause instanceof Error; cause = cause.cause) if (cause.message.includes(`UNIQUE constraint failed: ${column}`)) return true;
+  return false;
+}
+
 export function createSiteAuth(env: Env, identity: RequestIdentity) {
   // Per-request state: never cache this instance across requests or Worker isolates.
   let mail: MailAttempt | undefined;
@@ -96,11 +102,7 @@ export function createSiteAuth(env: Env, identity: RequestIdentity) {
         adapter.create = async options => {
           try { return await create(options); }
           catch (error) {
-            if (options.model === "twoFactor") {
-              for (let cause: unknown = error; cause instanceof Error; cause = cause.cause) {
-                if (cause.message.includes("UNIQUE constraint failed: twoFactor.userId")) throw conflict();
-              }
-            }
+            if (options.model === "twoFactor" && uniqueViolation(error, "twoFactor.userId")) throw conflict();
             throw error;
           }
         };
@@ -137,6 +139,13 @@ export function createSiteAuth(env: Env, identity: RequestIdentity) {
             throw ctx.redirect(`${env.APP_ORIGIN}/login?next=/account/email-confirm`);
           }
           if (current.member.email !== payload.email) throw invalid("EMAIL_CHANGE_ACCOUNT");
+          // Pending addresses are not reserved, so another account may have taken this one since the link was sent.
+          // Only the signed link reaches this write, so the result page cannot be used to probe addresses.
+          const adapter = ctx.context.adapter, { update } = adapter;
+          adapter.update = async options => {
+            try { return await update(options); }
+            catch (error) { throw options.model === "user" && uniqueViolation(error, "user.email") ? invalid("EMAIL_IN_USE") : error; }
+          };
         } else if (payload.email) {
           const id = await env.DB.prepare('SELECT id FROM "user" WHERE email = ?').bind(payload.email).first<string>("id");
           if (!id) throw invalid();
