@@ -590,7 +590,7 @@
 | 预览（preview） | GitHub `dev` | 与正式环境同一个 Worker 的 `dev` 预览，绑定预览专用的 D1、R2、Secrets 与域名 |
 | 正式（production） | GitHub `main` | 该 Worker 的正式版本及正式资源 |
 
-合并在 production 首次上线前完成；云端切换完成前，预览环境仍由现有独立的 staging Worker 及其资源承担。代码与现行文档统一称 preview，按日期记录的验证结果中的 staging 指该旧 Worker。合并步骤见[运维计划 ENV1](plan/operations.md#env1-预览环境并入同一个-worker)。
+合并在 production 首次上线前完成。代码与现行文档统一称 preview，按日期记录的验证结果中的 staging 指该旧 Worker。合并步骤见[运维计划 ENV1](plan/operations.md#env1-预览环境并入同一个-worker)。
 
 - **触发与来源**：启用对应链路后，目标分支的新推送触发本环境构建；预览环境对只改文档或原型的推送不构建，排除规则见[运维计划](plan/operations.md)。本地工作树修改、提交或合入本地 `dev` 不触发。`main` 仅通过经批准的 PR 合并更新，PR 来源分支不限于 `dev`；禁止直接推送或绕过分支保护。在生产发布授权范围内合入 `main` 后自动触发部署；PR 来源分支自身的推送或未合并 PR 不触发 production 部署。只有 `dev` 发布预览；其他分支和 PR 的推送不发布预览。
 - **发布门槛**：每次发布前运行项目测试、类型检查和目标环境构建，使用锁文件与明确的工具版本；前置检查失败不得发布新版本，保留当前服务版本。production 部署须遵守 [AGENTS 生产发布授权规则](../AGENTS.md#git-流程)，站长明确确认前不启用或触发生产自动部署。首次 production 发布还须主要功能完成、相关测试与预览环境验收通过；连接仓库不等于发布授权。
