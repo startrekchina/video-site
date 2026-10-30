@@ -96,6 +96,19 @@ test("real WebM and MP4: codec, index order, channels, corruption, streamed chec
   ]) await assert.rejects(inspectVideo(join(directory, file)), message, file);
 });
 
+test("real WebM and MP4: 10-bit video and a second audio track are rejected", async () => {
+  const ffmpeg = (...args) => execFileSync("ffmpeg", ["-v", "error", "-y", ...args], { windowsHide: true });
+  const avc = join(directory, "avc.mp4"), video = join(directory, "movie.webm");
+  ffmpeg("-i", video, "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-pix_fmt", "yuv420p10le", "-c:a", "copy", "-cues_to_front", "1", join(directory, "10bit.webm"));
+  ffmpeg("-i", avc, "-c:v", "libx264", "-pix_fmt", "yuv420p10le", "-c:a", "copy", "-movflags", "+faststart", join(directory, "10bit.mp4"));
+  ffmpeg("-i", video, "-map", "0:v", "-map", "0:a", "-map", "0:a", "-c", "copy", "-cues_to_front", "1", join(directory, "two-audio.webm"));
+  ffmpeg("-i", avc, "-map", "0:v", "-map", "0:a", "-map", "0:a", "-c", "copy", "-movflags", "+faststart", join(directory, "two-audio.mp4"));
+  for (const [file, message] of [
+    ["10bit.webm", /profile 0/u], ["two-audio.webm", /one VP9 video track and one Opus audio track/u],
+    ["10bit.mp4", /8-bit 4:2:0 profile/u], ["two-audio.mp4", /one video track and one AAC audio track/u],
+  ]) await assert.rejects(inspectVideo(join(directory, file)), message, file);
+});
+
 test("VTT syntax, safe markup, numeric entities and UTF-8", () => {
   const cue = text => Buffer.from(`WEBVTT\n\n00:00.000 --> 00:02.000\n${text}\n`);
   assert.equal(validateVtt(cue("<v Observer><i>安全 &amp; &#20013;</i>")).cueCount, 1);
